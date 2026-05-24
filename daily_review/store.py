@@ -1,6 +1,7 @@
 """每日复盘系统 - SQLite 持久化层（题材跟踪 + 市场快照）"""
 import json
 import sqlite3
+from datetime import datetime, timedelta, date
 from pathlib import Path
 from config import DB_PATH
 
@@ -106,7 +107,6 @@ def load_themes_range(start_date: str, end_date: str) -> dict[str, list[dict]]:
 
 
 def get_theme_stock_frequency(theme: str, end_date: str, days: int = 30) -> dict[str, dict]:
-    from datetime import datetime, timedelta
     start = (datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=days)).strftime("%Y-%m-%d")
     with _conn() as conn:
         rows = conn.execute(
@@ -125,7 +125,6 @@ def get_theme_stock_frequency(theme: str, end_date: str, days: int = 30) -> dict
 
 
 def get_theme_stock_pool(end_date: str, lookback_days: int = 10) -> dict[str, dict[str, dict]]:
-    from datetime import datetime, timedelta
     start = (datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=lookback_days * 2)).strftime("%Y-%m-%d")
     with _conn() as conn:
         rows = conn.execute(
@@ -214,7 +213,6 @@ def get_market_snapshot_history(end_date: str, n: int = 10) -> list[dict]:
 
 def save_theme_level(theme: str, level: int, consecutive_days: int,
                      first_seen: str, last_seen: str, cumulative_stocks: int):
-    from datetime import datetime
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     with _conn() as conn:
         conn.execute(
@@ -242,7 +240,6 @@ def get_theme_consecutive_days(theme: str, end_date: str, max_lookback: int = 90
     if not rows:
         return 0
     dates = [r["date"] for r in rows]
-    from datetime import datetime, timedelta
     count = 1
     for i in range(1, len(dates)):
         prev = datetime.strptime(dates[i - 1], "%Y-%m-%d")
@@ -256,7 +253,6 @@ def get_theme_consecutive_days(theme: str, end_date: str, max_lookback: int = 90
 
 
 def get_theme_cumulative_stocks(theme: str, days: int = 30) -> int:
-    from datetime import datetime, timedelta
     end = datetime.now().strftime("%Y-%m-%d")
     start = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
     with _conn() as conn:
@@ -271,7 +267,6 @@ def get_theme_cumulative_stocks(theme: str, days: int = 30) -> int:
 # ---- 估值缓存 ----
 
 def save_valuation_cache(code: str, data_type: str, data_json: str):
-    from datetime import datetime
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     with _conn() as conn:
         conn.execute(
@@ -306,7 +301,6 @@ def save_scan_results(trade_date: str, candidates: list[dict]):
 
 
 def load_valuation_cache(code: str, data_type: str, max_age_days: int = 7) -> str | None:
-    from datetime import datetime, timedelta
     cutoff = (datetime.now() - timedelta(days=max_age_days)).strftime("%Y-%m-%d")
     with _conn() as conn:
         row = conn.execute(
@@ -361,7 +355,6 @@ def zsxq_batch_existing(topic_ids: list[str]) -> set[str]:
 
 
 def save_zsxq_topics_batch(topics: list[dict]):
-    from datetime import datetime
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     with _conn() as conn:
         conn.executemany(
@@ -411,7 +404,6 @@ def search_zsxq(keyword: str = None, code: str = None,
 
 
 def recent_zsxq(days: int = 7, limit: int = 50) -> list[dict]:
-    from datetime import datetime, timedelta
     cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%dT00:00:00")
     with _conn() as conn:
         rows = conn.execute(
@@ -454,7 +446,6 @@ def zsxq_top_authors(n: int = 10) -> list[tuple[str, int]]:
 # ---- 研报持久化 ----
 
 def save_research_reports(reports: list[dict]):
-    from datetime import datetime
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     with _conn() as conn:
         conn.execute(
@@ -501,7 +492,6 @@ def load_latest_scan_codes() -> list[str]:
 
 def save_consensus_snapshot(date: str, aggregated: list[dict],
                             consensus_map: dict, comment_map: dict):
-    import json
     with _conn() as conn:
         conn.execute(
             "CREATE TABLE IF NOT EXISTS consensus_snapshot ("
@@ -684,7 +674,6 @@ def init_feeds_tables():
 def save_announcements(rows: list[dict]) -> int:
     if not rows:
         return 0
-    from datetime import datetime
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     with _conn() as conn:
         before = conn.execute("SELECT COUNT(*) FROM announcements").fetchone()[0]
@@ -709,7 +698,6 @@ def save_announcements(rows: list[dict]) -> int:
 def save_stock_news(rows: list[dict]) -> int:
     if not rows:
         return 0
-    from datetime import datetime
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     with _conn() as conn:
         before = conn.execute("SELECT COUNT(*) FROM stock_news").fetchone()[0]
@@ -733,7 +721,6 @@ def save_stock_news(rows: list[dict]) -> int:
 def save_interactions(rows: list[dict]) -> int:
     if not rows:
         return 0
-    from datetime import datetime
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     with _conn() as conn:
         before = conn.execute("SELECT COUNT(*) FROM interactions").fetchone()[0]
@@ -756,7 +743,6 @@ def save_interactions(rows: list[dict]) -> int:
 
 def upsert_collect_status(source: str, last_date: str, status: str,
                           message: str = "", added: int = 0):
-    from datetime import datetime
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     with _conn() as conn:
         conn.execute(
@@ -777,7 +763,6 @@ def get_collect_status() -> list[dict]:
 
 
 def count_recent(table: str, date_col: str, days: int = 7) -> int:
-    from datetime import date, timedelta
     since = (date.today() - timedelta(days=days)).strftime("%Y-%m-%d")
     with _conn() as conn:
         return conn.execute(
@@ -882,7 +867,6 @@ def query_zsxq_by_date(date_str: str) -> list[dict]:
 # ============================================================
 
 def _now() -> str:
-    from datetime import datetime
     return datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
@@ -1029,8 +1013,7 @@ def query_inst_survey(date_str: str, codes: set[str] = None) -> list[dict]:
 
 def query_lockups(codes: set[str] = None, since: str = None) -> list[dict]:
     """快照型：返回 universe 内未来解禁记录（release_date >= since，默认今天）。"""
-    from datetime import date as _date
-    since = since or _date.today().strftime("%Y-%m-%d")
+    since = since or date.today().strftime("%Y-%m-%d")
     with _conn() as conn:
         if codes:
             placeholders = ",".join("?" * len(codes))

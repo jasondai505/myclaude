@@ -14,12 +14,13 @@ import re
 import time
 import random
 import argparse
+from pathlib import Path
 
 if sys.platform == "win32":
     os.system("")
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from tqdm import tqdm
 from zsxq_cross import load_cookie, fetch_topics, clean_zsxq_text, COOKIE_PATH

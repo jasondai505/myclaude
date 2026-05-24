@@ -1,23 +1,16 @@
 """每日采集共用工具：交易日判定、重试、日期范围、报告路径。"""
 from __future__ import annotations
 
-import sys
-import os
 import time
 import functools
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
-if sys.platform == "win32":
-    os.system("")
-    try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
+from ..utils import setup_console
+setup_console()
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from config import REPORT_DIR
+from ..config import REPORT_DIR
 
 FEEDS_DIR: Path = REPORT_DIR / "feeds"
 FEEDS_DIR.mkdir(parents=True, exist_ok=True)

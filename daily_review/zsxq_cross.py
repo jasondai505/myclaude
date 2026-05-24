@@ -19,7 +19,7 @@ if sys.platform == "win32":
     os.system("")
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import REPORT_DIR
 
 COOKIE_PATH = Path(__file__).parent.parent / "cookie.txt"

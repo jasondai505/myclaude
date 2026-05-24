@@ -1,15 +1,13 @@
 """行业研报采集（东财研报中心 reportapi，按发布日期区间，行业级不按 universe 过滤）。"""
 from __future__ import annotations
 
-import sys
 from datetime import date
 from pathlib import Path
 from typing import Callable
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import data
-import store
-from collectors.base import (
+from .. import data
+from .. import store
+from .base import (
     fmt_iso, daterange, feed_md_path, md_header, progress, section,
 )
 

@@ -5,16 +5,14 @@
 """
 from __future__ import annotations
 
-import sys
 import time
 from datetime import date
 from pathlib import Path
 from typing import Callable
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import data
-import store
-from collectors.base import (
+from .. import data
+from .. import store
+from .base import (
     fmt_iso, with_retry, daterange,
     feed_md_path, md_header, progress, section,
 )

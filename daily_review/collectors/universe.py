@@ -1,13 +1,11 @@
 """每日股池：自选股 + 当日涨幅前50 + 当日人气前50。"""
 from __future__ import annotations
 
-import sys
 from datetime import date
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from config import WATCHLIST
-from collectors.base import fmt_iso, with_retry, progress
+from ..config import WATCHLIST
+from .base import fmt_iso, with_retry, progress
 
 TOP_GAINERS_N = 50
 TOP_HOT_N = 50

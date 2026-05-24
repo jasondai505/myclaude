@@ -1,15 +1,13 @@
 """机构调研采集（东财 stock_jgdy_tj_em，按报告期拉，按 universe + 公告日期过滤）。"""
 from __future__ import annotations
 
-import sys
 from datetime import date
 from pathlib import Path
 from typing import Callable
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import data
-import store
-from collectors.base import (
+from .. import data
+from .. import store
+from .base import (
     fmt_iso, daterange, feed_md_path, md_header, progress, section,
 )
 
