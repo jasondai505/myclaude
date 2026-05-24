@@ -1,0 +1,121 @@
+每日复盘系统 — 模块调用汇总
+================================
+
+所有命令在 C:\Users\daixin\myclaude\daily_review\ 下执行。
+
+
+1. 每日复盘（主流程）
+--------------------
+python run.py                    # 今日复盘（自动判断交易日）
+python run.py -d 2026-05-15     # 指定日期
+
+输出：reports/daily_YYYY-MM-DD.md
+内容：大盘分析 → 涨停分析 → 题材热度（含叙事周期） → 北向资金 → 自选股扫描 → 操作建议（R1/R2/R3分类）
+
+
+2. 全市场扫描器
+--------------------
+python run.py --scan             # 或 -s
+python run.py -s -d 2026-05-15
+
+输出：reports/scan_YYYY-MM-DD.md
+内容：5步漏斗（基础过滤→板块→估值→技术面→综合评分TOP30）
+
+
+3. 盈利预测选股
+--------------------
+python run.py --earnings         # 或 -e
+python run.py -e -d 2026-05-15
+
+输出：reports/earnings_YYYY-MM-DD.md + .xlsx
+内容：CAGR>30% + 前瞻PE<30 筛选，附 Focus Five 评分、10日涨幅、股东集中度
+
+
+4. 研报采集
+--------------------
+python run.py --report           # 或 -r
+python run.py -r -d 2026-05-15
+
+输出：reports/research_YYYY-MM-DD.md
+内容：当日发布的券商研报（个股/行业）
+
+
+5. 知识星球采集
+--------------------
+# 通过 run.py 快速同步
+python run.py --zsxq
+
+# 独立模块（更多功能）
+python zsxq_collector.py sync              # 增量同步
+python zsxq_collector.py sync --pages 100  # 拉更多页
+python zsxq_collector.py sync --full       # 全量（不跳已有）
+python zsxq_collector.py search 海星       # 关键词搜索
+python zsxq_collector.py search --code 603115  # 按股票代码
+python zsxq_collector.py recent            # 最近7天
+python zsxq_collector.py recent --days 30  # 最近30天
+python zsxq_collector.py stats             # 采集统计
+
+
+6. 星球×盈利预测 交叉验证
+--------------------
+python run.py --cross            # 或 -x
+
+内容：星球提到的股票 vs 盈利预测命中标的，找交集
+
+
+7. 查看自选股
+--------------------
+python run.py --list             # 或 -l
+
+编辑 config.py 中的 WATCHLIST 修改股票池。
+
+
+================================
+典型日常工作流
+================================
+
+# 收盘后一键
+python run.py                    # 复盘
+python run.py -e                 # 盈利选股
+python run.py --zsxq             # 同步星球
+
+# 周末研究
+python zsxq_collector.py search 光伏    # 搜星球历史
+python run.py -e                        # 用缓存跑选股（腾讯行情降级）
+
+
+================================
+框架二 · 基本面数据采集（daily_collect）
+================================
+
+8. 每日基本面采集（总入口）
+--------------------
+python daily_collect.py                       # 全部源补到今天（默认回补7天）
+python daily_collect.py --status              # 只看各源采集状态
+python daily_collect.py --days 30             # 回补30天
+python daily_collect.py --since 2026-05-10 --until 2026-05-20
+python daily_collect.py --source earnings,industry   # 只跑指定源
+
+源 key：zsxq,announcements,news,research,interactions,
+        earnings(业绩预告快报),surveys(机构调研),lockups(限售解禁),
+        eps(一致预期EPS),industry(行业研报)
+
+输出：reports/feeds/{source}_YYYY-MM-DD.md + reports/feed_index.md（索引）
+
+股池（universe）= 自选 ∪ 涨幅前50 ∪ 人气前50，异动榜仅当日有效。
+采集语义：
+  - earnings/surveys 按报告期拉全市场，再按公告日期∈窗口 且 code∈universe 过滤
+  - lockups/eps 为快照型（前瞻/当前值），逐股拉，只写当日 md
+  - industry 行业级，按发布日期区间拉，不按 universe 过滤
+
+
+9. Windows 计划任务（已注册）
+--------------------
+AStock_DailyReview    周一~周五 17:50  → run_review.bat → python run.py（复盘）
+AStock_MorningAdvice  周一~周五 06:00  → morning_advice.bat
+                                          → python daily_collect.py 补数据
+                                          → claude headless 生成 reports/advice_YYYY-MM-DD.md
+
+查看：schtasks /Query /TN "AStock_MorningAdvice" /V /FO LIST
+删除：schtasks /Delete /TN "AStock_MorningAdvice" /F
+日志：reports/_cron_review.log、reports/_cron_advice.log

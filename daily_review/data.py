@@ -1,0 +1,1191 @@
+"""每日复盘系统 - 数据抓取层（封装 a-stock-data SKILL 的所有数据源）"""
+import re
+import time
+import urllib.request
+from datetime import datetime, timedelta
+
+import pandas as pd
+import requests
+
+from config import (
+    UA, REQUEST_TIMEOUT, FETCH_DELAY, INDICES, STYLE_INDICES,
+    GLOBAL_INDICES_EM, GLOBAL_WATCHLIST_EM,
+)
+
+
+# ============================================================
+# 工具函数
+# ============================================================
+
+def _normalize_code(raw: str) -> str:
+    """任意格式 → 纯6位代码"""
+    raw = raw.strip().upper()
+    for prefix in ("SH", "SZ", "BJ"):
+        raw = raw.removeprefix(prefix)
+    raw = raw.split(".")[0]
+    return raw
+
+
+def _market_prefix(code: str) -> str:
+    if code.startswith(("6", "9")):
+        return "sh"
+    elif code.startswith("8"):
+        return "bj"
+    return "sz"
+
+
+# ============================================================
+# 腾讯行情（指数 + 个股通用）
+# ============================================================
+
+def tencent_quote_raw(prefixed_codes: list[str]) -> dict[str, dict]:
+    """
+    接受已带前缀的代码列表（如 ['sh000001', 'sz300476']），
+    返回 {prefixed_code: {name, price, ...}}
+    """
+    url = "https://qt.gtimg.cn/q=" + ",".join(prefixed_codes)
+    req = urllib.request.Request(url)
+    req.add_header("User-Agent", UA)
+    resp = urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT)
+    raw = resp.read().decode("gbk")
+
+    result = {}
+    for line in raw.strip().split(";"):
+        if not line.strip() or "=" not in line or '"' not in line:
+            continue
+        key = line.split("=")[0].split("_")[-1]
+        vals = line.split('"')[1].split("~")
+        if len(vals) < 53:
+            continue
+        result[key] = {
+            "name":         vals[1],
+            "price":        float(vals[3]) if vals[3] else 0,
+            "last_close":   float(vals[4]) if vals[4] else 0,
+            "open":         float(vals[5]) if vals[5] else 0,
+            "change_amt":   float(vals[31]) if vals[31] else 0,
+            "change_pct":   float(vals[32]) if vals[32] else 0,
+            "high":         float(vals[33]) if vals[33] else 0,
+            "low":          float(vals[34]) if vals[34] else 0,
+            "amount_wan":   float(vals[37]) if vals[37] else 0,
+            "turnover_pct": float(vals[38]) if vals[38] else 0,
+            "pe_ttm":       float(vals[39]) if vals[39] else 0,
+            "amplitude_pct": float(vals[43]) if vals[43] else 0,
+            "mcap_yi":      float(vals[44]) if vals[44] else 0,
+            "float_mcap_yi": float(vals[45]) if vals[45] else 0,
+            "pb":           float(vals[46]) if vals[46] else 0,
+            "limit_up":     float(vals[47]) if vals[47] else 0,
+            "limit_down":   float(vals[48]) if vals[48] else 0,
+            "vol_ratio":    float(vals[49]) if vals[49] else 0,
+            "pe_static":    float(vals[52]) if vals[52] else 0,
+            "date":         vals[30] if len(vals) > 30 else "",
+        }
+    return result
+
+
+def fetch_indices() -> dict[str, dict]:
+    """拉取所有配置指数 + 风格指数"""
+    all_codes = {}
+    all_codes.update(INDICES)
+    all_codes.update(STYLE_INDICES)
+    prefixed = list(all_codes.values())
+    raw = tencent_quote_raw(prefixed)
+
+    result = {}
+    for label, code in all_codes.items():
+        if code in raw:
+            result[label] = raw[code]
+    return result
+
+
+def fetch_stock_quotes(codes: list[str], batch_size: int = 30, max_retries: int = 3) -> dict[str, dict]:
+    """拉取个股行情，codes 为6位代码列表，自动分批防超时"""
+    result = {}
+    for i in range(0, len(codes), batch_size):
+        batch = codes[i:i + batch_size]
+        prefixed = [f"{_market_prefix(c)}{c}" for c in batch]
+        for attempt in range(1, max_retries + 1):
+            try:
+                raw = tencent_quote_raw(prefixed)
+                for c in batch:
+                    key = f"{_market_prefix(c)}{c}"
+                    if key in raw:
+                        result[c] = raw[key]
+                break
+            except Exception as e:
+                if attempt < max_retries:
+                    print(f"  [WARN] 行情批次 {i//batch_size+1} 第{attempt}次失败: {e}，{attempt}s后重试")
+                    time.sleep(attempt)
+                else:
+                    print(f"  [WARN] 行情批次 {i//batch_size+1} 重试{max_retries}次仍失败: {e}")
+        time.sleep(0.3)
+    return result
+
+
+# ============================================================
+# 市场人气 — 概念板块热度 + 个股人气排名
+# ============================================================
+
+def fetch_concept_heat(top_n: int = 50) -> list[dict]:
+    import akshare as ak
+    df = None
+    for attempt in range(3):
+        df = _ak(lambda: ak.stock_fund_flow_concept())
+        if df is not None and not df.empty:
+            break
+        if attempt < 2:
+            time.sleep(2)
+    if df is None or df.empty:
+        print("  [WARN] 概念板块热度获取失败")
+        return []
+    df = df.sort_values("行业-涨跌幅", ascending=False).head(top_n)
+    result = []
+    for _, row in df.iterrows():
+        result.append({
+            "rank": int(row.get("序号", 0)),
+            "name": str(row.get("行业", "")),
+            "change_pct": float(row.get("行业-涨跌幅", 0)),
+            "net_flow": float(row.get("净额", 0)),
+            "inflow": float(row.get("流入资金", 0)),
+            "outflow": float(row.get("流出资金", 0)),
+            "count": int(row.get("公司家数", 0)),
+            "leader": str(row.get("领涨股", "")),
+            "leader_chg": float(row.get("领涨股-涨跌幅", 0)),
+        })
+    return result
+
+
+def fetch_hot_stocks(top_n: int = 200) -> list[dict]:
+    import akshare as ak
+    df = None
+    for attempt in range(3):
+        df = _ak(lambda: ak.stock_hot_rank_em())
+        if df is not None and not df.empty:
+            break
+        if attempt < 2:
+            time.sleep(3)
+    if df is None or df.empty:
+        print("  [WARN] 个股人气排名获取失败")
+        return []
+    df = df.head(top_n)
+    result = []
+    for _, row in df.iterrows():
+        code = _normalize_code(str(row.get("代码", "")))
+        result.append({
+            "rank": int(row.get("当前排名", 0)),
+            "code": code,
+            "name": str(row.get("股票名称", "")),
+            "price": float(row.get("最新价", 0)),
+            "change_pct": float(row.get("涨跌幅", 0)),
+        })
+    return result
+
+
+# ============================================================
+# 同花顺人气排名 Top100
+# ============================================================
+
+def fetch_ths_hot_stocks(period: str = "hour") -> list[dict]:
+    url = f"https://eq.10jqka.com.cn/open/api/hot_list/v1/hot_stock/a/{period}/data.txt"
+    headers = {
+        "User-Agent": UA,
+        "Referer": "https://www.10jqka.com.cn/",
+    }
+    import urllib.request as _ur, json as _json
+    req = _ur.Request(url, headers=headers)
+    for attempt in range(3):
+        try:
+            resp = _ur.urlopen(req, timeout=REQUEST_TIMEOUT)
+            data = _json.loads(resp.read().decode("utf-8"))
+            if data.get("status_code") != 0:
+                return []
+            items = data.get("data", {}).get("stock_list", [])
+            result = []
+            for s in items:
+                tag = s.get("tag") or {}
+                result.append({
+                    "rank": s.get("order", 0),
+                    "code": str(s.get("code", "")),
+                    "name": str(s.get("name", "")),
+                    "hot_rate": float(s.get("rate", 0)),
+                    "rank_chg": s.get("hot_rank_chg", 0),
+                    "concept_tags": tag.get("concept_tag", []),
+                    "pop_tag": tag.get("popularity_tag", ""),
+                })
+            return result
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(1)
+            else:
+                print(f"  [WARN] THS人气排名获取失败: {e}")
+                return []
+
+
+# ============================================================
+# 研报评级（东方财富）
+# ============================================================
+
+def fetch_stock_research(code: str, limit: int = 5) -> list[dict]:
+    try:
+        import akshare as ak
+        df = _ak(lambda: ak.stock_research_report_em(symbol=code))
+        if df is None or df.empty:
+            return []
+        rows = []
+        for _, row in df.head(limit).iterrows():
+            rows.append({
+                "title": str(row.get("报告名称", "")),
+                "rating": str(row.get("东财评级", "")),
+                "org": str(row.get("机构", "")),
+                "date": str(row.get("日期", "")),
+                "eps_cur": row.get("2026-盈利预测-收益"),
+                "pe_cur": row.get("2026-盈利预测-市盈率"),
+                "eps_next": row.get("2027-盈利预测-收益"),
+                "pe_next": row.get("2027-盈利预测-市盈率"),
+                "report_count": row.get("近一月个股研报数", 0),
+            })
+        return rows
+    except Exception:
+        return []
+
+
+# ============================================================
+# 龙虎榜（东方财富）
+# ============================================================
+
+def fetch_lhb(date: str = None) -> dict[str, dict]:
+    try:
+        import akshare as ak
+        if date is None:
+            from datetime import date as _date
+            date = _date.today().strftime("%Y-%m-%d")
+        date_compact = date.replace("-", "")
+        df = _ak(lambda: ak.stock_lhb_detail_em(start_date=date_compact, end_date=date_compact))
+        if df is None or df.empty:
+            return {}
+        result = {}
+        for _, row in df.iterrows():
+            code = _normalize_code(str(row.get("代码", "")))
+            result[code] = {
+                "code": code,
+                "name": str(row.get("名称", "")),
+                "net_buy": float(row.get("龙虎榜净买额", 0)),
+                "buy_amt": float(row.get("龙虎榜买入额", 0)),
+                "sell_amt": float(row.get("龙虎榜卖出额", 0)),
+                "reason": str(row.get("上榜原因", "")),
+                "comment": str(row.get("解读", "")),
+            }
+        return result
+    except Exception as e:
+        print(f"  [WARN] 龙虎榜获取失败: {e}")
+        return {}
+
+
+# ============================================================
+# 东方财富涨停池 — 涨停时间 + 连板数
+# ============================================================
+
+def fetch_zt_pool(date: str = None) -> dict[str, dict]:
+    """
+    拉取东方财富涨停池数据，返回 {code: {first_time, last_time, zt_stats, consecutive_boards, blasted}}
+    date: YYYY-MM-DD
+    """
+    import akshare as ak
+    if date is None:
+        from datetime import date as _date
+        date = _date.today().strftime("%Y-%m-%d")
+    date_compact = date.replace("-", "")
+    df = _ak(lambda: ak.stock_zt_pool_em(date=date_compact))
+    if df is None:
+        print("  [WARN] 涨停池获取失败")
+        return {}
+    if df.empty:
+        return {}
+    result = {}
+    for _, row in df.iterrows():
+        code = str(row.get("代码", ""))
+        ft = str(row.get("首次封板时间", ""))
+        lt = str(row.get("最后封板时间", ""))
+        first_time = f"{ft[:2]}:{ft[2:4]}:{ft[4:]}" if len(ft) == 6 else ft
+        last_time = f"{lt[:2]}:{lt[2:4]}:{lt[4:]}" if len(lt) == 6 else lt
+        result[code] = {
+            "first_time": first_time,
+            "last_time": last_time,
+            "zt_stats": str(row.get("涨停统计", "")),
+            "consecutive_boards": int(row.get("连板数", 1)),
+            "blasted": int(row.get("炸板次数", 0)),
+        }
+    return result
+
+
+# ============================================================
+# 东方财富跌停股池
+# ============================================================
+
+def fetch_dt_pool(date: str = None) -> dict[str, dict]:
+    """跌停股池: {code: {name, close, chg_pct}}；接口不稳时返回 {}"""
+    import akshare as ak
+    if date is None:
+        from datetime import date as _date
+        date = _date.today().strftime("%Y-%m-%d")
+    date_compact = date.replace("-", "")
+    df = _ak(lambda: ak.stock_zt_pool_dtgc_em(date=date_compact))
+    if df is None:
+        print("  [WARN] 跌停池获取失败")
+        return {}
+    if df.empty:
+        return {}
+    result = {}
+    for _, row in df.iterrows():
+        code = str(row.get("代码", ""))
+        result[code] = {
+            "name": str(row.get("名称", "")),
+            "close": float(row.get("最新价", 0) or 0),
+            "chg_pct": float(row.get("涨跌幅", 0) or 0),
+        }
+    return result
+
+
+# ============================================================
+# 同花顺热点 — 当日强势股 + 题材归因
+# ============================================================
+
+def fetch_hot_themes(date: str = None) -> pd.DataFrame:
+    """
+    date: YYYY-MM-DD，None=今天
+    返回 DataFrame: 代码, 名称, 涨幅%, 换手率%, 成交额, 题材归因, 大单净量
+    """
+    from datetime import date as _date
+    if date is None:
+        date = _date.today().strftime("%Y-%m-%d")
+
+    url = (
+        f"http://zx.10jqka.com.cn/event/api/getharden/"
+        f"date/{date}/orderby/date/orderway/desc/charset/GBK/"
+    )
+    headers = {"User-Agent": UA}
+    r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+    data = r.json()
+    if data.get("errocode", 0) != 0:
+        return pd.DataFrame()
+
+    rows = data.get("data") or []
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+
+    rename_map = {
+        "name": "名称", "code": "代码", "reason": "题材归因",
+        "close": "收盘价", "zhangfu": "涨幅%",
+        "huanshou": "换手率%", "chengjiaoe": "成交额",
+        "ddejingliang": "大单净量", "market": "市场",
+    }
+    df = df.rename(columns=rename_map)
+    return df
+
+
+# ============================================================
+# 问财股池 — 人气前100 / 20日涨幅前100（§4 三池合并用）
+# ============================================================
+
+def _fetch_wencai(query: str):
+    """问财查询，失败/未装返回 None（兜底，不抛异常）。"""
+    try:
+        import pywencai
+    except ImportError:
+        print("  [WARN] 未安装 pywencai，跳过该池")
+        return None
+    try:
+        df = pywencai.get(query=query, query_type="stock", loop=True)
+    except Exception as e:
+        print(f"  [WARN] 问财查询失败（{query}）: {e}")
+        return None
+    if df is None or not hasattr(df, "empty") or df.empty:
+        return None
+    return df
+
+
+def _parse_concepts(raw) -> list[str]:
+    """所属概念字符串 → 列表（兼容 ; 与 ；分隔）。"""
+    if raw is None:
+        return []
+    txt = str(raw).strip()
+    if not txt or txt.lower() == "nan":
+        return []
+    return [p.strip() for p in re.split(r"[;；]", txt) if p.strip()]
+
+
+def _wencai_pool(query: str) -> list[dict]:
+    """返回 [{code, name, chg, concepts:[...]}]，失败返回 []。"""
+    df = _fetch_wencai(query)
+    if df is None:
+        return []
+    cols = list(df.columns)
+    concept_col = "所属概念" if "所属概念" in cols else None
+    chg_col = "最新涨跌幅" if "最新涨跌幅" in cols else None
+    out = []
+    for _, row in df.iterrows():
+        code = str(row.get("code", "") or "").strip()
+        if not code:
+            code = str(row.get("股票代码", "") or "").split(".")[0].strip()
+        if not code:
+            continue
+        chg = 0.0
+        if chg_col:
+            try:
+                chg = float(row.get(chg_col) or 0)
+            except (ValueError, TypeError):
+                chg = 0.0
+        out.append({
+            "code": code,
+            "name": str(row.get("股票简称", "") or ""),
+            "chg": chg,
+            "concepts": _parse_concepts(row.get(concept_col)) if concept_col else [],
+        })
+    return out
+
+
+def fetch_popularity_top100() -> list[dict]:
+    """池②：人气前100 + 所属概念。"""
+    return _wencai_pool("人气前100 所属概念")
+
+
+def fetch_gainers_20d() -> list[dict]:
+    """池③：20日涨幅前100 + 所属概念。"""
+    return _wencai_pool("20日涨幅前100 所属概念")
+
+
+# ============================================================
+# 北向资金
+# ============================================================
+
+_HSGT_HEADERS = {
+    "User-Agent": UA,
+    "Host": "data.hexin.cn",
+    "Referer": "https://data.hexin.cn/",
+}
+
+
+def fetch_northbound() -> dict:
+    """返回 {df: 分钟级DataFrame, hgt_close: 沪股通收盘, sgt_close: 深股通收盘}"""
+    url = "https://data.hexin.cn/market/hsgtApi/method/dayChart/"
+    r = requests.get(url, headers=_HSGT_HEADERS, timeout=REQUEST_TIMEOUT)
+    d = r.json()
+    times = d.get("time", [])
+    hgt = d.get("hgt", [])
+    sgt = d.get("sgt", [])
+
+    n = len(times)
+    df = pd.DataFrame({
+        "time": times,
+        "hgt_yi": hgt[:n] + [None] * max(0, n - len(hgt)),
+        "sgt_yi": sgt[:n] + [None] * max(0, n - len(sgt)),
+    })
+
+    hgt_close = df["hgt_yi"].dropna().iloc[-1] if not df["hgt_yi"].dropna().empty else 0
+    sgt_close = df["sgt_yi"].dropna().iloc[-1] if not df["sgt_yi"].dropna().empty else 0
+
+    return {
+        "df": df,
+        "hgt_close": float(hgt_close),
+        "sgt_close": float(sgt_close),
+        "total": float(hgt_close) + float(sgt_close),
+    }
+
+
+# ============================================================
+# 行业排名
+# ============================================================
+
+def fetch_industry_ranking(top_n: int = 90) -> dict:
+    """返回 {all: [...], total_up: int, total_down: int}"""
+    import akshare as ak
+    df = _ak(lambda: ak.stock_board_industry_summary_ths())
+    if df is None or df.empty:
+        return {"all": [], "total_up": 0, "total_down": 0}
+
+    rows = []
+    total_up = 0
+    total_down = 0
+    for i, row in df.iterrows():
+        up = int(row.get("上涨家数", 0) or 0)
+        down = int(row.get("下跌家数", 0) or 0)
+        total_up += up
+        total_down += down
+        rows.append({
+            "rank": i + 1,
+            "name": row.get("板块", ""),
+            "change_pct": float(row.get("涨跌幅", 0) or 0),
+            "turnover_yi": row.get("总成交额", 0),
+            "net_inflow": row.get("净流入", None) if "净流入" in df.columns else None,
+            "up_count": up,
+            "down_count": down,
+            "leader": row.get("领涨股", ""),
+            "leader_pct": row.get("领涨股-涨跌幅", None) if "领涨股-涨跌幅" in df.columns else None,
+        })
+
+    return {"all": rows, "total_up": total_up, "total_down": total_down}
+
+
+# ============================================================
+# K线 + 技术指标（mootdx）
+# ============================================================
+
+def fetch_klines(code: str, days: int = 120) -> pd.DataFrame | None:
+    """拉取日K线并计算MA和MACD，返回带技术指标的DataFrame"""
+    try:
+        from mootdx.quotes import Quotes
+        client = Quotes.factory(market='std')
+        df = client.bars(symbol=code, category=4, offset=days)
+        if df is None or df.empty:
+            return None
+
+        df = df.reset_index(drop=True)
+        for col in ["open", "close", "high", "low", "vol", "amount"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        from config import MA_PERIODS
+        for p in MA_PERIODS:
+            df[f"ma{p}"] = df["close"].rolling(p).mean()
+
+        df["vol_ma20"] = df["vol"].rolling(20).mean()
+        df["vol_ratio_20"] = df["vol"] / df["vol_ma20"]
+
+        # MACD
+        ema12 = df["close"].ewm(span=12, adjust=False).mean()
+        ema26 = df["close"].ewm(span=26, adjust=False).mean()
+        df["dif"] = ema12 - ema26
+        df["dea"] = df["dif"].ewm(span=9, adjust=False).mean()
+        df["macd"] = (df["dif"] - df["dea"]) * 2
+
+        # RSI 14
+        delta = df["close"].diff()
+        gain = delta.where(delta > 0, 0).rolling(14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+        rs = gain / loss.replace(0, float("nan"))
+        df["rsi"] = 100 - 100 / (1 + rs)
+
+        return df
+    except Exception as e:
+        print(f"  [WARN] K线获取失败 {code}: {e}")
+        return None
+
+
+# ============================================================
+# 百度股市通 — 资金流向
+# ============================================================
+
+_BAIDU_HEADERS = {
+    "Host": "finance.pae.baidu.com",
+    "User-Agent": UA,
+    "Accept": "application/vnd.finance-web.v1+json",
+    "Origin": "https://gushitong.baidu.com",
+    "Referer": "https://gushitong.baidu.com/",
+}
+
+
+def fetch_fund_flow(code: str, days: int = 10) -> list[dict]:
+    """个股资金流向（日级），返回最近N天"""
+    try:
+        url = (
+            f"https://finance.pae.baidu.com/vapi/v1/fundsortlist"
+            f"?code={code}&market=ab&pn=0&rn={days}&finClientType=pc"
+        )
+        r = requests.get(url, headers=_BAIDU_HEADERS, timeout=REQUEST_TIMEOUT)
+        d = r.json()
+        if str(d.get("ResultCode", -1)) != "0":
+            return []
+        rows = []
+        for item in d.get("Result", {}).get("list", []):
+            rows.append({
+                "date": item.get("showtime", ""),
+                "close": item.get("closepx", ""),
+                "change_pct": item.get("ratio", ""),
+                "main_in": item.get("extMainIn", ""),
+            })
+        return rows
+    except Exception:
+        return []
+
+
+# ============================================================
+# 龙虎榜
+# ============================================================
+
+def fetch_dragon_tiger(code: str, trade_date: str, look_back: int = 10) -> list[dict]:
+    """近 look_back 天龙虎榜上榜记录"""
+    try:
+        import akshare as ak
+        start = datetime.strptime(trade_date, "%Y-%m-%d") - timedelta(days=look_back)
+        df = _ak(lambda: ak.stock_lhb_detail_em(
+            start_date=start.strftime("%Y%m%d"),
+            end_date=trade_date.replace("-", ""),
+        ))
+        if df is None or df.empty:
+            return []
+        df_stock = df[df["代码"] == code]
+        records = []
+        for _, row in df_stock.iterrows():
+            records.append({
+                "date": str(row.get("日期", "")),
+                "reason": row.get("解读", ""),
+                "net_buy": row.get("龙虎榜净买额", 0),
+            })
+        return records
+    except Exception:
+        return []
+
+
+# ============================================================
+# 限售解禁
+# ============================================================
+
+def fetch_lockup(code: str) -> list[dict]:
+    """未来解禁记录"""
+    try:
+        import akshare as ak
+        df = _ak(lambda: ak.stock_restricted_release_queue_em(symbol=code))
+        if df is None or df.empty:
+            return []
+        upcoming = []
+        today = datetime.now().strftime("%Y-%m-%d")
+        for _, row in df.iterrows():
+            d = str(row.get("解禁时间", ""))[:10]
+            if d >= today:
+                upcoming.append({
+                    "date": d,
+                    "type": row.get("限售股类型", ""),
+                    "shares": row.get("解禁数量", 0),
+                    "ratio": row.get("实际解禁市值占总市值比例", 0),
+                })
+        return upcoming[:5]
+    except Exception:
+        return []
+
+
+# ============================================================
+# 概念板块归属
+# ============================================================
+
+def fetch_concept_tags(code: str) -> list[str]:
+    """返回个股所属概念标签列表"""
+    try:
+        url = (
+            f"https://finance.pae.baidu.com/api/getrelatedblock"
+            f"?code={code}&market=ab&typeCode=all&finClientType=pc"
+        )
+        r = requests.get(url, headers=_BAIDU_HEADERS, timeout=REQUEST_TIMEOUT)
+        d = r.json()
+        if str(d.get("ResultCode", -1)) != "0":
+            return []
+        tags = []
+        for block in d.get("Result", []):
+            if "概念" in block.get("type", ""):
+                for item in block.get("list", []):
+                    tags.append(item.get("name", ""))
+        return tags
+    except Exception:
+        return []
+
+
+# ============================================================
+# 外围市场（东方财富 push2 API）
+# ============================================================
+
+_EM_HEADERS = {
+    "User-Agent": UA,
+    "Referer": "https://quote.eastmoney.com/",
+}
+
+
+def _em_kline_5d_pct(secid: str) -> float | None:
+    """东财 push2his 拿最近 6 根日线，返回 (close[-1]/close[-6]-1)*100，即 5 个交易日累计涨幅。"""
+    try:
+        url = (
+            f"https://push2his.eastmoney.com/api/qt/stock/kline/get"
+            f"?secid={secid}&klt=101&fqt=1&end=20500101&lmt=6"
+            f"&fields1=f1&fields2=f51,f53"
+        )
+        r = requests.get(url, headers=_EM_HEADERS, timeout=REQUEST_TIMEOUT)
+        d = r.json()
+        klines = (d.get("data") or {}).get("klines") or []
+        if len(klines) < 2:
+            return None
+        closes = [float(k.split(",")[1]) for k in klines]
+        base = closes[0]
+        last = closes[-1]
+        if base <= 0:
+            return None
+        return round((last / base - 1) * 100, 2)
+    except Exception as e:
+        print(f"  [WARN] EM 5日K线获取失败 {secid}: {e}")
+        return None
+
+
+def _em_quote_single(secid: str) -> dict | None:
+    """东方财富单只证券实时行情"""
+    try:
+        url = (
+            f"https://push2.eastmoney.com/api/qt/stock/get"
+            f"?secid={secid}&fields=f43,f44,f45,f46,f47,f48,f57,f58,f169,f170"
+            f"&_={int(time.time()*1000)}"
+        )
+        r = requests.get(url, headers=_EM_HEADERS, timeout=REQUEST_TIMEOUT)
+        d = r.json()
+        raw = d.get("data")
+        if not raw:
+            return None
+        market = int(secid.split(".")[0])
+        divisor = 1000 if market in (105, 106, 116, 128) else 100
+        # market 124 = HK indices, also uses /100
+        price = raw.get("f43", 0) or 0
+        return {
+            "name": raw.get("f58", ""),
+            "code": raw.get("f57", ""),
+            "price": price / divisor,
+            "high": (raw.get("f44", 0) or 0) / divisor,
+            "low": (raw.get("f45", 0) or 0) / divisor,
+            "open": (raw.get("f46", 0) or 0) / divisor,
+            "change_pct": (raw.get("f170", 0) or 0) / 100,
+            "change_amt": (raw.get("f169", 0) or 0) / divisor,
+            "amount_wan": (raw.get("f48", 0) or 0) / 10000,
+        }
+    except Exception as e:
+        print(f"  [WARN] EM行情获取失败 {secid}: {e}")
+        return None
+
+
+def fetch_global_markets() -> dict:
+    """拉取外围市场指数 + 关注标的"""
+    result = {"indices": {}, "watchlist": {}}
+
+    for label, secid in GLOBAL_INDICES_EM.items():
+        q = _em_quote_single(secid)
+        if q:
+            q["change_pct_5d"] = _em_kline_5d_pct(secid)
+            result["indices"][label] = q
+        time.sleep(0.2)
+
+    for item in GLOBAL_WATCHLIST_EM:
+        q = _em_quote_single(item["secid"])
+        if q:
+            q["name"] = q["name"] or item["label"]
+            q["tag"] = item.get("tag", "")
+            q["change_pct_5d"] = _em_kline_5d_pct(item["secid"])
+            result["watchlist"][item["label"]] = q
+        time.sleep(0.2)
+
+    if len(result["indices"]) < len(GLOBAL_INDICES_EM):
+        fallback = _fetch_indices_akshare()
+        for k, v in fallback.items():
+            if k not in result["indices"] or not result["indices"][k].get("price"):
+                result["indices"][k] = v
+
+    us_tech_missing = [
+        item for item in GLOBAL_WATCHLIST_EM
+        if item.get("tag") == "us_tech" and item["label"] not in result["watchlist"]
+    ]
+    if us_tech_missing:
+        result["watchlist"].update(_fetch_us_stocks_akshare(us_tech_missing))
+
+    return result
+
+
+_INDEX_AKSHARE_MAP = {
+    "道琼斯":   (".DJI",  "us"),
+    "纳斯达克": (".IXIC", "us"),
+    "标普500":  (".INX",  "us"),
+    "恒生指数": ("HSI",   "hk"),
+    "恒生科技": ("HSTECH", "hk"),
+}
+
+def _fetch_indices_akshare() -> dict:
+    """akshare备用：拉取全球指数日线"""
+    import akshare as ak
+    out = {}
+    for label, (symbol, market) in _INDEX_AKSHARE_MAP.items():
+        try:
+            if market == "us":
+                df = _ak(lambda: ak.index_us_stock_sina(symbol=symbol))
+            else:
+                df = _ak(lambda: ak.stock_hk_index_daily_sina(symbol=symbol))
+            if df is None or len(df) < 2:
+                continue
+            last, prev = df.iloc[-1], df.iloc[-2]
+            chg = (last["close"] - prev["close"]) / prev["close"] * 100
+            out[label] = {
+                "name": label,
+                "price": float(last["close"]),
+                "change_pct": round(chg, 2),
+            }
+            time.sleep(0.2)
+        except Exception as e:
+            print(f"  [WARN] akshare指数获取失败 {label}: {e}")
+    return out
+
+
+def _fetch_us_stocks_akshare(items: list[dict]) -> dict:
+    """akshare备用：通过stock_us_daily拉美股收盘数据"""
+    import akshare as ak
+    out = {}
+    for item in items:
+        ticker = item["secid"].split(".")[-1]
+        try:
+            df = _ak(lambda: ak.stock_us_daily(symbol=ticker, adjust="qfq"))
+            if df is None or len(df) < 2:
+                continue
+            last, prev = df.iloc[-1], df.iloc[-2]
+            chg = (last["close"] - prev["close"]) / prev["close"] * 100
+            out[item["label"]] = {
+                "name": item["label"],
+                "code": ticker,
+                "price": float(last["close"]),
+                "change_pct": round(chg, 2),
+                "tag": item.get("tag", ""),
+            }
+            time.sleep(0.3)
+        except Exception as e:
+            print(f"  [WARN] akshare美股获取失败 {ticker}: {e}")
+    return out
+
+
+# ============================================================
+# 基本面数据（akshare）
+# ============================================================
+
+def fetch_eps_forecast(code: str) -> list[dict]:
+    """一致预期EPS（同花顺）"""
+    try:
+        import akshare as ak
+        df = _ak(lambda: ak.stock_profit_forecast_ths(symbol=code))
+        if df is None or df.empty:
+            return []
+        rows = []
+        for _, row in df.iterrows():
+            rows.append({
+                "year": str(row.get("年度", "")),
+                "eps": row.get("均值", None),
+                "max_eps": row.get("最大值", None),
+                "min_eps": row.get("最小值", None),
+                "inst_count": row.get("预测机构数", None),
+            })
+        return rows
+    except Exception:
+        return []
+
+
+def fetch_stock_news(code: str, limit: int = 5) -> list[dict]:
+    """个股最近新闻（东方财富）"""
+    try:
+        import akshare as ak
+        df = _ak(lambda: ak.stock_news_em(symbol=code))
+        if df is None or df.empty:
+            return []
+        rows = []
+        for _, row in df.head(limit).iterrows():
+            rows.append({
+                "title": row.get("新闻标题", ""),
+                "content": str(row.get("新闻内容", ""))[:200],
+                "time": str(row.get("发布时间", "")),
+                "source": row.get("文章来源", ""),
+            })
+        return rows
+    except Exception:
+        return []
+
+
+def fetch_shareholder_count(code: str) -> list[dict]:
+    """股东户数变化（东方财富）"""
+    try:
+        import akshare as ak
+        df = _ak(lambda: ak.stock_zh_a_gdhs_detail_em(symbol=code))
+        if df is None or df.empty:
+            return []
+        rows = []
+        for _, row in df.head(5).iterrows():
+            rows.append({
+                "date": str(row.get("股东户数统计截止日", ""))[:10],
+                "count": row.get("股东户数-本次", None),
+                "change_pct": row.get("股东户数-增减比例", None),
+            })
+        return rows
+    except Exception:
+        return []
+
+
+def fetch_theme_news(keyword: str, limit: int = 10) -> list[str]:
+    """搜索题材相关新闻标题（用于AI审美分析）"""
+    try:
+        import akshare as ak
+        df = _ak(lambda: ak.stock_news_em(symbol=keyword))
+        if df is None or df.empty:
+            return []
+        return [str(row.get("新闻标题", "")) for _, row in df.head(limit).iterrows()]
+    except Exception:
+        return []
+
+
+# ============================================================
+# 语料：公告 / 互动平台（用于聚焦池语料摘要）
+# ============================================================
+
+def _run_with_timeout(fn, timeout_sec, default=None):
+    """守护线程里跑可能挂死的阻塞调用（akshare 互动/新闻接口无 socket 超时，
+    单请求可挂死数小时，try/except 拦不住 hang）。超时返回 default，
+    挂死线程被遗弃，进程退出时随守护线程回收。"""
+    import threading
+    box = {"v": default}
+
+    def _target():
+        try:
+            box["v"] = fn()
+        except Exception:
+            box["v"] = default
+
+    th = threading.Thread(target=_target, daemon=True)
+    th.start()
+    th.join(timeout_sec)
+    return box["v"]
+
+
+IRM_TIMEOUT_SEC = 12
+
+
+def _ak(fn, timeout=IRM_TIMEOUT_SEC):
+    """所有 akshare 调用的统一入口：套 _run_with_timeout 守护线程超时兜底。
+    akshare 底层 requests 无 socket 超时，单请求可挂死数小时（try/except 拦不住 hang），
+    per-stock 循环里尤甚。超时/异常均返 None（=抓取失败语义，调用方已用
+    `if df is None or df.empty` 容忍）。新增 ak.* 调用一律走这里。"""
+    return _run_with_timeout(fn, timeout)
+
+
+def fetch_announcements_all(date_yyyymmdd: str) -> dict[str, list[dict]]:
+    """一次拉当日全市场公告（巨潮/东财汇总），返回 {code: [{title, type, date, url}, ...]}"""
+    try:
+        import akshare as ak
+        df = _ak(lambda: ak.stock_notice_report(symbol="全部", date=date_yyyymmdd))
+        if df is None or df.empty:
+            return {}
+        out: dict[str, list[dict]] = {}
+        for _, row in df.iterrows():
+            code = str(row.get("代码", "")).zfill(6)
+            out.setdefault(code, []).append({
+                "title": str(row.get("公告标题", "")),
+                "type": str(row.get("公告类型", "")),
+                "date": str(row.get("公告日期", ""))[:10],
+                "url": str(row.get("网址", "")),
+            })
+        return out
+    except Exception:
+        return {}
+
+
+def fetch_irm_szse(code: str, limit: int = 3) -> list[dict]:
+    """深交所互动易问答（002/300/301）"""
+    if not code.startswith(("0", "3")):
+        return []
+    try:
+        import akshare as ak
+        df = _ak(lambda: ak.stock_irm_cninfo(symbol=code))
+        if df is None or df.empty:
+            return []
+        df = df.sort_values("更新时间", ascending=False)
+        rows = []
+        for _, row in df.head(limit).iterrows():
+            rows.append({
+                "question": str(row.get("问题", ""))[:200],
+                "answer": str(row.get("回答内容", ""))[:300],
+                "ask_time": str(row.get("提问时间", ""))[:16],
+                "reply_time": str(row.get("更新时间", ""))[:16],
+            })
+        return rows
+    except Exception:
+        return []
+
+
+def fetch_irm_sse(code: str, limit: int = 3) -> list[dict]:
+    """上交所 e 互动问答（6 开头），接口偶尔返回空，失败静默"""
+    if not code.startswith("6"):
+        return []
+    try:
+        import akshare as ak
+        df = _ak(lambda: ak.stock_sns_sseinfo(symbol=code))
+        if df is None or df.empty:
+            return []
+        cols = list(df.columns)
+        q_col = next((c for c in cols if "问" in c and "时间" not in c), None)
+        a_col = next((c for c in cols if "答" in c), None)
+        t_col = next((c for c in cols if "时间" in c), None)
+        if not q_col:
+            return []
+        if t_col:
+            df = df.sort_values(t_col, ascending=False)
+        rows = []
+        for _, row in df.head(limit).iterrows():
+            rows.append({
+                "question": str(row.get(q_col, ""))[:200],
+                "answer": str(row.get(a_col, ""))[:300] if a_col else "",
+                "ask_time": str(row.get(t_col, ""))[:16] if t_col else "",
+                "reply_time": "",
+            })
+        return rows
+    except Exception:
+        return []
+
+
+# ============================================================
+# 基本面源：业绩预告/快报 / 机构调研 / 行业研报
+# ============================================================
+
+def _num(v):
+    """安全转 float，NaN/空 → None。"""
+    try:
+        if v is None:
+            return None
+        f = float(v)
+        return None if pd.isna(f) else f
+    except Exception:
+        return None
+
+
+def recent_report_periods(until: str | None = None, n: int = 2) -> list[str]:
+    """返回截至 until(YYYY-MM-DD) 的最近 n 个报告期末，格式 YYYYMMDD（倒序，最新在前）。"""
+    if until:
+        ref = datetime.strptime(until[:10], "%Y-%m-%d")
+    else:
+        ref = datetime.now()
+    quarter_ends = [(3, 31), (6, 30), (9, 30), (12, 31)]
+    periods: list[str] = []
+    year = ref.year
+    while len(periods) < n + 1:
+        for m, d in reversed(quarter_ends):
+            pe = datetime(year, m, d)
+            if pe <= ref:
+                periods.append(pe.strftime("%Y%m%d"))
+                if len(periods) >= n + 1:
+                    break
+        year -= 1
+    return periods[:n]
+
+
+def fetch_earnings_forecast(period: str) -> list[dict]:
+    """业绩预告（东财），period=YYYYMMDD 报告期末。返回全市场，调用方按 universe/公告日期过滤。"""
+    try:
+        import akshare as ak
+        df = _ak(lambda: ak.stock_yjyg_em(date=period))
+        if df is None or df.empty:
+            return []
+        rows = []
+        for _, r in df.iterrows():
+            rows.append({
+                "code": str(r.get("股票代码", "")).zfill(6),
+                "name": str(r.get("股票简称", "")),
+                "indicator": str(r.get("预测指标", "")),
+                "forecast_type": str(r.get("预告类型", "")),
+                "change_desc": str(r.get("业绩变动", ""))[:300],
+                "value": _num(r.get("预测数值")),
+                "change_pct": _num(r.get("业绩变动幅度")),
+                "reason": str(r.get("业绩变动原因", ""))[:200] if r.get("业绩变动原因") is not None else "",
+                "prev_value": _num(r.get("上年同期值")),
+                "notice_date": str(r.get("公告日期", ""))[:10],
+                "period": period,
+            })
+        return rows
+    except Exception as e:
+        print(f"  [WARN] 业绩预告获取失败({period}): {e}")
+        return []
+
+
+def fetch_earnings_express(period: str) -> list[dict]:
+    """业绩快报（东财），period=YYYYMMDD 报告期末。"""
+    try:
+        import akshare as ak
+        df = _ak(lambda: ak.stock_yjkb_em(date=period))
+        if df is None or df.empty:
+            return []
+        rows = []
+        for _, r in df.iterrows():
+            rows.append({
+                "code": str(r.get("股票代码", "")).zfill(6),
+                "name": str(r.get("股票简称", "")),
+                "eps": _num(r.get("每股收益")),
+                "revenue": _num(r.get("营业收入-营业收入")),
+                "revenue_yoy": _num(r.get("营业收入-同比增长")),
+                "net_profit": _num(r.get("净利润-净利润")),
+                "net_profit_yoy": _num(r.get("净利润-同比增长")),
+                "bps": _num(r.get("每股净资产")),
+                "roe": _num(r.get("净资产收益率")),
+                "industry": str(r.get("所处行业", "")),
+                "notice_date": str(r.get("公告日期", ""))[:10],
+                "period": period,
+            })
+        return rows
+    except Exception as e:
+        print(f"  [WARN] 业绩快报获取失败({period}): {e}")
+        return []
+
+
+def fetch_inst_survey(period: str) -> list[dict]:
+    """机构调研统计（东财 stock_jgdy_tj_em），period=YYYYMMDD 报告期末。"""
+    try:
+        import akshare as ak
+        df = _ak(lambda: ak.stock_jgdy_tj_em(date=period))
+        if df is None or df.empty:
+            return []
+        rows = []
+        for _, r in df.iterrows():
+            rows.append({
+                "code": str(r.get("代码", "")).zfill(6),
+                "name": str(r.get("名称", "")),
+                "change_pct": _num(r.get("涨跌幅")),
+                "inst_count": int(_num(r.get("接待机构数量")) or 0),
+                "method": str(r.get("接待方式", "")),
+                "attendees": str(r.get("接待人员", ""))[:300],
+                "location": str(r.get("接待地点", ""))[:120],
+                "survey_date": str(r.get("接待日期", ""))[:10],
+                "notice_date": str(r.get("公告日期", ""))[:10],
+                "period": period,
+            })
+        return rows
+    except Exception as e:
+        print(f"  [WARN] 机构调研获取失败({period}): {e}")
+        return []
+
+
+def fetch_industry_research(begin: str, end: str,
+                            page_size: int = 100, max_pages: int = 5) -> list[dict]:
+    """行业研报（东财研报中心 reportapi，qType=1），按发布日期区间 begin~end(YYYY-MM-DD)。"""
+    import json as _json
+    headers = {"User-Agent": UA, "Referer": "https://data.eastmoney.com/report/"}
+    out: list[dict] = []
+    for page in range(1, max_pages + 1):
+        url = (
+            "https://reportapi.eastmoney.com/report/list?"
+            f"industryCode=*&pageSize={page_size}&industry=*&rating=&ratingChange=&"
+            f"beginTime={begin}&endTime={end}&pageNo={page}&fields=&qType=1&"
+            f"orgCode=&code=*&rcode=&p={page}&pageNum={page}"
+        )
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            raw = urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT).read().decode("utf-8")
+            d = _json.loads(raw)
+        except Exception as e:
+            print(f"  [WARN] 行业研报获取失败(p{page}): {e}")
+            break
+        arr = d.get("data", []) or []
+        for it in arr:
+            info = str(it.get("infoCode", ""))
+            out.append({
+                "info_code": info,
+                "title": str(it.get("title", "")),
+                "org": str(it.get("orgSName", "") or it.get("orgName", "")),
+                "industry": str(it.get("industryName", "")),
+                "rating": str(it.get("emRatingName", "")),
+                "publish_date": str(it.get("publishDate", ""))[:10],
+                "url": f"https://data.eastmoney.com/report/info/{info}.html" if info else "",
+            })
+        total_page = int(d.get("TotalPage", 1) or 1)
+        if page >= total_page:
+            break
+        time.sleep(0.3)
+    return out

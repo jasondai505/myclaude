@@ -1,0 +1,30 @@
+# 密钥 / 凭证
+cookie*.txt
+.env
+.env.*
+*.env
+
+# 数据库（生成物 / 个人数据）
+*.db
+*.sqlite
+*.sqlite3
+*.bak
+*.db.bak*
+
+# 日志
+*.log
+
+# 生成报告与 feeds（可重生成，含个人/外部内容）
+daily_review/reports/
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# 系统 / 编辑器
+.DS_Store
+Thumbs.db
+*.swp
