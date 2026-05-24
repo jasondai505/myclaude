@@ -172,3 +172,63 @@ def _render_focus_table(lines, items, max_n=15):
             f"| {src} | {logic} |"
         )
     lines.append("")
+
+
+def _fmt_strength_row(role_name: str, s: dict, pool_lookup: dict = None) -> str:
+    mcap = s.get("mcap_yi", 0)
+    mcap_str = f"{mcap:.0f}亿" if mcap else "-"
+    zt_str = s.get("zt_time", "") or ""
+    cb = s.get("consecutive_boards", 0)
+    cb_str = f"{cb}板" if cb else ""
+    hot_str = "-"
+    f_str = e_str = v_str = "-"
+    if pool_lookup:
+        p = pool_lookup.get(s["code"])
+        if p:
+            hr = p.get("hot_rank")
+            if hr:
+                hot_str = str(hr)
+            fev = p.get("fev") or {}
+            if fev.get("f_score") is not None:
+                f_str = str(fev["f_score"])
+            if fev.get("e_score") is not None:
+                e_str = str(fev["e_score"])
+            if fev.get("v_score") is not None:
+                v_str = str(fev["v_score"])
+    return (
+        f"| {role_name} | {s['name']} | {s['code']} | {mcap_str} "
+        f"| {s['chg']:+.1f}% | {zt_str} | {cb_str} "
+        f"| {s['r10']:+.1f}% | {s['r5']:+.1f}% "
+        f"| {hot_str} | {f_str} | {e_str} | {v_str} | {s.get('role_reason', '')} |"
+    )
+
+
+def _fmt_theme_amount_line(ts: dict) -> str:
+    zt = ts.get("amount_zt_wan", 0)
+    nonzt = ts.get("amount_nonzt_wan", 0)
+    top100 = ts.get("amount_top100_wan", 0)
+    total = ts.get("amount_total_wan", 0)
+    f_avg = ts.get("f_avg")
+    e_avg = ts.get("e_avg")
+    v_avg = ts.get("v_avg")
+    fev_n = ts.get("fev_n", 0)
+    parts = [
+        f"涨停 {_fmt_amount(zt)}",
+        f"非涨停 {_fmt_amount(nonzt)}",
+        f"人气100 {_fmt_amount(top100)}",
+        f"合计 {_fmt_amount(total)}",
+    ]
+    line = "- 板块成交: " + " / ".join(parts)
+    if ts.get("small_cap_flag"):
+        line += " ⚠️板块体量太小(<1亿)"
+    if fev_n:
+        fev_parts = []
+        if f_avg is not None:
+            fev_parts.append(f"F̄ {f_avg}")
+        if e_avg is not None:
+            fev_parts.append(f"Ē {e_avg}")
+        if v_avg is not None:
+            fev_parts.append(f"V̄ {v_avg}")
+        if fev_parts:
+            line += f" | FEV 平均({fev_n}只): " + "/".join(fev_parts)
+    return line

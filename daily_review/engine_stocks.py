@@ -5,10 +5,15 @@ import pandas as pd
 
 from config import (
     MA_PERIODS, VOLUME_BREAKOUT_RATIO, RSI_OVERBOUGHT, RSI_OVERSOLD,
+    FEV_THRESHOLDS,
 )
 from engine_themes import normalize_theme
-from utils import safe_str, safe_float
+from utils import safe_str, safe_float, extract_rsi
 
+
+# ============================================================
+# analyze_single_stock — 编排 + 5 helper
+# ============================================================
 
 def analyze_single_stock(
     code: str,
@@ -29,10 +34,16 @@ def analyze_single_stock(
         result["signals"].append(("WARN", "行情数据缺失"))
         return result
 
-    chg = quote.get("change_pct", 0)
-    turnover = quote.get("turnover_pct", 0)
-    vol_ratio = quote.get("vol_ratio", 0)
+    _check_price_signals(result, quote)
+    _check_volume_signals(result, quote)
+    _check_technical_indicators(result, quote, kline_df)
+    _check_fund_flow(result, fund_flow)
+    _check_lockup(result, lockup)
+    return result
 
+
+def _check_price_signals(result: dict, quote: dict):
+    chg = quote.get("change_pct", 0)
     if chg >= 9.8:
         result["signals"].append(("BULL", "涨停"))
     elif chg >= 5:
@@ -42,82 +53,93 @@ def analyze_single_stock(
     elif chg <= -5:
         result["signals"].append(("BEAR", f"大跌 {chg}%"))
 
+
+def _check_volume_signals(result: dict, quote: dict):
+    vol_ratio = quote.get("vol_ratio", 0)
     if vol_ratio >= 3:
         result["signals"].append(("ALERT", f"量比 {vol_ratio}（异常放量）"))
     elif vol_ratio >= 2:
         result["signals"].append(("INFO", f"量比 {vol_ratio}（明显放量）"))
 
-    if kline_df is not None and len(kline_df) >= 60:
-        last = kline_df.iloc[-1]
-        prev = kline_df.iloc[-2]
-        score = 0
 
-        mas = [last.get(f"ma{p}") for p in MA_PERIODS]
-        if all(m is not None and not pd.isna(m) for m in mas):
-            if mas[0] > mas[1] > mas[2] > mas[3]:
-                result["signals"].append(("BULL", "均线多头排列"))
-                score += 30
-            elif mas[0] < mas[1] < mas[2] < mas[3]:
-                result["signals"].append(("BEAR", "均线空头排列"))
-                score -= 30
+def _check_technical_indicators(result: dict, quote: dict, kline_df: pd.DataFrame | None):
+    if kline_df is None or len(kline_df) < 60:
+        return
+    last = kline_df.iloc[-1]
+    prev = kline_df.iloc[-2]
+    chg = quote.get("change_pct", 0)
+    score = 0
 
-        ma20 = last.get("ma20")
-        ma20_prev = prev.get("ma20")
-        if ma20 and ma20_prev:
-            if prev["close"] < ma20_prev and last["close"] > ma20:
-                result["signals"].append(("BULL", "突破20日均线"))
-                score += 20
-            elif prev["close"] > ma20_prev and last["close"] < ma20:
-                result["signals"].append(("BEAR", "跌破20日均线"))
-                score -= 20
+    mas = [last.get(f"ma{p}") for p in MA_PERIODS]
+    if all(m is not None and not pd.isna(m) for m in mas):
+        if mas[0] > mas[1] > mas[2] > mas[3]:
+            result["signals"].append(("BULL", "均线多头排列"))
+            score += 30
+        elif mas[0] < mas[1] < mas[2] < mas[3]:
+            result["signals"].append(("BEAR", "均线空头排列"))
+            score -= 30
 
-        if not pd.isna(last.get("dif")) and not pd.isna(prev.get("dif")):
-            if prev["dif"] < prev["dea"] and last["dif"] > last["dea"]:
-                result["signals"].append(("BULL", "MACD金叉"))
-                score += 15
-            elif prev["dif"] > prev["dea"] and last["dif"] < last["dea"]:
-                result["signals"].append(("BEAR", "MACD死叉"))
-                score -= 15
+    ma20 = last.get("ma20")
+    ma20_prev = prev.get("ma20")
+    if ma20 and ma20_prev:
+        if prev["close"] < ma20_prev and last["close"] > ma20:
+            result["signals"].append(("BULL", "突破20日均线"))
+            score += 20
+        elif prev["close"] > ma20_prev and last["close"] < ma20:
+            result["signals"].append(("BEAR", "跌破20日均线"))
+            score -= 20
 
-        vol_r = last.get("vol_ratio_20")
-        if vol_r and not pd.isna(vol_r) and vol_r >= VOLUME_BREAKOUT_RATIO:
-            if chg > 0:
-                result["signals"].append(("BULL", f"放量上涨（{vol_r:.1f}倍于20日均量）"))
-                score += 10
-            else:
-                result["signals"].append(("BEAR", f"放量下跌（{vol_r:.1f}倍于20日均量）"))
-                score -= 10
+    if not pd.isna(last.get("dif")) and not pd.isna(prev.get("dif")):
+        if prev["dif"] < prev["dea"] and last["dif"] > last["dea"]:
+            result["signals"].append(("BULL", "MACD金叉"))
+            score += 15
+        elif prev["dif"] > prev["dea"] and last["dif"] < last["dea"]:
+            result["signals"].append(("BEAR", "MACD死叉"))
+            score -= 15
 
-        rsi = last.get("rsi")
-        if rsi and not pd.isna(rsi):
-            if rsi > RSI_OVERBOUGHT:
-                result["signals"].append(("WARN", f"RSI={rsi:.0f}（超买区）"))
-                score -= 5
-            elif rsi < RSI_OVERSOLD:
-                result["signals"].append(("INFO", f"RSI={rsi:.0f}（超卖区）"))
-                score += 5
+    vol_r = last.get("vol_ratio_20")
+    if vol_r and not pd.isna(vol_r) and vol_r >= VOLUME_BREAKOUT_RATIO:
+        if chg > 0:
+            result["signals"].append(("BULL", f"放量上涨（{vol_r:.1f}倍于20日均量）"))
+            score += 10
+        else:
+            result["signals"].append(("BEAR", f"放量下跌（{vol_r:.1f}倍于20日均量）"))
+            score -= 10
 
-        result["trend_score"] = max(-100, min(100, score))
+    rsi = last.get("rsi")
+    if rsi and not pd.isna(rsi):
+        if rsi > RSI_OVERBOUGHT:
+            result["signals"].append(("WARN", f"RSI={rsi:.0f}（超买区）"))
+            score -= 5
+        elif rsi < RSI_OVERSOLD:
+            result["signals"].append(("INFO", f"RSI={rsi:.0f}（超卖区）"))
+            score += 5
 
-    if fund_flow and len(fund_flow) > 0:
-        latest = fund_flow[0]
-        main_in = latest.get("main_in", "")
-        try:
-            main_val = float(main_in)
-            if main_val > 5000:
-                result["signals"].append(("BULL", f"主力净流入 {main_val/10000:.1f}亿"))
-            elif main_val < -5000:
-                result["signals"].append(("BEAR", f"主力净流出 {abs(main_val)/10000:.1f}亿"))
-        except (ValueError, TypeError):
-            pass
+    result["trend_score"] = max(-100, min(100, score))
 
-    if lockup:
-        nearest = lockup[0]
-        days_to = _days_between(datetime.now().strftime("%Y-%m-%d"), nearest["date"])
-        if days_to is not None and days_to <= 30:
-            result["signals"].append(("WARN", f"距解禁 {days_to}天（{nearest['date']}）"))
 
-    return result
+def _check_fund_flow(result: dict, fund_flow: list[dict] | None):
+    if not fund_flow:
+        return
+    latest = fund_flow[0]
+    main_in = latest.get("main_in", "")
+    try:
+        main_val = float(main_in)
+        if main_val > 5000:
+            result["signals"].append(("BULL", f"主力净流入 {main_val/10000:.1f}亿"))
+        elif main_val < -5000:
+            result["signals"].append(("BEAR", f"主力净流出 {abs(main_val)/10000:.1f}亿"))
+    except (ValueError, TypeError):
+        pass
+
+
+def _check_lockup(result: dict, lockup: list[dict] | None):
+    if not lockup:
+        return
+    nearest = lockup[0]
+    days_to = _days_between(datetime.now().strftime("%Y-%m-%d"), nearest["date"])
+    if days_to is not None and days_to <= 30:
+        result["signals"].append(("WARN", f"距解禁 {days_to}天（{nearest['date']}）"))
 
 
 def _days_between(d1: str, d2: str) -> int | None:
@@ -128,6 +150,10 @@ def _days_between(d1: str, d2: str) -> int | None:
     except Exception:
         return None
 
+
+# ============================================================
+# analyze_watchlist_themes
+# ============================================================
 
 def analyze_watchlist_themes(watchlist_results: list[dict],
                              hot_df: pd.DataFrame,
@@ -173,6 +199,10 @@ def analyze_watchlist_themes(watchlist_results: list[dict],
     return result
 
 
+# ============================================================
+# analyze_fundamentals
+# ============================================================
+
 def analyze_fundamentals(codes: list[str], quotes: dict,
                          eps_data: dict, shareholder_data: dict,
                          news_data: dict) -> list[dict]:
@@ -215,6 +245,10 @@ def analyze_fundamentals(codes: list[str], quotes: dict,
     return results
 
 
+# ============================================================
+# score_fev — 编排 + 4 helper
+# ============================================================
+
 def score_fev(stock: dict, eps_data: dict, shareholder_data: dict,
               hot_codes: set, hot_theme_names: set,
               code_themes: dict, theme_narratives: dict) -> dict:
@@ -222,12 +256,30 @@ def score_fev(stock: dict, eps_data: dict, shareholder_data: dict,
     q = stock.get("quote") or {}
     signals = stock.get("signals", [])
     sig_descs = [s[1] for s in signals]
-
     th = FEV_THRESHOLDS
-    f_score, e_score, v_score = 0, 0, 0
-    f_reasons, e_reasons, v_reasons = [], [], []
 
-    # --- F: Fundamentals ---
+    f_score, f_reasons, cagr, holder_chg = _score_fev_fundamentals(
+        stock, eps_data, shareholder_data, sig_descs, th)
+    e_score, e_reasons, inst_count = _score_fev_expectations(
+        stock, hot_codes, code_themes, theme_narratives, th, q, eps_data)
+    v_score, v_reasons, forward_pe = _score_fev_valuation(
+        stock, eps_data, signals, q, th)
+
+    return _assemble_fev_result(
+        stock, code, f_score, e_score, v_score,
+        f_reasons, e_reasons, v_reasons,
+        forward_pe, cagr, inst_count, holder_chg,
+        hot_codes, code_themes, theme_narratives,
+    )
+
+
+def _score_fev_fundamentals(stock: dict, eps_data: dict, shareholder_data: dict,
+                             sig_descs: list[str], th: dict) -> tuple[int, list[str], float | None, float | None]:
+    code = stock["code"]
+    q = stock.get("quote") or {}
+    score = 0
+    reasons = []
+
     eps = eps_data.get(code, [])
     cagr = None
     if len(eps) >= 2:
@@ -238,15 +290,15 @@ def score_fev(stock: dict, eps_data: dict, shareholder_data: dict,
                 years = len(eps) - 1
                 cagr = (e_last / e1) ** (1 / years) - 1 if years > 0 else 0
                 if cagr > th["f_cagr_min"]:
-                    f_score += 3
-                    f_reasons.append(f"EPS增速{cagr:.0%}")
+                    score += 3
+                    reasons.append(f"EPS增速{cagr:.0%}")
         except (ValueError, TypeError):
             pass
 
     pe_ttm = q.get("pe_ttm", 0)
     if 0 < pe_ttm < th["f_pe_max"]:
-        f_score += 2
-        f_reasons.append(f"PE_TTM={pe_ttm:.1f}")
+        score += 2
+        reasons.append(f"PE_TTM={pe_ttm:.1f}")
 
     sh = shareholder_data.get(code, [])
     holder_chg = None
@@ -254,38 +306,48 @@ def score_fev(stock: dict, eps_data: dict, shareholder_data: dict,
         try:
             holder_chg = safe_float(sh[0], "change_pct")
             if holder_chg < th["f_holder_pct"]:
-                f_score += 2
-                f_reasons.append(f"股东集中{holder_chg:.1f}%")
+                score += 2
+                reasons.append(f"股东集中{holder_chg:.1f}%")
         except (ValueError, TypeError):
             pass
 
     if any("均线多头" in d for d in sig_descs):
-        f_score += 3
-        f_reasons.append("均线多头")
+        score += 3
+        reasons.append("均线多头")
 
-    # --- E: Expectations ---
+    return score, reasons, cagr, holder_chg
+
+
+def _score_fev_expectations(stock: dict, hot_codes: set, code_themes: dict,
+                             theme_narratives: dict, th: dict, q: dict,
+                             eps_data: dict) -> tuple[int, list[str], int]:
+    code = stock["code"]
+    score = 0
+    reasons = []
+
     if code in hot_codes:
-        e_score += 3
+        score += 3
         themes = code_themes.get(code, [])
         if themes:
-            e_reasons.append(f"题材:{','.join(themes[:2])}")
+            reasons.append(f"题材:{','.join(themes[:2])}")
         else:
-            e_reasons.append("在涨停/强势股中")
+            reasons.append("在涨停/强势股中")
 
     stock_themes = code_themes.get(code, [])
     for st in stock_themes:
         n = theme_narratives.get(st, "")
         if n in ("Formation", "Validation"):
-            e_score += 2
-            e_reasons.append(f"叙事{n}")
+            score += 2
+            reasons.append(f"叙事{n}")
             break
 
     vol_ratio = q.get("vol_ratio", 0)
     if vol_ratio >= th["e_vol_ratio"]:
-        e_score += 2
-        e_reasons.append(f"量比{vol_ratio:.1f}")
+        score += 2
+        reasons.append(f"量比{vol_ratio:.1f}")
 
     inst_count = 0
+    eps = eps_data.get(code, [])
     if eps:
         inst_count = eps[0].get("inst_count") or 0
         try:
@@ -293,11 +355,21 @@ def score_fev(stock: dict, eps_data: dict, shareholder_data: dict,
         except (ValueError, TypeError):
             inst_count = 0
     if inst_count >= th["e_inst_min"]:
-        e_score += 3
-        e_reasons.append(f"{inst_count}家机构")
+        score += 3
+        reasons.append(f"{inst_count}家机构")
 
-    # --- V: Valuation ---
+    return score, reasons, inst_count
+
+
+def _score_fev_valuation(stock: dict, eps_data: dict, signals: list,
+                          q: dict, th: dict) -> tuple[int, list[str], float | None]:
+    code = stock["code"]
+    pe_ttm = q.get("pe_ttm", 0)
     current_price = q.get("price", 0)
+    score = 0
+    reasons = []
+
+    eps = eps_data.get(code, [])
     forward_pe = None
     if eps and current_price:
         try:
@@ -305,32 +377,42 @@ def score_fev(stock: dict, eps_data: dict, shareholder_data: dict,
             if last_eps > 0:
                 forward_pe = current_price / last_eps
                 if forward_pe < th["v_forward_pe_max"]:
-                    v_score += 3
-                    v_reasons.append(f"前瞻PE={forward_pe:.1f}")
+                    score += 3
+                    reasons.append(f"前瞻PE={forward_pe:.1f}")
                 if pe_ttm > 0 and forward_pe < pe_ttm:
-                    v_score += 2
-                    v_reasons.append("盈利改善")
+                    score += 2
+                    reasons.append("盈利改善")
         except (ValueError, TypeError):
             pass
 
     pb = q.get("pb", 0)
     if 0 < pb < th["v_pb_max"]:
-        v_score += 2
-        v_reasons.append(f"PB={pb:.1f}")
+        score += 2
+        reasons.append(f"PB={pb:.1f}")
 
     rsi = None
     for sig_type, desc in signals:
-        val = _extract_rsi(desc)
+        val = extract_rsi(desc)
         if val:
             rsi = val
             break
     if rsi is None or rsi < th["v_rsi_safe"]:
-        v_score += 3
+        score += 3
         if rsi:
-            v_reasons.append(f"RSI={rsi:.0f}")
+            reasons.append(f"RSI={rsi:.0f}")
 
+    return score, reasons, forward_pe
+
+
+def _assemble_fev_result(stock: dict, code: str, f_score: int, e_score: int,
+                          v_score: int, f_reasons: list[str], e_reasons: list[str],
+                          v_reasons: list[str], forward_pe: float | None,
+                          cagr: float | None, inst_count: int, holder_chg: float | None,
+                          hot_codes: set, code_themes: dict,
+                          theme_narratives: dict) -> dict:
     total = f_score + e_score + v_score
 
+    stock_themes = code_themes.get(code, [])
     alpha_bucket = None
     if cagr and cagr > 0.2 and forward_pe and forward_pe < 30:
         alpha_bucket = "Bucket1「成长被低估」"
@@ -354,6 +436,10 @@ def score_fev(stock: dict, eps_data: dict, shareholder_data: dict,
         "alpha_bucket": alpha_bucket,
     }
 
+
+# ============================================================
+# check_surge_preconditions / check_crash_warnings
+# ============================================================
 
 def check_surge_preconditions(stock: dict, hot_codes: set,
                               hot_theme_names: set, code_themes: dict) -> tuple[int, list[str]]:
@@ -433,5 +519,3 @@ def check_crash_warnings(stock: dict, shareholder_data: dict) -> list[str]:
             pass
 
     return warnings
-
-

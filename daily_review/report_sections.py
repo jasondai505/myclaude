@@ -3,7 +3,7 @@ from config import OVERSEAS_MAP
 from engine import rate_theme
 from report_utils import (
     _render_10d_row, _render_classified_table, _render_theme_block,
-    _render_focus_table, _fmt_5d, _cell,
+    _render_focus_table, _fmt_5d, _cell, _fmt_strength_row, _fmt_theme_amount_line,
 )
 
 
@@ -633,4 +633,132 @@ def render_advice(lines, suggestions):
         lines.append("### 风险提示\n")
         for r in risk:
             lines.append(f"- ⚠️ {r}")
+        lines.append("")
+
+
+def _render_strength(lines: list, sd: dict, focus_pool_data: list = None):
+    pool_lookup = {}
+    if focus_pool_data:
+        for item in focus_pool_data:
+            pool_lookup[item.get("code", "")] = item
+
+    strong = sd.get("strong_themes", [])
+    emerging = sd.get("emerging_themes", [])
+    fading = sd.get("fading_themes", [])
+    common = sd.get("rising_commonalities", {})
+
+    if strong:
+        lines.append("### 走强板块\n")
+        for ts in strong[:8]:
+            theme = ts["theme"]
+            stage = ts["stage"]
+            catalyst = ts["catalyst_type"]
+            avg5 = ts["avg_5d"]
+            lines.append(f"**{theme}** | {stage} | {catalyst} | 成分股均5日{avg5:+.1f}%\n")
+            lines.append(_fmt_theme_amount_line(ts))
+
+            roles = ts.get("roles", {})
+            has_roles = any(roles.get(r) for r in ("龙头", "中军", "量化标的"))
+            if has_roles:
+                lines.append("| 角色 | 标的 | 代码 | 市值 | 当日% | 涨停时间 | 连板 | 10日% | 5日% | 人气# | F | E | V | 依据 |")
+                lines.append("|------|------|------|-----:|------:|:--------:|:----:|------:|-----:|------:|--:|--:|--:|------|")
+                for role_name in ("龙头", "中军", "量化标的"):
+                    for s in roles.get(role_name, []):
+                        lines.append(_fmt_strength_row(role_name, s, pool_lookup))
+                lines.append("")
+
+    if emerging:
+        lines.append("### 潜在走强（将成龙）\n")
+        for ts in emerging[:5]:
+            theme = ts["theme"]
+            catalyst = ts["catalyst_type"]
+            cons = ts["consecutive_days"]
+            cnt = ts["today_count"]
+            lines.append(f"**{theme}** | 爆发初期({cons}天) | {catalyst} | 今日涨停{cnt}只\n")
+            lines.append(_fmt_theme_amount_line(ts))
+
+            dragons = ts.get("roles", {}).get("将成龙", [])
+            if dragons:
+                lines.append("| 将成龙 | 代码 | 当日% | 涨停时间 | 连板 | 5日% | 人气# | F | E | V | 信号 |")
+                lines.append("|--------|------|------:|:--------:|:----:|-----:|------:|--:|--:|--:|------|")
+                for s in dragons:
+                    zt_str = s.get("zt_time", "") or ""
+                    cb = s.get("consecutive_boards", 0)
+                    cb_str = f"{cb}板" if cb else ""
+                    hot_str = "-"
+                    f_str = e_str = v_str = "-"
+                    p = pool_lookup.get(s["code"])
+                    if p:
+                        hr = p.get("hot_rank")
+                        if hr:
+                            hot_str = str(hr)
+                        fev = p.get("fev") or {}
+                        if fev.get("f_score") is not None:
+                            f_str = str(fev["f_score"])
+                        if fev.get("e_score") is not None:
+                            e_str = str(fev["e_score"])
+                        if fev.get("v_score") is not None:
+                            v_str = str(fev["v_score"])
+                    lines.append(
+                        f"| {s['name']} | {s['code']} | {s['chg']:+.1f}% "
+                        f"| {zt_str} | {cb_str} | {s['r5']:+.1f}% "
+                        f"| {hot_str} | {f_str} | {e_str} | {v_str} "
+                        f"| {s.get('role_reason', '')} |"
+                    )
+                lines.append("")
+
+            other_roles = ts.get("roles", {})
+            has_other = any(other_roles.get(r) for r in ("龙头", "中军", "量化标的"))
+            if has_other:
+                lines.append("| 角色 | 标的 | 代码 | 市值 | 当日% | 涨停时间 | 连板 | 10日% | 5日% | 人气# | F | E | V | 依据 |")
+                lines.append("|------|------|------|-----:|------:|:--------:|:----:|------:|-----:|------:|--:|--:|--:|------|")
+                for role_name in ("龙头", "中军", "量化标的"):
+                    for s in other_roles.get(role_name, []):
+                        lines.append(_fmt_strength_row(role_name, s, pool_lookup))
+                lines.append("")
+
+    if fading:
+        lines.append("### 退潮板块\n")
+        lines.append("| 板块 | 此前级别 | 退潮信号 | 今日涨停 | 5日涨幅 |")
+        lines.append("|------|---------|---------|---------|---------|")
+        for ts in fading[:8]:
+            level_label = f"{ts['level']}-{ts['label']}" if ts.get('label') else str(ts['level'])
+            narrative = ts.get("narrative", "")
+            signal = "count下降" if narrative == "Violation" else "题材消失" if narrative == "Reversal" else narrative
+            lines.append(
+                f"| {ts['theme']} | {level_label} | {signal} "
+                f"| {ts['today_count']} | {ts['avg_5d']:+.1f}% |"
+            )
+        lines.append("")
+
+    if common and common.get("count", 0) > 0:
+        n = common["count"]
+        lines.append(f"### 近期赚钱模式\n")
+        lines.append(f"近5日涨幅>10%个股共**{n}**只：\n")
+
+        theme_dist = common.get("theme_dist", [])
+        if theme_dist:
+            dist_str = "、".join(f"{t}({c})" for t, c in theme_dist[:5])
+            lines.append(f"- **板块集中**：{dist_str}")
+
+        mcap = common.get("mcap_dist", {})
+        if mcap:
+            lines.append(f"- **市值分布**：{'、'.join(f'{k} {v}' for k, v in mcap.items())}")
+
+        board = common.get("board_dist", {})
+        if board:
+            lines.append(f"- **板块类型**：{'、'.join(f'{k} {v}' for k, v in board.items())}")
+
+        price = common.get("price_dist", {})
+        if price:
+            lines.append(f"- **价格区间**：{'、'.join(f'{k} {v}' for k, v in price.items())}")
+
+        tech = common.get("tech_dist", {})
+        if tech:
+            lines.append(f"- **技术面**：{'、'.join(f'{k} {v}' for k, v in tech.items())}")
+
+        conclusion = common.get("conclusion", "")
+        if conclusion:
+            lines.append(f"\n> {conclusion}")
+
         lines.append("")

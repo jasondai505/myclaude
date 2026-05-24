@@ -23,9 +23,8 @@ from engine_stocks import (
     analyze_single_stock, analyze_watchlist_themes, analyze_fundamentals,
     score_fev, check_surge_preconditions, check_crash_warnings,
 )
-from engine_advice import (
-    generate_suggestions, _extract_rsi,
-)
+from engine_advice import generate_suggestions
+from utils import extract_rsi as _extract_rsi
 from engine_focus import (
     build_focus_pool, compute_composite_score,
 )

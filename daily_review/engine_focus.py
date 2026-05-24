@@ -1,4 +1,6 @@
 """聚焦池 — 三源合并 + 综合评分"""
+
+
 def build_focus_pool(
     ths_hot: list[dict],
     zt_pool: dict[str, dict],
@@ -33,6 +35,10 @@ def build_focus_pool(
     return pool
 
 
+# ============================================================
+# compute_composite_score — 编排 + 6 helper
+# ============================================================
+
 def compute_composite_score(
     stock: dict,
     fev_total: int = 0,
@@ -46,6 +52,21 @@ def compute_composite_score(
 ) -> dict:
     scores = {}
 
+    _score_sector(scores, theme_level, theme_trend)
+    _score_fev_component(scores, fev_total)
+    _score_hot(scores, stock)
+    _score_momentum(scores, stock)
+    _score_catalyst(scores, stock, lhb_info, research, zsxq_mentions, limit_up_label)
+    _score_tech_risk(scores, stock, crash_warnings)
+
+    return _compute_advice(scores)
+
+
+# ============================================================
+# Helper: 行业/题材得分
+# ============================================================
+
+def _score_sector(scores: dict, theme_level: int, theme_trend: str):
     if theme_level >= 3 and theme_trend in ("验证", "形成"):
         scores["sector"] = 20
     elif theme_level >= 3:
@@ -57,8 +78,20 @@ def compute_composite_score(
     if theme_trend == "动摇":
         scores["sector"] = max(scores["sector"] - 10, 0)
 
+
+# ============================================================
+# Helper: FEV 得分
+# ============================================================
+
+def _score_fev_component(scores: dict, fev_total: int):
     scores["fev"] = min(round(fev_total / 30 * 25), 25)
 
+
+# ============================================================
+# Helper: 人气排名
+# ============================================================
+
+def _score_hot(scores: dict, stock: dict):
     rank = stock.get("hot_rank", 0)
     if 1 <= rank <= 10:
         scores["hot"] = 10
@@ -71,6 +104,12 @@ def compute_composite_score(
     else:
         scores["hot"] = 0
 
+
+# ============================================================
+# Helper: 动量（连板）
+# ============================================================
+
+def _score_momentum(scores: dict, stock: dict):
     boards = stock.get("zt_boards", 0)
     if boards >= 4:
         scores["momentum"] = 10
@@ -83,6 +122,14 @@ def compute_composite_score(
     else:
         scores["momentum"] = 0
 
+
+# ============================================================
+# Helper: 催化剂（龙虎榜/研报/星球/涨停标签）
+# ============================================================
+
+def _score_catalyst(scores: dict, stock: dict, lhb_info: dict | None,
+                     research: list[dict] | None, zsxq_mentions: int,
+                     limit_up_label: str | None):
     cat = 0
     if lhb_info:
         if "机构" in (lhb_info.get("comment") or ""):
@@ -105,6 +152,12 @@ def compute_composite_score(
         cat += 3
     scores["catalyst"] = min(cat, 15)
 
+
+# ============================================================
+# Helper: 技术面 & 风险惩罚
+# ============================================================
+
+def _score_tech_risk(scores: dict, stock: dict, crash_warnings: list[str] | None):
     tech = 5
     signals = stock.get("signals", [])
     sig_descs = [s[1] if isinstance(s, (list, tuple)) else str(s) for s in signals]
@@ -132,6 +185,12 @@ def compute_composite_score(
         risk_penalty += 5
     scores["risk"] = max(10 - risk_penalty, 0)
 
+
+# ============================================================
+# Helper: 综合建议
+# ============================================================
+
+def _compute_advice(scores: dict) -> dict:
     total = sum(scores.values())
 
     if total >= 60:
@@ -145,8 +204,4 @@ def compute_composite_score(
     else:
         advice = "回避"
 
-    return {
-        "total": total,
-        "scores": scores,
-        "advice": advice,
-    }
+    return {"total": total, "scores": scores, "advice": advice}

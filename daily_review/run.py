@@ -8,7 +8,7 @@
 import sys
 import time
 import argparse
-from datetime import datetime, date as _date
+from datetime import date as _date
 from pathlib import Path
 
 from utils import setup_console
@@ -52,13 +52,16 @@ def check_deps():
 
 
 def resolve_trade_date(date_str: str | None) -> str:
-    """解析交易日期，默认今天"""
     if date_str:
         return date_str
     return _date.today().strftime("%Y-%m-%d")
 
 
-def main():
+# ============================================================
+# Phase 1: 参数解析 & 子命令分发
+# ============================================================
+
+def _parse_args():
     parser = argparse.ArgumentParser(description="A股每日复盘系统")
     parser.add_argument("--date", "-d", type=str, default=None, help="交易日期 YYYY-MM-DD")
     parser.add_argument("--list", "-l", action="store_true", help="查看当前自选股")
@@ -67,58 +70,55 @@ def main():
     parser.add_argument("--earnings", "-e", action="store_true", help="盈利预测选股")
     parser.add_argument("--cross", "-x", action="store_true", help="知识星球×盈利预测交叉验证")
     parser.add_argument("--zsxq", action="store_true", help="同步知识星球帖子")
-    args = parser.parse_args()
+    return parser.parse_args()
 
+
+def _dispatch_early(args) -> bool:
     if args.list:
         print("当前自选股池:")
         for c in WATCHLIST:
             print(f"  {c}")
         print(f"\n编辑 config.py 修改自选股池")
-        return
+        return True
 
     if args.scan:
         check_deps()
         trade_date = resolve_trade_date(args.date)
         run_scan(trade_date)
-        return
+        return True
 
     if args.report:
         check_deps()
         trade_date = resolve_trade_date(args.date)
         run_research(trade_date)
-        return
+        return True
 
     if args.earnings:
         check_deps()
         trade_date = resolve_trade_date(args.date)
         run_earnings_screen(trade_date)
-        return
+        return True
 
     if args.cross:
         check_deps()
         trade_date = resolve_trade_date(args.date)
         run_cross(trade_date)
-        return
+        return True
 
     if args.zsxq:
         sync()
-        return
+        return True
 
-    check_deps()
-    store.init_db()
+    return False
 
-    trade_date = resolve_trade_date(args.date)
-    print(f"{'='*50}")
-    print(f"  A股每日复盘 — {trade_date}")
-    print(f"  自选股: {len(WATCHLIST)} 只")
-    print(f"{'='*50}\n")
 
-    t0 = time.time()
+# ============================================================
+# Phase 2: 数据拉取
+# ============================================================
+
+def _fetch_market_data(trade_date):
     total_steps = 12
 
-    # ============================================================
-    # Step 1: 拉取市场数据
-    # ============================================================
     print(f"[1/{total_steps}] 拉取指数行情...")
     indices = data.fetch_indices()
     print(f"  ✓ {len(indices)} 个指数")
@@ -152,18 +152,21 @@ def main():
         print(f"  ✗ 外围数据获取失败: {e}")
         global_data = {}
 
-    # ============================================================
-    # Step 2: 拉取自选股数据
-    # ============================================================
-    print(f"[6/{total_steps}] 扫描自选股 ({len(WATCHLIST)} 只)...")
-    stock_quotes = data.fetch_stock_quotes(WATCHLIST)
+    return indices, industry, hot_df, northbound, global_data
+
+
+def _fetch_watchlist_data(watchlist):
+    total_steps = 12
+
+    print(f"[6/{total_steps}] 扫描自选股 ({len(watchlist)} 只)...")
+    stock_quotes = data.fetch_stock_quotes(watchlist)
     print(f"  ✓ 行情: {len(stock_quotes)} 只")
 
     stock_klines = {}
     stock_flows = {}
     stock_lockups = {}
 
-    pbar = tqdm(WATCHLIST, desc="  自选股扫描", unit="只",
+    pbar = tqdm(watchlist, desc="  自选股扫描", unit="只",
                 bar_format="  {desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]")
     for code in pbar:
         label = stock_quotes.get(code, {}).get("name", code)
@@ -184,12 +187,48 @@ def main():
             stock_lockups[code] = lk
         time.sleep(FETCH_DELAY)
 
-    # ============================================================
-    # Step 3: 分析
-    # ============================================================
-    print(f"[7/{total_steps}] 分析中...")
+    return stock_quotes, stock_klines, stock_flows, stock_lockups
 
-    # 涨停/跌停池（提前抓，供 analyze_market 计算 10 日趋势）
+
+def _fetch_popularity():
+    print(f"[10/12] 拉取市场人气...")
+    concept_heat = data.fetch_concept_heat(top_n=50)
+    hot_stocks = data.fetch_hot_stocks(top_n=200)
+    if concept_heat:
+        print(f"  ✓ 概念板块 {len(concept_heat)} 个")
+    if hot_stocks:
+        print(f"  ✓ 人气个股 {len(hot_stocks)} 只")
+    return concept_heat, hot_stocks
+
+
+def _fetch_zsxq(trade_date):
+    zsxq_data = None
+    try:
+        if COOKIE_PATH.exists():
+            print(f"[11/12] 拉取知识星球...")
+            cookie = load_cookie()
+            zsxq_topics = fetch_recent_topics(cookie, pages=50)
+            if zsxq_topics:
+                zsxq_data = analyze_zsxq_topics(zsxq_topics, trade_date)
+                print(f"  ✓ {len(zsxq_topics)} 条帖子，提取 {len(zsxq_data['highlights'])} 条要点")
+            else:
+                print("  ✗ 未拉到帖子（Cookie可能过期）")
+        else:
+            print(f"[11/12] 跳过知识星球（无cookie.txt）")
+    except Exception as e:
+        print(f"[11/12] 知识星球采集失败: {e}")
+    return zsxq_data
+
+
+# ============================================================
+# Phase 3: 分析
+# ============================================================
+
+def _run_core_analysis(indices, industry, hot_df, northbound, global_data,
+                       stock_quotes, stock_klines, stock_flows, stock_lockups,
+                       trade_date, watchlist):
+    print(f"[7/12] 分析中...")
+
     zt_pool = data.fetch_zt_pool(trade_date)
     if zt_pool:
         print(f"  ✓ 涨停池 {len(zt_pool)} 只")
@@ -219,7 +258,7 @@ def main():
         print(f"  [WARN] 外围催化摘要跳过: {e}")
 
     watchlist_results = []
-    for code in WATCHLIST:
+    for code in watchlist:
         r = engine.analyze_single_stock(
             code=code,
             quote=stock_quotes.get(code),
@@ -231,29 +270,32 @@ def main():
 
     wt_result = engine.analyze_watchlist_themes(watchlist_results, hot_df, theme_result)
 
-    # 题材审美（3级以上）
+    return (market_result, style_result, sentiment_result, sector_result,
+            theme_result, nb_result, global_result, watchlist_results,
+            wt_result, zt_pool, dt_pool)
+
+
+def _run_theme_expansion(hot_df, theme_result, stock_quotes, stock_klines,
+                         trade_date, zt_pool):
     leveled = theme_result.get("leveled", [])
     high_themes = [t for t in leveled if t["level"] >= 3]
     theme_news_map = {}
+
     if high_themes:
-        print(f"[8/{total_steps}] 题材审美分析（{len(high_themes)}个3级+题材）...")
+        print(f"[8/12] 题材审美分析（{len(high_themes)}个3级+题材）...")
         for t in tqdm(high_themes, desc="  题材新闻", unit="个",
                       bar_format="  {desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"):
             news = data.fetch_theme_news(t["theme"], limit=8)
             theme_news_map[t["theme"]] = news
             time.sleep(0.3)
     else:
-        print(f"[8/{total_steps}] 无3级以上题材，跳过审美分析")
+        print(f"[8/12] 无3级以上题材，跳过审美分析")
+
     aesthetics_result = engine.analyze_theme_aesthetics(leveled, theme_news_map)
 
-    # zt_pool/dt_pool 已在 Step 3 提前抓取
-
-    # 涨停/强势股5日K线（用于题材个股明细）
     hot_klines = {}
-    hot_codes_set_for_quotes = set()
     if hot_df is not None and not hot_df.empty:
         hot_codes_list = [str(row.get("代码", "")) for _, row in hot_df.iterrows()]
-        hot_codes_set_for_quotes = set(hot_codes_list)
         print(f"  拉取涨停股K线（{len(hot_codes_list)}只）...")
         for code in tqdm(hot_codes_list, desc="  涨停K线", unit="只",
                          bar_format="  {desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"):
@@ -265,7 +307,6 @@ def main():
                     hot_klines[code] = kl
                 time.sleep(0.1)
 
-    # 涨停股行情补全：hot_df中涨幅=0的标的，用腾讯行情补全
     hot_quotes = {}
     if hot_df is not None and not hot_df.empty:
         zero_chg_codes = [
@@ -280,7 +321,6 @@ def main():
     theme_stock_details = engine.build_theme_stock_details(
         hot_df, theme_result, hot_klines, hot_quotes=hot_quotes, zt_pool=zt_pool)
 
-    # 题材股票扩展 — 近期活跃 + 中军
     leveled = theme_result.get("leveled", [])
     theme_freq_5d = {}
     theme_freq_30d = {}
@@ -308,7 +348,6 @@ def main():
         print(f"  拉取题材扩展行情（{len(extra_list)}只）...")
         extra_quotes = data.fetch_stock_quotes(extra_list)
 
-        # 选择性拉取klines: 取各题材 top candidates
         kline_codes = set()
         for t in leveled:
             theme_name = t["theme"]
@@ -347,7 +386,6 @@ def main():
         theme_freq_5d, theme_freq_30d,
     )
 
-    # §4 三池合并：涨停 ∪ 人气前100 ∪ 20日涨幅前100（问财所属概念 + 词频共振）
     print("  拉取人气前100 / 20日涨幅前100（问财）...")
     pop_pool = data.fetch_popularity_top100()
     gain_pool = data.fetch_gainers_20d()
@@ -359,8 +397,16 @@ def main():
 
     theme_groups = engine.classify_themes_by_trend(theme_result, aesthetics_result)
 
-    # 板块/个股强弱分析
-    print(f"  板块强弱分析...")
+    return (theme_stock_details, aesthetics_result, theme_groups,
+            theme_new_dirs, theme_longtail, all_extra_klines,
+            extra_quotes, hot_quotes)
+
+
+def _run_strength_phase(theme_result, all_extra_klines, stock_klines,
+                        stock_quotes, extra_quotes, zt_pool, trade_date,
+                        aesthetics_result):
+    print("  板块强弱分析...")
+    leveled = theme_result.get("leveled", [])
     theme_pool = store.get_theme_stock_pool(trade_date, STRENGTH_POOL_LOOKBACK)
     code_to_themes = store.build_code_to_themes(theme_pool)
 
@@ -401,7 +447,7 @@ def main():
             time.sleep(0.1)
 
     all_klines_merged = {**all_extra_klines, **stock_klines, **strength_klines}
-    all_quotes_merged = {**stock_quotes, **extra_quotes, **hot_quotes, **strength_quotes}
+    all_quotes_merged = {**stock_quotes, **extra_quotes, **strength_quotes}
 
     aesthetics_map = {a["theme"]: a for a in aesthetics_result}
     strength_result = strength_mod.run_strength_analysis(
@@ -413,12 +459,16 @@ def main():
           f"退潮{len(strength_result['fading_themes'])}个 | "
           f"走强个股{strength_result['rising_commonalities']['count']}只")
 
-    # 基本面扫描（全部自选股 — FEV评分需要）
-    print(f"[9/{total_steps}] 基本面扫描（FEV评分）...")
+    return strength_result, all_klines_merged, all_quotes_merged, code_to_themes, theme_pool
+
+
+def _run_fundamentals_fev(watchlist, stock_quotes, watchlist_results, hot_df,
+                          theme_result, market_result, sector_result, nb_result):
+    print(f"[9/12] 基本面扫描（FEV评分）...")
     eps_data = {}
     shareholder_data = {}
     news_data = {}
-    valid_codes = [c for c in WATCHLIST if stock_quotes.get(c)]
+    valid_codes = [c for c in watchlist if stock_quotes.get(c)]
     pbar = tqdm(valid_codes, desc="  基本面", unit="只",
                 bar_format="  {desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]")
     for code in pbar:
@@ -445,7 +495,6 @@ def main():
         top_codes[:10], stock_quotes, eps_data, shareholder_data, news_data
     )
 
-    # FEV三脚凳评分
     hot_codes = set()
     code_themes: dict[str, list[str]] = {}
     if hot_df is not None and not hot_df.empty:
@@ -492,38 +541,26 @@ def main():
         crash_warnings=crash_warnings_map,
     )
 
-    # Step 10: 市场人气（概念板块热度 + 个股人气排名）
-    print(f"[10/{total_steps}] 拉取市场人气...")
-    concept_heat = data.fetch_concept_heat(top_n=50)
-    hot_stocks = data.fetch_hot_stocks(top_n=200)
-    if concept_heat:
-        print(f"  ✓ 概念板块 {len(concept_heat)} 个")
-    if hot_stocks:
-        print(f"  ✓ 人气个股 {len(hot_stocks)} 只")
+    return (fundamentals_result, eps_data, shareholder_data,
+            fev_scores, crash_warnings_map, suggestions,
+            hot_codes, code_themes, hot_theme_names, theme_narratives)
 
-    # Step 11: 知识星球
-    zsxq_data = None
-    try:
-        if COOKIE_PATH.exists():
-            print(f"[11/{total_steps}] 拉取知识星球...")
-            cookie = load_cookie()
-            zsxq_topics = fetch_recent_topics(cookie, pages=50)
-            if zsxq_topics:
-                zsxq_data = analyze_zsxq_topics(zsxq_topics, trade_date)
-                print(f"  ✓ {len(zsxq_topics)} 条帖子，提取 {len(zsxq_data['highlights'])} 条要点")
-            else:
-                print("  ✗ 未拉到帖子（Cookie可能过期）")
-        else:
-            print(f"[11/{total_steps}] 跳过知识星球（无cookie.txt）")
-    except Exception as e:
-        print(f"[11/{total_steps}] 知识星球采集失败: {e}")
 
-    # Step 12: 聚焦池构建与综合评分
-    print(f"[12/{total_steps}] 构建聚焦池...")
+# ============================================================
+# Phase 4: 聚焦池
+# ============================================================
+
+def _build_focus_pool_full(trade_date, watchlist, zt_pool, all_quotes_merged,
+                           all_klines_merged, stock_klines, fev_scores,
+                           eps_data, shareholder_data, hot_codes, code_themes,
+                           hot_theme_names, theme_narratives, zsxq_data,
+                           sentiment_result, leveled, code_to_themes,
+                           crash_warnings_map, strength_result, theme_pool):
+    print(f"[12/12] 构建聚焦池...")
     ths_hot = data.fetch_ths_hot_stocks(period="hour")
     print(f"  ✓ 同花顺人气 {len(ths_hot)} 只")
 
-    focus_pool = engine.build_focus_pool(ths_hot, zt_pool or {}, WATCHLIST)
+    focus_pool = engine.build_focus_pool(ths_hot, zt_pool or {}, watchlist)
     print(f"  ✓ 聚焦池 {len(focus_pool)} 只（去重后）")
 
     pool_codes_need_quotes = [c for c in focus_pool if c not in all_quotes_merged]
@@ -565,7 +602,7 @@ def main():
                 all_klines_merged[code] = kl
             time.sleep(0.1)
 
-    pool_non_watch = [c for c in focus_pool if c not in set(WATCHLIST)]
+    pool_non_watch = [c for c in focus_pool if c not in set(watchlist)]
     eps_candidates = [c for c in pool_non_watch if c not in eps_data
                       and (focus_pool[c].get("hot_rank", 0) <= 50
                            or "zt" in focus_pool[c]["source"])]
@@ -594,7 +631,6 @@ def main():
         )
         fev_map[code] = fev
 
-    # 语料采集（聚焦池全集）：公告 / 互动平台 / 个股新闻
     print(f"  拉取聚焦池语料（公告/互动/新闻，{len(focus_pool)}只）...")
     corpus_map: dict[str, dict] = {}
     ann_date = trade_date.replace("-", "")
@@ -603,7 +639,7 @@ def main():
         corpus_map[code] = {
             "announcements": announcements_all.get(code, [])[:5],
             "irm": [],
-            "news": list(news_data.get(code, [])),
+            "news": [],
         }
     for code in tqdm(list(focus_pool.keys()), desc="  互动+新闻", unit="只",
                      bar_format="  {desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"):
@@ -621,7 +657,7 @@ def main():
                 corpus_map[code]["news"] = ns
         time.sleep(0.15)
 
-    # B1: 逻辑/情绪涨停四维分类（数据齐全后改写 sentiment_result）
+    # B1: 逻辑/情绪涨停四维分类
     theme_counts: dict[str, int] = {}
     for zt_code in (zt_pool or {}):
         for tname in (code_themes.get(zt_code) or code_to_themes.get(zt_code, [])):
@@ -640,7 +676,7 @@ def main():
         bl_parts = " / ".join(f"{k}{v}" for k, v in by_label.items() if v)
         print(f"  ✓ 涨停四维分类: {bl_parts}")
 
-    # B2: 涨停 label 映射（code → label）
+    # B2: 涨停 label 映射
     limit_up_label_map: dict[str, str] = {}
     for bucket in ("logic_stocks", "emotion_stocks", "mixed_stocks"):
         for s in sentiment_result.get(bucket, []):
@@ -737,26 +773,21 @@ def main():
         strength_result, theme_pool, fev_per_code,
     )
 
-    # 保存市场快照
-    sh = indices.get("上证指数", {})
-    sz = indices.get("深证成指", {})
-    cyb = indices.get("创业板指", {})
-    store.save_market_snapshot(trade_date, {
-        "sh_close": sh.get("price"), "sh_chg_pct": sh.get("change_pct"),
-        "sz_close": sz.get("price"), "sz_chg_pct": sz.get("change_pct"),
-        "cyb_close": cyb.get("price"), "cyb_chg_pct": cyb.get("change_pct"),
-        "north_hgt": nb_result["hgt"], "north_sgt": nb_result["sgt"],
-        "up_count": sector_result.get("breadth", {}).get("up"),
-        "down_count": sector_result.get("breadth", {}).get("down"),
-        "total_amount_yi": market_result.get("total_amount_yi"),
-        "limit_up_count": market_result.get("limit_up_filtered"),
-        "limit_up_2plus": market_result.get("limit_up_2plus"),
-        "limit_down_count": market_result.get("limit_down_count"),
-    })
+    return focus_pool_data, fev_map
 
-    # ============================================================
-    # Step 4: 生成报告
-    # ============================================================
+
+# ============================================================
+# Phase 5: 报告生成 & 保存
+# ============================================================
+
+def _save_and_report(trade_date, market_result, style_result, sector_result,
+                     theme_result, nb_result, global_result, watchlist_results,
+                     suggestions, sentiment_result, wt_result,
+                     fundamentals_result, aesthetics_result, zsxq_data,
+                     fev_scores, theme_stock_details, theme_groups,
+                     theme_new_dirs, theme_longtail, strength_result,
+                     zt_pool, concept_heat, hot_stocks, focus_pool_data,
+                     t0):
     md = report.render_report(
         trade_date=trade_date,
         market=market_result,
@@ -793,7 +824,6 @@ def main():
     print(f"  📄 报告: {report_path}")
     print(f"{'='*50}")
 
-    # 打印摘要
     amt = market_result.get("total_amount_yi", 0)
     liq = market_result.get("liquidity", "")
     pe = market_result.get("profit_effect", "")
@@ -820,6 +850,103 @@ def main():
         print(f"  {f}")
     for r in suggestions.get("risk", [])[:3]:
         print(f"  {r}")
+
+
+# ============================================================
+# 主入口
+# ============================================================
+
+def main():
+    args = _parse_args()
+    if _dispatch_early(args):
+        return
+
+    check_deps()
+    store.init_db()
+
+    trade_date = resolve_trade_date(args.date)
+    print(f"{'='*50}")
+    print(f"  A股每日复盘 — {trade_date}")
+    print(f"  自选股: {len(WATCHLIST)} 只")
+    print(f"{'='*50}\n")
+
+    t0 = time.time()
+
+    # Phase 1: 拉取数据
+    indices, industry, hot_df, northbound, global_data = _fetch_market_data(trade_date)
+    stock_quotes, stock_klines, stock_flows, stock_lockups = _fetch_watchlist_data(WATCHLIST)
+
+    # Phase 2: 核心分析
+    (market_result, style_result, sentiment_result, sector_result,
+     theme_result, nb_result, global_result, watchlist_results,
+     wt_result, zt_pool, dt_pool) = _run_core_analysis(
+        indices, industry, hot_df, northbound, global_data,
+        stock_quotes, stock_klines, stock_flows, stock_lockups,
+        trade_date, WATCHLIST)
+
+    # Phase 3: 题材扩展
+    (theme_stock_details, aesthetics_result, theme_groups,
+     theme_new_dirs, theme_longtail, all_extra_klines,
+     extra_quotes, hot_quotes) = _run_theme_expansion(
+        hot_df, theme_result, stock_quotes, stock_klines,
+        trade_date, zt_pool)
+
+    # Phase 4: 板块强弱
+    strength_result, all_klines_merged, all_quotes_merged, code_to_themes, theme_pool = _run_strength_phase(
+        theme_result, all_extra_klines, stock_klines, stock_quotes,
+        extra_quotes, zt_pool, trade_date, aesthetics_result)
+
+    all_quotes_merged.update(hot_quotes)
+
+    # Phase 5: 基本面 + FEV
+    (fundamentals_result, eps_data, shareholder_data,
+     fev_scores, crash_warnings_map, suggestions,
+     hot_codes, code_themes, hot_theme_names,
+     theme_narratives) = _run_fundamentals_fev(
+        WATCHLIST, stock_quotes, watchlist_results, hot_df,
+        theme_result, market_result, sector_result, nb_result)
+
+    # Phase 6: 人气 + 知识星球
+    concept_heat, hot_stocks = _fetch_popularity()
+    zsxq_data = _fetch_zsxq(trade_date)
+
+    # Phase 7: 聚焦池
+    leveled = theme_result.get("leveled", [])
+    focus_pool_data, fev_map = _build_focus_pool_full(
+        trade_date, WATCHLIST, zt_pool, all_quotes_merged,
+        all_klines_merged, stock_klines, fev_scores,
+        eps_data, shareholder_data, hot_codes, code_themes,
+        hot_theme_names, theme_narratives, zsxq_data,
+        sentiment_result, leveled, code_to_themes,
+        crash_warnings_map, strength_result, theme_pool)
+
+    # Phase 8: 保存市场快照
+    sh = indices.get("上证指数", {})
+    sz = indices.get("深证成指", {})
+    cyb = indices.get("创业板指", {})
+    store.save_market_snapshot(trade_date, {
+        "sh_close": sh.get("price"), "sh_chg_pct": sh.get("change_pct"),
+        "sz_close": sz.get("price"), "sz_chg_pct": sz.get("change_pct"),
+        "cyb_close": cyb.get("price"), "cyb_chg_pct": cyb.get("change_pct"),
+        "north_hgt": nb_result["hgt"], "north_sgt": nb_result["sgt"],
+        "up_count": sector_result.get("breadth", {}).get("up"),
+        "down_count": sector_result.get("breadth", {}).get("down"),
+        "total_amount_yi": market_result.get("total_amount_yi"),
+        "limit_up_count": market_result.get("limit_up_filtered"),
+        "limit_up_2plus": market_result.get("limit_up_2plus"),
+        "limit_down_count": market_result.get("limit_down_count"),
+    })
+
+    # Phase 9: 生成报告
+    _save_and_report(
+        trade_date, market_result, style_result, sector_result,
+        theme_result, nb_result, global_result, watchlist_results,
+        suggestions, sentiment_result, wt_result,
+        fundamentals_result, aesthetics_result, zsxq_data,
+        fev_scores, theme_stock_details, theme_groups,
+        theme_new_dirs, theme_longtail, strength_result,
+        zt_pool, concept_heat, hot_stocks, focus_pool_data,
+        t0)
 
 
 if __name__ == "__main__":

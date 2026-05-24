@@ -9,11 +9,27 @@ def analyze_market(indices: dict, industry_data: dict = None,
                     hot_df: pd.DataFrame = None,
                     zt_pool: dict = None, dt_pool: dict = None,
                     trade_date: str = None) -> dict:
+    result = {}
+
+    _market_index_sentiment(result, indices)
+    _market_amount_liquidity(result, indices, trade_date)
+    _market_breadth_limits(result, industry_data, hot_df, zt_pool, dt_pool)
+    _market_history_10d(result, trade_date)
+    _market_profit_effect(result, industry_data)
+
+    return result
+
+
+# ============================================================
+# Helper: 指数情绪
+# ============================================================
+
+def _market_index_sentiment(result: dict, indices: dict):
     idx_map = {
         "上证指数": "sh", "深证成指": "sz", "创业板指": "cyb",
         "科创50": "kc50", "沪深300": "hs300", "中证500": "zz500",
     }
-    result = {"indices": {}, "sentiment": ""}
+    result["indices"] = {}
     up_cnt = 0
     for label, data in indices.items():
         if label in idx_map:
@@ -31,6 +47,12 @@ def analyze_market(indices: dict, industry_data: dict = None,
     else:
         result["sentiment"] = "震荡分化"
 
+
+# ============================================================
+# Helper: 成交额与流动性
+# ============================================================
+
+def _market_amount_liquidity(result: dict, indices: dict, trade_date: str | None):
     sh_amount = indices.get("上证指数", {}).get("amount_wan", 0)
     sz_amount = indices.get("深证成指", {}).get("amount_wan", 0)
     total_amount_yi = (sh_amount + sz_amount) / 10000
@@ -56,10 +78,17 @@ def analyze_market(indices: dict, industry_data: dict = None,
         result["amount_ma20"] = 0
         result["amount_vs_ma5"] = 0
 
+
+# ============================================================
+# Helper: 涨跌家数 & 涨跌停统计
+# ============================================================
+
+def _market_breadth_limits(result: dict, industry_data: dict | None,
+                            hot_df: pd.DataFrame | None,
+                            zt_pool: dict | None, dt_pool: dict | None):
     breadth = industry_data or {}
     total_up = breadth.get("total_up", 0)
     total_down = breadth.get("total_down", 0)
-    total_stocks = total_up + total_down
     result["up_count"] = total_up
     result["down_count"] = total_down
 
@@ -93,23 +122,42 @@ def analyze_market(indices: dict, industry_data: dict = None,
                 limit_down_count += 1
     result["limit_down_count"] = limit_down_count
 
-    if trade_date:
-        history = store.get_market_snapshot_history(trade_date, 10)
-        today_row = {
-            "date": trade_date,
-            "total_amount_yi": result.get("total_amount_yi"),
-            "limit_up_count": limit_up_filtered,
-            "limit_up_2plus": limit_up_2plus,
-            "limit_down_count": limit_down_count,
-        }
-        if history and history[-1]["date"] == trade_date:
-            history[-1].update(today_row)
-        else:
-            history.append(today_row)
-        result["history_10d"] = history
-        result["prev_total_amount_yi"] = (
-            history[-2].get("total_amount_yi") if len(history) >= 2 else None
-        )
+
+# ============================================================
+# Helper: 10日历史
+# ============================================================
+
+def _market_history_10d(result: dict, trade_date: str | None):
+    if not trade_date:
+        return
+    history = store.get_market_snapshot_history(trade_date, 10)
+    today_row = {
+        "date": trade_date,
+        "total_amount_yi": result.get("total_amount_yi"),
+        "limit_up_count": result.get("limit_up_filtered", 0),
+        "limit_up_2plus": result.get("limit_up_2plus", 0),
+        "limit_down_count": result.get("limit_down_count", 0),
+    }
+    if history and history[-1]["date"] == trade_date:
+        history[-1].update(today_row)
+    else:
+        history.append(today_row)
+    result["history_10d"] = history
+    result["prev_total_amount_yi"] = (
+        history[-2].get("total_amount_yi") if len(history) >= 2 else None
+    )
+
+
+# ============================================================
+# Helper: 赚钱效应
+# ============================================================
+
+def _market_profit_effect(result: dict, industry_data: dict | None):
+    breadth = industry_data or {}
+    total_up = breadth.get("total_up", 0)
+    total_down = breadth.get("total_down", 0)
+    total_stocks = total_up + total_down
+    limit_up_count = result.get("limit_up_count", 0)
 
     if total_stocks > 0:
         up_ratio = total_up / total_stocks
@@ -124,8 +172,10 @@ def analyze_market(indices: dict, industry_data: dict = None,
     else:
         result["profit_effect"] = "N/A"
 
-    return result
 
+# ============================================================
+# analyze_style / analyze_sectors / analyze_northbound / analyze_global
+# ============================================================
 
 def analyze_style(indices: dict) -> dict:
     large = indices.get("大盘价值(上证50)", {})

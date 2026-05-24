@@ -1,4 +1,5 @@
 """共享工具函数"""
+import re
 import sys
 import os
 
@@ -28,3 +29,8 @@ def safe_float(row, col: str, default: float = 0.0) -> float:
         return float(v or 0)
     except (ValueError, TypeError):
         return default
+
+
+def extract_rsi(desc: str) -> float:
+    m = re.search(r"RSI=(\d+)", desc)
+    return float(m.group(1)) if m else 0
