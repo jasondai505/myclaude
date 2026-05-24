@@ -782,7 +782,6 @@ def main():
         concept_heat=concept_heat,
         hot_stocks=hot_stocks,
         focus_pool_data=focus_pool_data,
-        ths_hot=ths_hot,
     )
 
     report_path = REPORT_DIR / f"review_{trade_date}.md"
