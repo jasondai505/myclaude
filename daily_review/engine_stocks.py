@@ -9,6 +9,7 @@ from config import (
     POSITION_THRESHOLDS, FEV_THRESHOLDS,
 )
 from engine_themes import normalize_theme
+from utils import safe_str, safe_float
 
 
 def analyze_single_stock(
@@ -140,9 +141,9 @@ def analyze_watchlist_themes(watchlist_results: list[dict],
     hot_codes = set()
     code_themes: dict[str, list[str]] = {}
     for _, row in hot_df.iterrows():
-        code = str(row.get("代码", ""))
+        code = safe_str(row, "代码")
         hot_codes.add(code)
-        reason = str(row.get("题材归因", ""))
+        reason = safe_str(row, "题材归因")
         tags = [t.strip() for t in reason.split("+") if t.strip()]
         code_themes[code] = tags
 
@@ -160,10 +161,10 @@ def analyze_watchlist_themes(watchlist_results: list[dict],
     for theme in top5_themes:
         theme_stocks = set()
         for _, row in hot_df.iterrows():
-            reason = str(row.get("题材归因", ""))
+            reason = safe_str(row, "题材归因")
             canon_tags = {normalize_theme(x) for x in reason.split("+")}
             if theme in canon_tags:
-                theme_stocks.add(str(row.get("代码", "")))
+                theme_stocks.add(safe_str(row, "代码"))
         covered = watchlist_codes & theme_stocks
         result["theme_coverage"][theme] = {
             "total": len(theme_stocks),
@@ -200,7 +201,7 @@ def analyze_fundamentals(codes: list[str], quotes: dict,
         sh = shareholder_data.get(code, [])
         if len(sh) >= 2:
             try:
-                pct = float(sh[0].get("change_pct", 0) or 0)
+                pct = safe_float(sh[0], "change_pct")
                 if pct < -5:
                     item["holder_signal"] = f"股东户数减少{abs(pct):.1f}%（筹码集中）"
                 elif pct > 10:
@@ -253,7 +254,7 @@ def score_fev(stock: dict, eps_data: dict, shareholder_data: dict,
     holder_chg = None
     if len(sh) >= 2:
         try:
-            holder_chg = float(sh[0].get("change_pct", 0) or 0)
+            holder_chg = safe_float(sh[0], "change_pct")
             if holder_chg < th["f_holder_pct"]:
                 f_score += 2
                 f_reasons.append(f"股东集中{holder_chg:.1f}%")
@@ -321,10 +322,10 @@ def score_fev(stock: dict, eps_data: dict, shareholder_data: dict,
 
     rsi = None
     for sig_type, desc in signals:
-        if "RSI=" in desc:
-            m = re.search(r"RSI=(\d+)", desc)
-            if m:
-                rsi = float(m.group(1))
+        val = _extract_rsi(desc)
+        if val:
+            rsi = val
+            break
     if rsi is None or rsi < th["v_rsi_safe"]:
         v_score += 3
         if rsi:
@@ -427,7 +428,7 @@ def check_crash_warnings(stock: dict, shareholder_data: dict) -> list[str]:
     sh = shareholder_data.get(code, [])
     if len(sh) >= 2:
         try:
-            pct = float(sh[0].get("change_pct", 0) or 0)
+            pct = safe_float(sh[0], "change_pct")
             if pct > 10:
                 warnings.append(f"筹码松动（股东户数+{pct:.1f}%）")
         except (ValueError, TypeError):

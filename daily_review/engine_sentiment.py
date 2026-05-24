@@ -1,5 +1,8 @@
 """情绪面分析 — 连板梯队 / 逻辑情绪四维分类 (B1)"""
+import re
 import pandas as pd
+
+from utils import is_st, safe_str, safe_float
 
 _LOGIC_DRIVER_STRONG = ["合同", "订单", "中标", "签约", "业绩预增", "扭亏",
                          "增持", "回购", "获批", "投产", "扩产", "并表"]
@@ -19,22 +22,21 @@ def analyze_sentiment(hot_df: pd.DataFrame) -> dict:
 
     ladder: dict[int, list] = {}
     for _, row in hot_df.iterrows():
-        reason = str(row.get("题材归因", ""))
-        name = str(row.get("名称", ""))
-        code = str(row.get("代码", ""))
-        amount = float(row.get("成交额", 0) or 0)
+        reason = safe_str(row, "题材归因")
+        name = safe_str(row, "名称")
+        code = safe_str(row, "代码")
+        amount = safe_float(row, "成交额")
 
         board_n = 0
         for tag in reason.split("+"):
             if "连板" in tag.strip():
-                import re
                 m = re.search(r"(\d+)", tag)
                 if m:
                     board_n = int(m.group(1))
                     break
 
         info = {"name": name, "code": code, "reason": reason, "amount": amount, "board_n": board_n}
-        if name.startswith(("ST", "*ST")):
+        if is_st(name):
             result["st_stocks"].append(info)
             continue
 
@@ -57,10 +59,10 @@ def analyze_sentiment(hot_df: pd.DataFrame) -> dict:
     if ladder:
         result["leader"] = {"board": max(ladder.keys()), "stocks": ladder[max(ladder.keys())]}
 
-    rows = [{"name": str(r.get("名称", "")), "code": str(r.get("代码", "")),
-             "amount": float(r.get("成交额", 0) or 0)}
+    rows = [{"name": safe_str(r, "名称"), "code": safe_str(r, "代码"),
+             "amount": safe_float(r, "成交额")}
             for _, r in hot_df.iterrows()
-            if not str(r.get("名称", "")).startswith(("ST", "*ST"))]
+            if not is_st(safe_str(r, "名称"))]
     if rows:
         result["biggest_vol_limit"] = max(rows, key=lambda x: x["amount"])
     return result

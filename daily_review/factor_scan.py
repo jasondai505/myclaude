@@ -20,7 +20,8 @@ from config import (
     FACTOR_TOP_N, FACTOR_MIN_DAYS,
 )
 
-sys.stdout.reconfigure(encoding="utf-8")
+from utils import setup_console
+setup_console()
 
 REPORT_DIR = Path(__file__).parent / "reports"
 REPORT_DIR.mkdir(exist_ok=True)

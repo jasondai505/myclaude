@@ -2,6 +2,7 @@
 import pandas as pd
 
 import store
+from utils import is_st, safe_str
 
 
 def analyze_market(indices: dict, industry_data: dict = None,
@@ -65,33 +66,30 @@ def analyze_market(indices: dict, industry_data: dict = None,
     limit_up_count = len(hot_df) if hot_df is not None and not hot_df.empty else 0
     result["limit_up_count"] = limit_up_count
 
-    def _is_st(name: str) -> bool:
-        return bool(name) and (name.startswith("ST") or name.startswith("*ST"))
-
     limit_up_filtered = 0
     if hot_df is not None and not hot_df.empty:
         for _, row in hot_df.iterrows():
-            if not _is_st(str(row.get("名称", ""))):
+            if not is_st(safe_str(row, "名称")):
                 limit_up_filtered += 1
     result["limit_up_filtered"] = limit_up_filtered
 
     limit_up_2plus = 0
     if zt_pool:
         for code, info in zt_pool.items():
-            if info.get("consecutive_boards", 1) >= 2 and not _is_st(info.get("name", "")):
+            if info.get("consecutive_boards", 1) >= 2 and not is_st(info.get("name", "")):
                 limit_up_2plus += 1
     elif hot_df is not None and not hot_df.empty:
         for _, row in hot_df.iterrows():
-            if _is_st(str(row.get("名称", ""))):
+            if is_st(safe_str(row, "名称")):
                 continue
-            if "连板" in str(row.get("题材归因", "")):
+            if "连板" in safe_str(row, "题材归因"):
                 limit_up_2plus += 1
     result["limit_up_2plus"] = limit_up_2plus
 
     limit_down_count = 0
     if dt_pool:
         for code, info in dt_pool.items():
-            if not _is_st(info.get("name", "")):
+            if not is_st(info.get("name", "")):
                 limit_down_count += 1
     result["limit_down_count"] = limit_down_count
 

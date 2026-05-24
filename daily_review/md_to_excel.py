@@ -8,8 +8,8 @@ import sys
 import re
 from pathlib import Path
 
-if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+from utils import setup_console
+setup_console()
 
 import pandas as pd
 

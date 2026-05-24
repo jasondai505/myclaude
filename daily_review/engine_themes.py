@@ -12,6 +12,7 @@ from config import (
     THEME_STOPWORDS, THEME_ALIAS,
     MERGE_POOL_MAX_CONCEPTS, MERGE_POOL_MIN_FREQ,
 )
+from utils import safe_str, safe_float
 import store
 
 SOURCE_ZT = "涨"
@@ -44,8 +45,8 @@ def analyze_themes(hot_df: pd.DataFrame, trade_date: str) -> dict:
 
     theme_stocks: dict[str, set[str]] = {}
     for _, row in hot_df.iterrows():
-        reason = str(row.get("题材归因", ""))
-        code = str(row.get("代码", ""))
+        reason = safe_str(row, "题材归因")
+        code = safe_str(row, "代码")
         for raw in reason.split("+"):
             tag = normalize_theme(raw)
             if tag:
@@ -172,12 +173,12 @@ def build_theme_stock_details(hot_df: pd.DataFrame,
 
     theme_stocks: dict[str, list[dict]] = {}
     for _, row in hot_df.iterrows():
-        code = str(row.get("代码", ""))
-        name = str(row.get("名称", ""))
-        reason = str(row.get("题材归因", ""))
-        chg = float(row.get("涨幅%", 0) or 0)
-        amount = float(row.get("成交额", 0) or 0)
-        turnover = float(row.get("换手率%", 0) or 0)
+        code = safe_str(row, "代码")
+        name = safe_str(row, "名称")
+        reason = safe_str(row, "题材归因")
+        chg = safe_float(row, "涨幅%")
+        amount = safe_float(row, "成交额")
+        turnover = safe_float(row, "换手率%")
         if chg == 0 and code in hot_quotes:
             q = hot_quotes[code]
             chg = q.get("change_pct", 0) or 0
@@ -188,16 +189,8 @@ def build_theme_stock_details(hot_df: pd.DataFrame,
         r10 = None
         if hot_klines and code in hot_klines:
             kdf = hot_klines[code]
-            if kdf is not None and len(kdf) >= 6:
-                c_now = kdf["close"].iloc[-1]
-                c_5 = kdf["close"].iloc[-6]
-                if c_5 > 0:
-                    chg5 = (c_now / c_5 - 1) * 100
-            if kdf is not None and len(kdf) >= 11:
-                c_now = kdf["close"].iloc[-1]
-                c_10 = kdf["close"].iloc[-11]
-                if c_10 > 0:
-                    r10 = (c_now / c_10 - 1) * 100
+            chg5 = _calc_chg5(kdf)
+            r10 = _calc_r10(kdf)
 
         is_limit_up = chg >= 9.5 or (code.startswith("3") and chg >= 19.5) or (code.startswith("68") and chg >= 19.5)
 
@@ -485,10 +478,10 @@ def build_merged_theme_pool(hot_df, pop_pool, gain_pool, *,
 
     if hot_df is not None and not hot_df.empty:
         for _, row in hot_df.iterrows():
-            reason = str(row.get("题材归因", ""))
+            reason = safe_str(row, "题材归因")
             raw = [x.strip() for x in reason.split("+") if x.strip()]
-            _add(row.get("代码", ""), str(row.get("名称", "")),
-                 float(row.get("涨幅%", 0) or 0), SOURCE_ZT, raw)
+            _add(row.get("代码", ""), safe_str(row, "名称"),
+                 safe_float(row, "涨幅%"), SOURCE_ZT, raw)
 
     for s in (pop_pool or []):
         _add(s.get("code"), s.get("name"), s.get("chg", 0),

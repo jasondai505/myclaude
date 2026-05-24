@@ -21,12 +21,8 @@ import traceback
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-if sys.platform == "win32":
-    os.system("")
-    try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
+from utils import setup_console
+setup_console()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import store
