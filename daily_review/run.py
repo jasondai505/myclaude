@@ -6,28 +6,36 @@
     python run.py --list             # 查看当前自选股
 """
 import sys
-import os
 import time
 import argparse
 from datetime import datetime, date as _date
 from pathlib import Path
 
-# Windows 控制台 UTF-8
-if sys.platform == "win32":
-    os.system("")  # enable ANSI
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+from utils import setup_console
+setup_console()
 
 # 确保能导入同级模块
 sys.path.insert(0, str(Path(__file__).parent))
 
 from tqdm import tqdm
 
-from config import WATCHLIST, REPORT_DIR, FETCH_DELAY, FUNDAMENTAL_TOP_N
+from config import (
+    WATCHLIST, REPORT_DIR, FETCH_DELAY, FUNDAMENTAL_TOP_N,
+    THEME_EXPAND_MIN_LEVEL, THEME_ZHONGJUN_MIN_LEVEL,
+    THEME_RECENT_DAYS, THEME_ZHONGJUN_LOOKBACK,
+    STRENGTH_POOL_LOOKBACK, STRENGTH_MAX_KLINES_PER_THEME,
+)
 import store
 import data
 import engine
 import report
+from screener import run_scan
+from research import run_research
+from earnings_screen import run_earnings_screen
+from zsxq_cross import run_cross, load_cookie, fetch_recent_topics, analyze_zsxq_topics, COOKIE_PATH
+from zsxq_collector import sync
+from llm import generate_overseas_catalysts
+import strength as strength_mod
 
 
 def check_deps():
@@ -71,33 +79,28 @@ def main():
     if args.scan:
         check_deps()
         trade_date = resolve_trade_date(args.date)
-        from screener import run_scan
         run_scan(trade_date)
         return
 
     if args.report:
         check_deps()
         trade_date = resolve_trade_date(args.date)
-        from research import run_research
         run_research(trade_date)
         return
 
     if args.earnings:
         check_deps()
         trade_date = resolve_trade_date(args.date)
-        from earnings_screen import run_earnings_screen
         run_earnings_screen(trade_date)
         return
 
     if args.cross:
         check_deps()
         trade_date = resolve_trade_date(args.date)
-        from zsxq_cross import run_cross
         run_cross(trade_date)
         return
 
     if args.zsxq:
-        from zsxq_collector import sync
         sync()
         return
 
@@ -206,7 +209,6 @@ def main():
     global_result = engine.analyze_global(global_data)
 
     try:
-        from llm import generate_overseas_catalysts
         catalysts = generate_overseas_catalysts(global_result.get("watchlist", {}), trade_date)
         for label, cat in catalysts.items():
             if label in global_result.get("watchlist", {}):
@@ -279,8 +281,6 @@ def main():
         hot_df, theme_result, hot_klines, hot_quotes=hot_quotes, zt_pool=zt_pool)
 
     # 题材股票扩展 — 近期活跃 + 中军
-    from config import (THEME_EXPAND_MIN_LEVEL, THEME_ZHONGJUN_MIN_LEVEL,
-                        THEME_RECENT_DAYS, THEME_ZHONGJUN_LOOKBACK)
     leveled = theme_result.get("leveled", [])
     theme_freq_5d = {}
     theme_freq_30d = {}
@@ -360,8 +360,6 @@ def main():
     theme_groups = engine.classify_themes_by_trend(theme_result, aesthetics_result)
 
     # 板块/个股强弱分析
-    from config import STRENGTH_POOL_LOOKBACK, STRENGTH_MAX_KLINES_PER_THEME
-    import strength as strength_mod
     print(f"  板块强弱分析...")
     theme_pool = store.get_theme_stock_pool(trade_date, STRENGTH_POOL_LOOKBACK)
     code_to_themes = store.build_code_to_themes(theme_pool)
@@ -486,7 +484,6 @@ def main():
 
     suggestions = engine.generate_suggestions(
         market=market_result,
-        style=style_result,
         sectors=sector_result,
         themes=theme_result,
         northbound=nb_result,
@@ -507,7 +504,6 @@ def main():
     # Step 11: 知识星球
     zsxq_data = None
     try:
-        from zsxq_cross import load_cookie, fetch_recent_topics, analyze_zsxq_topics, COOKIE_PATH
         if COOKIE_PATH.exists():
             print(f"[11/{total_steps}] 拉取知识星球...")
             cookie = load_cookie()

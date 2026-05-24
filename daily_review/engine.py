@@ -3,7 +3,8 @@
   engine_market   — 大盘/风格/行业/北向/外围
   engine_themes   — 题材词频/分级/三池合并/审美
   engine_sentiment — 情绪面/连板梯队/逻辑情绪四维分类
-  engine_stocks   — 个股扫描/基本面/FEV/建议生成
+  engine_stocks   — 个股扫描/基本面/FEV三脚凳
+  engine_advice   — 交易建议生成
   engine_focus    — 聚焦池/综合评分
 """
 from engine_market import (
@@ -21,6 +22,8 @@ from engine_themes import (
 from engine_stocks import (
     analyze_single_stock, analyze_watchlist_themes, analyze_fundamentals,
     score_fev, check_surge_preconditions, check_crash_warnings,
+)
+from engine_advice import (
     generate_suggestions, _extract_rsi,
 )
 from engine_focus import (
