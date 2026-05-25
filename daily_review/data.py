@@ -10,6 +10,7 @@ import requests
 from config import (
     UA, REQUEST_TIMEOUT, FETCH_DELAY, INDICES, STYLE_INDICES,
     GLOBAL_INDICES_EM, GLOBAL_WATCHLIST_EM,
+    LIXINGER_TOKEN, LIXINGER_BASE,
 )
 
 
@@ -1189,3 +1190,248 @@ def fetch_industry_research(begin: str, end: str,
             break
         time.sleep(0.3)
     return out
+
+
+# ============================================================
+# 理杏仁 API（基本面数据源）
+# ============================================================
+
+_LX_HEADERS = {
+    "Content-Type": "application/json",
+    "Accept-Encoding": "gzip",
+}
+
+
+def _lixinger_post(endpoint: str, body: dict, timeout: int = 60) -> dict | None:
+    """理杏仁 API POST 请求，返回 JSON 或 None。"""
+    import json as _json, gzip as _gzip
+    url = f"{LIXINGER_BASE}/{endpoint}"
+    body["token"] = LIXINGER_TOKEN
+    data = _json.dumps(body).encode("utf-8")
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, data=data, headers=_LX_HEADERS)
+            resp = urllib.request.urlopen(req, timeout=timeout)
+            raw_bytes = resp.read()
+            if resp.headers.get("Content-Encoding") == "gzip":
+                raw_bytes = _gzip.decompress(raw_bytes)
+            result = _json.loads(raw_bytes.decode("utf-8"))
+            if result.get("code") == 1:
+                return result
+            if attempt < 2:
+                time.sleep(1)
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(1)
+            else:
+                print(f"  [WARN] Lixinger API 失败 ({endpoint}): {e}")
+    return None
+
+
+def _lx_extract(d: dict, path: list[str]) -> float | None:
+    """从嵌套 dict 中按路径提取数值，如 _lx_extract(d, ['y','ps','wroe','t'])"""
+    for key in path:
+        if isinstance(d, dict):
+            d = d.get(key)
+        else:
+            return None
+    if d is None:
+        return None
+    try:
+        v = float(d)
+        return None if abs(v) > 1e15 else v
+    except (ValueError, TypeError):
+        return None
+
+
+# 理杏仁指标 → (内部字段名, 是否需要*100转百分比)
+_LX_METRICS_MAP = [
+    ("y.ps.wroe.t", "roe", True),
+    ("y.ps.gp_m.t", "gross_margin", True),
+    ("y.ps.np_s_r.t", "net_margin", True),
+    ("y.ps.op_s_r.t", "operating_margin", True),
+    ("y.ps.toi.t_y2y", "revenue_yoy", True),
+    ("y.ps.np.t_y2y", "profit_yoy", True),
+    ("y.ps.beps.t", "eps", False),
+    ("y.ps.d_np_r.t", "dividend_payout", True),
+    ("y.bs.ta.t", "_ta", False),
+    ("y.bs.tl.t", "_tl", False),
+    ("y.m.ncffoa_np_r.t", "opcash_to_profit", True),
+    ("y.m.ncffoa_ps.t", "opcash_per_share", False),
+]
+
+
+def fetch_financial_indicators_lixinger(codes: list[str]) -> dict[str, list[dict]]:
+    """拉取财务指标（理杏仁 fs/non_financial，per-stock），返回 {code: [{...}, ...]}。
+
+    该接口仅支持单股票查询，逐股调用，每股获取最近 6 份年报。
+    """
+    if not codes:
+        return {}
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    metrics = [m[0] for m in _LX_METRICS_MAP]
+    key_map = {m[0]: (m[1], m[2]) for m in _LX_METRICS_MAP}
+
+    def _path(m: str) -> list[str]:
+        parts = m.split(".")
+        return [parts[0], parts[1], parts[2], parts[3]]
+
+    result: dict[str, list[dict]] = {}
+    ok, fail = 0, 0
+
+    for i, code in enumerate(codes):
+        body = {
+            "stockCodes": [code],
+            "startDate": "2020-01-01",
+            "endDate": today,
+            "metricsList": metrics,
+            "limit": 10,
+        }
+        resp = _lixinger_post("cn/company/fs/non_financial", body)
+        if resp is None:
+            fail += 1
+            continue
+
+        rows: list[dict] = []
+        for item in resp.get("data", []) or []:
+            std_date = str(item.get("standardDate", "") or "")[:10]
+            if not std_date:
+                continue
+
+            row = {"code": code, "report_date": std_date}
+            for m_name, (key_name, is_pct) in key_map.items():
+                v = _lx_extract(item, _path(m_name))
+                if v is not None and is_pct:
+                    v = round(v * 100, 2)
+                row[key_name] = v
+
+            ta = row.pop("_ta", None)
+            tl = row.pop("_tl", None)
+            if ta and tl and ta > 0:
+                row["debt_ratio"] = round(tl / ta * 100, 2)
+            else:
+                row["debt_ratio"] = None
+
+            rows.append(row)
+
+        rows.sort(key=lambda r: r["report_date"], reverse=True)
+        if rows:
+            result[code] = rows
+            ok += 1
+        else:
+            fail += 1
+
+        if (i + 1) % 20 == 0:
+            print(f"  理杏仁财务指标: 已处理 {i+1}/{len(codes)}（成功 {ok} / 失败 {fail}）")
+        time.sleep(0.3)
+
+    if ok + fail > 0:
+        print(f"  理杏仁财务指标: 完成 {len(codes)} 只（成功 {ok} / 失败 {fail}）")
+    return result
+
+
+def fetch_financial_indicators(code: str, start_year: str = "2020") -> list[dict]:
+    """个股财务指标（理杏仁），兼容旧接口签名。
+
+    内部调用批量接口，返回该股票的财务指标列表。
+    """
+    result = fetch_financial_indicators_lixinger([code])
+    return result.get(code, [])
+
+
+def fetch_stock_list_sina() -> list[dict]:
+    """全 A 股列表（新浪），含行业分类。返回 [{code, name, board, industry}, ...]
+
+    深交所股票从 stock_info_sz_name_code（含 CSRC 行业），
+    上交所股票从 stock_info_sh_name_code（通过代码段推导行业大类）。
+    """
+    import akshare as ak
+
+    rows: list[dict] = []
+
+    # 深交所（含行业）
+    df_sz = _ak(lambda: ak.stock_info_sz_name_code(symbol="A股列表"))
+    if df_sz is not None and not df_sz.empty:
+        for _, r in df_sz.iterrows():
+            code = str(r.get("A股代码", "")).zfill(6)
+            ind = str(r.get("所属行业", "")).strip()
+            if not code or code == "0" or len(code) < 6:
+                continue
+            if len(ind) >= 3 and ind[1] == " ":
+                ind = ind[2:]
+            rows.append({
+                "code": code,
+                "name": str(r.get("A股简称", "")).replace(" ", ""),
+                "board": str(r.get("板块", "")),
+                "industry": ind or _code_industry_fallback(code),
+            })
+
+    # 上交所（无行业，用代码段推导）
+    df_sh = _ak(lambda: ak.stock_info_sh_name_code(symbol="主板A股"))
+    if df_sh is not None and not df_sh.empty:
+        for _, r in df_sh.iterrows():
+            code = str(r.get("证券代码", "")).zfill(6)
+            if not code or code == "0" or len(code) < 6:
+                continue
+            rows.append({
+                "code": code,
+                "name": str(r.get("证券简称", "")).replace(" ", ""),
+                "board": _sh_board(code),
+                "industry": _code_industry_fallback(code),
+            })
+
+    return rows
+
+
+def _sh_board(code: str) -> str:
+    if code.startswith("688"):
+        return "科创板"
+    return "主板"
+
+
+def _code_industry_fallback(code: str) -> str:
+    """无法获取 CSRC 行业时，按代码段映射大类（仅用于分组计算分位）。"""
+    seg = code[:3]
+    if seg in ("688",):
+        return "信息技术"
+    if seg in ("600", "601", "603", "605"):
+        return "沪市主板"
+    if code.startswith("300"):
+        return "创业板"
+    if code.startswith("00"):
+        return "深市主板"
+    if code.startswith("8"):
+        return "北交所"
+    return "其他"
+
+
+def fetch_bulk_pe_pb(codes: list[str]) -> dict[str, dict[str, float]]:
+    """批量拉取 PE/PB，返回 {code: {pe_ttm, pb}}。自动分批+重试。"""
+    result: dict[str, dict[str, float]] = {}
+    total_batches = (len(codes) + 29) // 30
+    for bi in range(0, len(codes), 30):
+        batch = codes[bi:bi + 30]
+        prefixed = [f"{_market_prefix(c)}{c}" for c in batch]
+        ok = False
+        for attempt in range(3):
+            try:
+                raw = tencent_quote_raw(prefixed)
+                for c in batch:
+                    key = f"{_market_prefix(c)}{c}"
+                    if key in raw:
+                        q = raw[key]
+                        pe = float(q.get("pe_ttm", 0) or 0)
+                        pb = float(q.get("pb", 0) or 0)
+                        if pe > 0 or pb > 0:
+                            result[c] = {"pe_ttm": pe, "pb": pb}
+                ok = True
+                break
+            except Exception:
+                time.sleep(0.5 * (attempt + 1))
+        if not ok and bi // 30 % 20 == 0:
+            print(f"  [WARN] 批次 {bi//30+1}/{total_batches} 3次重试均失败")
+        time.sleep(0.35)
+        if bi // 30 % 20 == 19:
+            time.sleep(1.5)  # 每 20 批额外等待，防限流
+    return result

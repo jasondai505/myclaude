@@ -16,6 +16,8 @@ REPORT_DIR.mkdir(parents=True, exist_ok=True)
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/117.0.0.0 Safari/537.36"
 REQUEST_TIMEOUT = 15
 FETCH_DELAY = 0.3             # API 调用间隔（秒），防反爬
+LIXINGER_TOKEN = "95b52199-4f8b-48f8-86b5-1b8a6437aff9"
+LIXINGER_BASE = "https://open.lixinger.com/api"
 
 # ============================================================
 # 自选股池 — 在这里添加你的持仓和关注标的
