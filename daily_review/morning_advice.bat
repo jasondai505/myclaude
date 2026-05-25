@@ -16,7 +16,7 @@ echo [%date% %time%] start morning collect >> "%LOG%"
 if errorlevel 1 echo [%date% %time%] WARNING: daily_collect exited with error >> "%LOG%"
 
 echo [%date% %time%] start claude advice for %TODAY% >> "%LOG%"
-powershell -NoProfile -Command "$t='%TODAY%'; $p=(Get-Content '%BASE%\claude_prompt.txt' -Raw).Replace('%%TODAY%%',$t); claude -p $p --dangerously-skip-permissions" >> "%LOG%" 2>&1
+powershell -NoProfile -Command "$t='%TODAY%'; $y=(Get-Date).AddDays(-1).ToString('yyyy-MM-dd'); $p=(Get-Content '%BASE%\claude_prompt.txt' -Raw).Replace('%%TODAY%%',$t).Replace('%%YESTERDAY%%',$y); claude -p $p --dangerously-skip-permissions" >> "%LOG%" 2>&1
 if errorlevel 1 echo [%date% %time%] WARNING: claude exited with error >> "%LOG%"
 
 echo [%date% %time%] done >> "%LOG%"

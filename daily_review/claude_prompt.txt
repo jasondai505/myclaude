@@ -1,1 +1,56 @@
-今天是 %%TODAY%%（A股交易日早盘前）。请阅读 reports 目录下最新的 review_*.md 复盘报告，以及 reports\feeds 下今日各基本面源（业绩预告/快报 earnings、机构调研 surveys、限售解禁 lockups、一致预期EPS eps、行业研报 industry、公告 announcements、个股新闻 news、互动易 interactions、知识星球 zsxq）。如需隔夜外围市场数据，运行 python -c "import data; print(data.fetch_global_markets())"。综合以上，按既有 advice 模板生成今日投资建议，写入 reports\advice_%%TODAY%%.md。要求：结论先行、简洁直接、给出仓位/主线/回避清单。
+今天是 %%TODAY%%（A股交易日早盘前）。请按以下框架生成今日投资建议，写入 reports\advice_%%TODAY%%.md。
+
+## 信息来源
+
+首先阅读以下文件（存在则读，不存在则跳过）：
+1. reports\feeds\zsxq_%%TODAY%%.md — 知识星球（券商一手解读，最重要）
+2. reports\feeds\announcements_%%TODAY%%.md — 公告
+3. reports\feeds\news_%%TODAY%%.md — 个股新闻
+4. reports\feeds\interactions_%%TODAY%%.md — 互动易
+5. reports\feeds\industry_%%TODAY%%.md — 行业研报
+6. reports\feeds\financials_%%TODAY%%.md — 财务指标
+7. reports\feeds\earnings_%%TODAY%%.md — 业绩预告快报
+8. reports\feeds\surveys_%%TODAY%%.md — 机构调研
+9. reports\feeds\lockups_%%TODAY%%.md — 限售解禁
+10. reports\feeds\eps_%%TODAY%%.md — 一致预期EPS
+11. reports\review_%%YESTERDAY%%.md — 昨日复盘
+12. 运行 python -c "import data; print(data.fetch_global_markets())" 获取隔夜外围市场
+
+## 分析框架
+
+### 一、隔夜重大事件
+
+从星球帖子中识别 1-3 个最重要的隔夜事件（判断标准：券商解读密度最高、产业链影响最广）。每个事件须包含：
+
+- 事件摘要（2-3句说清是什么）
+- 产业链受益环节拆解（上游→中游→下游，每环节一句话）
+- 核心标的映射（每环节 2-5 只，附券商来源）
+
+### 二、星球信号扫描
+
+- 主题热度排序：帖子中出现最多的 10 个主题方向，标注每个方向的大致帖子数
+- 高频标的：提及次数最多的 10-15 只个股，标注提及次数和核心逻辑
+- 交叉验证：高频标的中，哪些有 ROE/增长基本面支撑（结合 financials）？哪些有减持或异常波动风险（结合 announcements）？
+
+### 三、隔夜外围
+
+美股、港股收盘情况及对 A 股的映射。
+
+### 四、昨日回顾
+
+从昨日复盘中提取关键信号：市场情绪、成交量、北向、风格、涨跌停结构。
+
+### 五、操作建议
+
+- 仓位建议：区间 + 方向判断 + 一句话理由
+- 主线方向：按优先级排列，每个方向附催化剂和核心标的
+- 新兴关注：有催化剂但尚未充分发酵的方向
+- 退潮回避：热度衰减或有利空的方向和个股
+- 精选标的：5-10 只，每只附推荐逻辑链（事件/基本面/位置）
+
+## 输出原则
+
+- 结论先行，每条建议必须有逻辑支撑
+- 事件分析做产业链传导，不罗列股票
+- 星球信息是最重要的 alpha 来源，充分挖掘券商观点
+- 简洁直接，不写废话
