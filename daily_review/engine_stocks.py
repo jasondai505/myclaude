@@ -390,6 +390,22 @@ def _score_fev_valuation(stock: dict, eps_data: dict, signals: list,
         score += 2
         reasons.append(f"PB={pb:.1f}")
 
+    try:
+        from daily_review import valuation
+        rank = valuation.get_industry_rank(code)
+        if rank and rank.get("pe_pct", 50) > 0:
+            if rank["pe_pct"] < 30:
+                score += 3
+                reasons.append(f"PE分位{rank['pe_pct']}%（低估值）")
+            elif rank["pe_pct"] < 50:
+                score += 1
+                reasons.append(f"PE分位{rank['pe_pct']}%")
+            elif rank["pe_pct"] > 70:
+                score -= 2
+                reasons.append(f"PE分位{rank['pe_pct']}%（偏高）")
+    except Exception:
+        pass
+
     rsi = None
     for sig_type, desc in signals:
         val = extract_rsi(desc)

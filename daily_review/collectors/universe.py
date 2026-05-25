@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from ..config import WATCHLIST
+from config import WATCHLIST
 from .base import fmt_iso, with_retry, progress
 
 TOP_GAINERS_N = 50

@@ -10,8 +10,8 @@ from datetime import date
 from pathlib import Path
 from typing import Callable
 
-from .. import store
-from .. import research as research_mod
+import store
+import research as research_mod
 from .base import (
     fmt_iso, with_retry, daterange,
     feed_md_path, md_header, progress, section,

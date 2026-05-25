@@ -414,6 +414,20 @@ def score_composite(stocks: list[dict]) -> list[dict]:
             val_score += 10
         val_score = min(100, val_score)
 
+        try:
+            from daily_review import valuation
+            rank = valuation.get_industry_rank(s["code"])
+            if rank and rank.get("pe_pct", 50) > 0:
+                s["pe_pct"] = rank["pe_pct"]
+                s["pb_pct"] = rank.get("pb_pct", 50)
+                s["pe_median"] = rank.get("pe_median", 0)
+                if rank["pe_pct"] < 30:
+                    val_score = min(100, val_score + 10)
+                elif rank["pe_pct"] > 70:
+                    val_score = max(0, val_score - 10)
+        except Exception:
+            pass
+
         tech = s.get("tech_score", 0)
 
         turnover = s.get("turnover_pct", 0)

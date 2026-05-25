@@ -276,6 +276,26 @@ def save_valuation_cache(code: str, data_type: str, data_json: str):
         )
 
 
+def save_valuation_batch(rows: list[dict], data_type: str = "industry_pe"):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    with _conn() as conn:
+        conn.execute("DELETE FROM valuation_cache WHERE data_type = ?", (data_type,))
+        conn.executemany(
+            "INSERT INTO valuation_cache (code, data_type, data_json, updated_at) "
+            "VALUES (?,?,?,?)",
+            [(r["code"], data_type, json.dumps(r, ensure_ascii=False), now) for r in rows],
+        )
+
+
+def query_valuation_cache(code: str, data_type: str = "industry_pe") -> dict | None:
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT data_json FROM valuation_cache WHERE code = ? AND data_type = ?",
+            (code, data_type),
+        ).fetchone()
+    return json.loads(row["data_json"]) if row else None
+
+
 def save_scan_results(trade_date: str, candidates: list[dict]):
     with _conn() as conn:
         conn.execute(
@@ -668,6 +688,35 @@ def init_feeds_tables():
                 fetched_at   TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_indres_pub ON industry_research(publish_date);
+
+            CREATE TABLE IF NOT EXISTS financial_indicators (
+                code                TEXT NOT NULL,
+                name                TEXT,
+                report_date         TEXT NOT NULL,
+                roe                 REAL,
+                gross_margin        REAL,
+                net_margin          REAL,
+                debt_ratio          REAL,
+                operating_margin    REAL,
+                revenue_yoy         REAL,
+                profit_yoy          REAL,
+                opcash_to_profit    REAL,
+                opcash_per_share    REAL,
+                current_ratio       REAL,
+                quick_ratio         REAL,
+                diluted_eps         REAL,
+                bv_per_share        REAL,
+                asset_turnover      REAL,
+                inventory_turnover  REAL,
+                receivables_turnover REAL,
+                dividend_payout     REAL,
+                nav_growth          REAL,
+                total_asset_growth  REAL,
+                fetched_at          TEXT,
+                PRIMARY KEY (code, report_date)
+            );
+            CREATE INDEX IF NOT EXISTS idx_finind_code ON financial_indicators(code);
+            CREATE INDEX IF NOT EXISTS idx_finind_date ON financial_indicators(report_date);
         """)
 
 
@@ -1052,5 +1101,37 @@ def query_industry_research(date_str: str) -> list[dict]:
             "SELECT * FROM industry_research WHERE substr(publish_date,1,10) = ? "
             "ORDER BY industry, org",
             (date_str,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def save_financial_indicators(rows: list[dict]) -> int:
+    if not rows:
+        return 0
+    now = _now()
+    cols = ["code", "name", "report_date", "roe", "gross_margin", "net_margin",
+            "debt_ratio", "operating_margin", "revenue_yoy", "profit_yoy",
+            "opcash_to_profit", "opcash_per_share", "current_ratio", "quick_ratio",
+            "diluted_eps", "bv_per_share", "asset_turnover", "inventory_turnover",
+            "receivables_turnover", "dividend_payout", "nav_growth",
+            "total_asset_growth"]
+    with _conn() as conn:
+        before = conn.execute("SELECT COUNT(*) FROM financial_indicators").fetchone()[0]
+        conn.executemany(
+            f"INSERT OR REPLACE INTO financial_indicators "
+            f"({', '.join(cols)}, fetched_at) "
+            f"VALUES ({', '.join(['?'] * len(cols))}, ?)",
+            [tuple(r.get(c) for c in cols) + (now,) for r in rows],
+        )
+        after = conn.execute("SELECT COUNT(*) FROM financial_indicators").fetchone()[0]
+    return after - before
+
+
+def query_financial_indicators(code: str, limit: int = 4) -> list[dict]:
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM financial_indicators WHERE code = ? "
+            "ORDER BY report_date DESC LIMIT ?",
+            (code, limit),
         ).fetchall()
     return [dict(r) for r in rows]

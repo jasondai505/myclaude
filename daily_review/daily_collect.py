@@ -24,12 +24,13 @@ from pathlib import Path
 from utils import setup_console
 setup_console()
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import store
 from config import REPORT_DIR
 from collectors import (
     announcements, news, research_reports, interactions, zsxq, universe,
-    earnings, surveys, lockups, eps_forecast, industry_research,
+    earnings, surveys, lockups, eps_forecast, industry_research, financials,
 )
 from collectors.base import fmt_iso, FEEDS_DIR
 
@@ -44,6 +45,7 @@ ALL_SOURCES = {
     "lockups": lockups,
     "eps": eps_forecast,
     "industry": industry_research,
+    "financials": financials,
 }
 
 SOURCE_LABELS = {
@@ -57,6 +59,7 @@ SOURCE_LABELS = {
     "lockups": "限售解禁",
     "eps": "一致预期EPS",
     "industry": "行业研报",
+    "financials": "财务指标",
 }
 
 SOURCE_TABLE = {
@@ -70,6 +73,7 @@ SOURCE_TABLE = {
     "lockups": ("lockups", "release_date"),
     "eps": ("eps_forecast", "fetched_at"),
     "industry": ("industry_research", "publish_date"),
+    "financials": ("financial_indicators", "fetched_at"),
 }
 
 
@@ -77,7 +81,7 @@ def _parse_args():
     p = argparse.ArgumentParser(description="每日数据源自动补全")
     p.add_argument("--source", type=str, default="",
                    help="逗号分隔: zsxq,announcements,news,research,interactions,"
-                        "earnings,surveys,lockups,eps,industry；默认全部")
+                        "earnings,surveys,lockups,eps,industry,financials；默认全部")
     p.add_argument("--days", type=int, default=7, help="回补天数")
     p.add_argument("--since", type=str, help="起始日期 YYYY-MM-DD")
     p.add_argument("--until", type=str, help="截止日期 YYYY-MM-DD，默认今天")
@@ -195,7 +199,14 @@ def main():
             store.upsert_collect_status(src, fmt_iso(until), "error", str(e)[:200], 0)
             results[src] = {"status": "error", "message": str(e)[:200]}
 
-    print("\n" + "=" * 60)
+    # 每日刷新行业估值分位（全市场计算，独立于数据源采集）
+    try:
+        from daily_review import valuation
+        valuation.build()
+    except Exception as e:
+        print(f"  [WARN] 行业估值分位构建失败: {e}")
+
+    print(f"\n{'='*60}")
     print("采集汇总")
     print("=" * 60)
     for src, r in results.items():

@@ -10,8 +10,8 @@ from datetime import date
 from pathlib import Path
 from typing import Callable
 
-from .. import store
-from .. import zsxq_collector
+import store
+import zsxq_collector
 from .base import (
     fmt_iso, daterange,
     feed_md_path, md_header, progress, section,

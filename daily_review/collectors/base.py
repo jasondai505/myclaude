@@ -7,10 +7,10 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
-from ..utils import setup_console
+from utils import setup_console
 setup_console()
 
-from ..config import REPORT_DIR
+from config import REPORT_DIR
 
 FEEDS_DIR: Path = REPORT_DIR / "feeds"
 FEEDS_DIR.mkdir(parents=True, exist_ok=True)
