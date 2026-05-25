@@ -7,17 +7,35 @@ set PYTHONUNBUFFERED=1
 
 set "BASE=C:\Users\daixin\myclaude\daily_review"
 set "LOG=%BASE%\reports\_cron_advice.log"
-cd /d "%BASE%"
+set "PY=C:\miniconda3\python.exe"
 
 for /f "delims=" %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd"') do set TODAY=%%i
+for /f "delims=" %%i in ('powershell -NoProfile -Command "(Get-Date).AddDays(-1).ToString('yyyy-MM-dd')"') do set YESTERDAY=%%i
 
-echo [%date% %time%] start morning collect >> "%LOG%"
-"C:\miniconda3\python.exe" "%BASE%\daily_collect.py" >> "%LOG%" 2>&1
-if errorlevel 1 echo [%date% %time%] WARNING: daily_collect exited with error >> "%LOG%"
+echo [%date% %time%] start morning pipeline for %TODAY% >> "%LOG%"
 
-echo [%date% %time%] start claude advice for %TODAY% >> "%LOG%"
-powershell -NoProfile -Command "$t='%TODAY%'; $y=(Get-Date).AddDays(-1).ToString('yyyy-MM-dd'); $p=(Get-Content '%BASE%\claude_prompt.txt' -Raw).Replace('%%TODAY%%',$t).Replace('%%YESTERDAY%%',$y); claude -p $p --dangerously-skip-permissions" >> "%LOG%" 2>&1
-if errorlevel 1 echo [%date% %time%] WARNING: claude exited with error >> "%LOG%"
+rem === Step 1: daily_collect ===
+echo [%date% %time%] Step 1: daily_collect >> "%LOG%"
+cd /d "%BASE%"
+"%PY%" "%BASE%\daily_collect.py" >> "%LOG%" 2>&1
+if errorlevel 1 (
+    echo [%date% %time%] WARNING: daily_collect failed, continuing with cached data >> "%LOG%"
+)
 
-echo [%date% %time%] done >> "%LOG%"
+rem === Step 2: review_summary ===
+echo [%date% %time%] Step 2: review_summary >> "%LOG%"
+"%PY%" "%BASE%\review_summary.py" >> "%LOG%" 2>&1
+if errorlevel 1 echo [%date% %time%] WARNING: review_summary failed >> "%LOG%"
+
+rem === Step 3: track_recommendations ===
+echo [%date% %time%] Step 3: track_recommendations >> "%LOG%"
+"%PY%" "%BASE%\track_recommendations.py" >> "%LOG%" 2>&1
+if errorlevel 1 echo [%date% %time%] WARNING: track_recommendations failed >> "%LOG%"
+
+rem === Step 4: claude advice ===
+echo [%date% %time%] Step 4: claude advice >> "%LOG%"
+"%PY%" "%BASE%\_run_advice.py" %TODAY% %YESTERDAY% >> "%LOG%" 2>&1
+if errorlevel 1 echo [%date% %time%] WARNING: claude advice failed >> "%LOG%"
+
+echo [%date% %time%] pipeline done >> "%LOG%"
 endlocal

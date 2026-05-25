@@ -28,25 +28,32 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import store
 from config import REPORT_DIR
-from collectors import (
-    announcements, news, research_reports, interactions, zsxq, universe,
-    earnings, surveys, lockups, eps_forecast, industry_research, financials,
-)
 from collectors.base import fmt_iso, FEEDS_DIR
 
-ALL_SOURCES = {
-    "zsxq": zsxq,
-    "announcements": announcements,
-    "news": news,
-    "research": research_reports,
-    "interactions": interactions,
-    "earnings": earnings,
-    "surveys": surveys,
-    "lockups": lockups,
-    "eps": eps_forecast,
-    "industry": industry_research,
-    "financials": financials,
+# universe 是所有 collector 的依赖项，必须成功
+from collectors import universe
+
+_COLLECTOR_IMPORTS = {
+    "zsxq": "zsxq",
+    "announcements": "announcements",
+    "news": "news",
+    "research": "research_reports",
+    "interactions": "interactions",
+    "earnings": "earnings",
+    "surveys": "surveys",
+    "lockups": "lockups",
+    "eps": "eps_forecast",
+    "industry": "industry_research",
+    "financials": "financials",
 }
+
+ALL_SOURCES = {}
+for _key, _mod_name in _COLLECTOR_IMPORTS.items():
+    try:
+        _mod = __import__(f"collectors.{_mod_name}", fromlist=[_mod_name])
+        ALL_SOURCES[_key] = _mod
+    except Exception as _e:
+        print(f"  [WARN] collector '{_key}' 导入失败: {_e}")
 
 SOURCE_LABELS = {
     "zsxq": "知识星球",

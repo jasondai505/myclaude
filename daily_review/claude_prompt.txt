@@ -8,15 +8,20 @@
 3. reports\feeds\news_%%TODAY%%.md — 个股新闻
 4. reports\feeds\interactions_%%TODAY%%.md — 互动易
 5. reports\feeds\industry_%%TODAY%%.md — 行业研报
-6. reports\feeds\financials_%%TODAY%%.md — 财务指标
+6. reports\feeds\financials_%%TODAY%%.md — 财务指标（ROE/毛利率/营收YoY/净利YoY/负债率）
 7. reports\feeds\earnings_%%TODAY%%.md — 业绩预告快报
 8. reports\feeds\surveys_%%TODAY%%.md — 机构调研
 9. reports\feeds\lockups_%%TODAY%%.md — 限售解禁
 10. reports\feeds\eps_%%TODAY%%.md — 一致预期EPS
-11. reports\review_%%YESTERDAY%%.md — 昨日复盘
-12. 运行 python -c "import data; print(data.fetch_global_markets())" 获取隔夜外围市场
+11. reports\feeds\review_summary_%%YESTERDAY%%.md — 昨日复盘摘要（结构化）
+12. reports\feeds\recap_%%YESTERDAY%%.md — 昨日推荐回顾（前日 advice 标的在昨天的表现）
+13. 运行 python -c "import data; print(data.fetch_global_markets())" 获取隔夜外围市场
 
 ## 分析框架
+
+### 〇、昨日推荐回顾
+
+回顾 recap_%%YESTERDAY%%.md 中前日推荐标的的昨日表现：哪些命中、哪些跑输、共同特征是什么。据此调整今日推荐思路（如果均涨跌 < -2% 说明择时或选股有问题，需更谨慎；如果 > +2% 说明框架有效，维持风格）。
 
 ### 一、隔夜重大事件
 
@@ -28,9 +33,10 @@
 
 ### 二、星球信号扫描
 
-- 主题热度排序：帖子中出现最多的 10 个主题方向，标注每个方向的大致帖子数
+- 主题热度排序：帖子中出现最多的 10 个主题方向，标注大致帖子数
 - 高频标的：提及次数最多的 10-15 只个股，标注提及次数和核心逻辑
-- 交叉验证：高频标的中，哪些有 ROE/增长基本面支撑（结合 financials）？哪些有减持或异常波动风险（结合 announcements）？
+- 交叉验证：高频标的中，哪些有基本面支撑（ROE>15% + 营收高增 + 净利高增 三项至少满足两项，结合 financials）？哪些有减持或异常波动风险（结合 announcements）？
+- FEV 高分标的：结合 review_summary 中的 FEV Top 标的（F/E/V 三维评分：基本面/预期差/估值），如果某只 FEV 高分标的同时出现在星球高频提及中，优先推荐（基本面+情绪共振）。
 
 ### 三、隔夜外围
 
@@ -38,19 +44,21 @@
 
 ### 四、昨日回顾
 
-从昨日复盘中提取关键信号：市场情绪、成交量、北向、风格、涨跌停结构。
+从 review_summary 中提取：市场情绪、成交量、北向、风格、涨跌停结构、主线/新兴/退潮题材。
 
 ### 五、操作建议
 
 - 仓位建议：区间 + 方向判断 + 一句话理由
-- 主线方向：按优先级排列，每个方向附催化剂和核心标的
+- 主线方向：按优先级排列，每个方向附催化剂和核心标的。优先选择：星球高频 + 基本面共振 + FEV 高分 的标的
 - 新兴关注：有催化剂但尚未充分发酵的方向
 - 退潮回避：热度衰减或有利空的方向和个股
-- 精选标的：5-10 只，每只附推荐逻辑链（事件/基本面/位置）
+- 精选标的：5-10 只，每只附推荐逻辑链（事件/基本面/位置），格式统一为 `**名称(代码)**`
 
 ## 输出原则
 
 - 结论先行，每条建议必须有逻辑支撑
 - 事件分析做产业链传导，不罗列股票
 - 星球信息是最重要的 alpha 来源，充分挖掘券商观点
+- FEV 高分（>=12）+ 基本面共振 = 最优先推荐
+- 昨日的推荐回顾直接指导今日调整（不要重复犯同样的错误）
 - 简洁直接，不写废话
