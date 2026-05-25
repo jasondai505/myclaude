@@ -11,13 +11,11 @@ import argparse
 from datetime import date as _date
 from pathlib import Path
 
-from utils import setup_console
+from utils import setup_console, is_headless, progress_bar
 setup_console()
 
 # 确保能导入同级模块
 sys.path.insert(0, str(Path(__file__).parent))
-
-from tqdm import tqdm
 
 from config import (
     WATCHLIST, REPORT_DIR, FETCH_DELAY, FUNDAMENTAL_TOP_N,
@@ -166,11 +164,9 @@ def _fetch_watchlist_data(watchlist):
     stock_flows = {}
     stock_lockups = {}
 
-    pbar = tqdm(watchlist, desc="  自选股扫描", unit="只",
-                bar_format="  {desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]")
+    pbar = progress_bar(watchlist, desc="  自选股扫描", unit="只")
     for code in pbar:
         label = stock_quotes.get(code, {}).get("name", code)
-        pbar.set_postfix_str(label)
 
         kl = data.fetch_klines(code)
         if kl is not None:
@@ -283,7 +279,7 @@ def _run_theme_expansion(hot_df, theme_result, stock_quotes, stock_klines,
 
     if high_themes:
         print(f"[8/12] 题材审美分析（{len(high_themes)}个3级+题材）...")
-        for t in tqdm(high_themes, desc="  题材新闻", unit="个",
+        for t in progress_bar(high_themes, desc="  题材新闻", unit="个",
                       bar_format="  {desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"):
             news = data.fetch_theme_news(t["theme"], limit=8)
             theme_news_map[t["theme"]] = news
@@ -297,7 +293,7 @@ def _run_theme_expansion(hot_df, theme_result, stock_quotes, stock_klines,
     if hot_df is not None and not hot_df.empty:
         hot_codes_list = [str(row.get("代码", "")) for _, row in hot_df.iterrows()]
         print(f"  拉取涨停股K线（{len(hot_codes_list)}只）...")
-        for code in tqdm(hot_codes_list, desc="  涨停K线", unit="只",
+        for code in progress_bar(hot_codes_list, desc="  涨停K线", unit="只",
                          bar_format="  {desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"):
             if code in stock_klines:
                 hot_klines[code] = stock_klines[code]
@@ -371,7 +367,7 @@ def _run_theme_expansion(hot_df, theme_result, stock_quotes, stock_klines,
 
         if kline_codes:
             print(f"  拉取扩展K线（{len(kline_codes)}只）...")
-            for code in tqdm(sorted(kline_codes), desc="  扩展K线", unit="只",
+            for code in progress_bar(sorted(kline_codes), desc="  扩展K线", unit="只",
                              bar_format="  {desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"):
                 kl = data.fetch_klines(code, days=15)
                 if kl is not None:
@@ -439,7 +435,7 @@ def _run_strength_phase(theme_result, all_extra_klines, stock_klines,
     if strength_codes_needed:
         strength_list = sorted(strength_codes_needed)
         print(f"  拉取强弱分析K线（{len(strength_list)}只）...")
-        for code in tqdm(strength_list, desc="  强弱K线", unit="只",
+        for code in progress_bar(strength_list, desc="  强弱K线", unit="只",
                          bar_format="  {desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"):
             kl = data.fetch_klines(code, days=60)
             if kl is not None:
@@ -469,11 +465,9 @@ def _run_fundamentals_fev(watchlist, stock_quotes, watchlist_results, hot_df,
     shareholder_data = {}
     news_data = {}
     valid_codes = [c for c in watchlist if stock_quotes.get(c)]
-    pbar = tqdm(valid_codes, desc="  基本面", unit="只",
-                bar_format="  {desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]")
+    pbar = progress_bar(valid_codes, desc="  基本面", unit="只")
     for code in pbar:
         label = stock_quotes.get(code, {}).get("name", code)
-        pbar.set_postfix_str(label)
         eps = data.fetch_eps_forecast(code)
         if eps:
             eps_data[code] = eps
@@ -577,7 +571,7 @@ def _build_focus_pool_full(trade_date, watchlist, zt_pool, all_quotes_merged,
                            if s.get("hot_rank", 0) <= 50 or "zt" in s["source"]]
     if research_candidates:
         print(f"  拉取研报（{len(research_candidates)}只）...")
-        for code in tqdm(research_candidates, desc="  研报", unit="只",
+        for code in progress_bar(research_candidates, desc="  研报", unit="只",
                          bar_format="  {desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"):
             r = data.fetch_stock_research(code, limit=3)
             if r:
@@ -595,7 +589,7 @@ def _build_focus_pool_full(trade_date, watchlist, zt_pool, all_quotes_merged,
                         if c not in all_klines_merged and c not in stock_klines]
     if pool_need_klines:
         print(f"  拉取聚焦池K线（{len(pool_need_klines)}只）...")
-        for code in tqdm(pool_need_klines[:120], desc="  聚焦池K线", unit="只",
+        for code in progress_bar(pool_need_klines[:120], desc="  聚焦池K线", unit="只",
                          bar_format="  {desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"):
             kl = data.fetch_klines(code, days=30)
             if kl is not None:
@@ -608,7 +602,7 @@ def _build_focus_pool_full(trade_date, watchlist, zt_pool, all_quotes_merged,
                            or "zt" in focus_pool[c]["source"])]
     if eps_candidates:
         print(f"  拉取聚焦池盈利预测（{len(eps_candidates)}只）...")
-        for code in tqdm(eps_candidates[:80], desc="  盈利预测", unit="只",
+        for code in progress_bar(eps_candidates[:80], desc="  盈利预测", unit="只",
                          bar_format="  {desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"):
             eps = data.fetch_eps_forecast(code)
             if eps:
@@ -641,7 +635,7 @@ def _build_focus_pool_full(trade_date, watchlist, zt_pool, all_quotes_merged,
             "irm": [],
             "news": [],
         }
-    for code in tqdm(list(focus_pool.keys()), desc="  互动+新闻", unit="只",
+    for code in progress_bar(list(focus_pool.keys()), desc="  互动+新闻", unit="只",
                      bar_format="  {desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"):
         if code.startswith(("0", "3")):
             qa = data.fetch_irm_szse(code, limit=3)
