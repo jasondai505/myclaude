@@ -164,14 +164,24 @@ def run(today: str = None) -> Path | None:
             flow_signal=flow_signal, validated=validated,
         )
 
-    # --- 报告 ---
-    report_path = REPORT_DIR / f"validation_{today}.md"
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-
+    # --- 报告（加 YAML frontmatter 供 Obsidian Dataview 索引）---
     total = len(rows)
     hit = sum(1 for r in rows if r["validated"] == 1)
     miss = sum(1 for r in rows if r["validated"] == -1)
     pending = total - hit - miss
+    hit_rate = round(hit / total * 100, 1) if total > 0 else 0
+
+    fm = (
+        "---\n"
+        f"date: {today}\n"
+        'type: "盘中验证"\n'
+        f"total: {total}\n"
+        f"hit: {hit}\n"
+        f"miss: {miss}\n"
+        f"pending: {pending}\n"
+        f"hit_rate: {hit_rate}\n"
+        "---\n\n"
+    )
 
     lines = [
         f"# 盘中验证 {today} {now_str}",
@@ -219,7 +229,7 @@ def run(today: str = None) -> Path | None:
                     line = "## " + line[2:]
                 lines.append(line)
 
-    report_text = "\n".join(lines)
+    report_text = fm + "\n".join(lines)
     report_path.write_text(report_text, encoding="utf-8")
     print(f"[validate] 报告已生成: {report_path}")
 

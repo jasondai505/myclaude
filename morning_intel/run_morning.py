@@ -16,11 +16,12 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 from interpret import run as run_interpret
 from validate import run as run_validate
+from daily_brief import run as run_daily_brief
 
 
 def run_audit(today: str):
-    print("[audit] Phase 2 — 尚未实现，跳过")
-    return None
+    print("[post] 生成交易日简报...")
+    return run_daily_brief(today=today)
 
 
 PHASES = {

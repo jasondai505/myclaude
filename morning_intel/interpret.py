@@ -192,10 +192,21 @@ def run(today: str = None, dry_run: bool = False) -> Path | None:
     for w in warnings:
         print(f"[WARN] {w}")
 
-    # 6. 写入报告
+    # 6. 写入报告（加 YAML frontmatter 供 Obsidian Dataview 索引）
+    events_count = len(data.get("events", []))
+    stocks_count = sum(len(ev.get("target_stocks", [])) for ev in data.get("events", []))
+    fm = (
+        "---\n"
+        f"date: {today}\n"
+        'type: "晨间情报"\n'
+        f"events_count: {events_count}\n"
+        f"stocks_count: {stocks_count}\n"
+        f"summary: \"{data.get('summary', '')[:200]}\"\n"
+        "---\n\n"
+    )
     report_path = REPORT_DIR / f"morning_{today}.md"
     report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(raw, encoding="utf-8")
+    report_path.write_text(fm + raw, encoding="utf-8")
     print(f"[interpret] 报告已生成: {report_path} ({len(raw)} 字符)")
 
     # 7. 额外保存纯 JSON 供 validate.py 解析
