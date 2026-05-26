@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -14,6 +15,7 @@ REPORT_DIR = BASE / "reports"
 
 from settings import (
     VALIDATE_CHG_THRESHOLD, VALIDATE_VOL_THRESHOLD, VALIDATE_FLOW_THRESHOLD,
+    MODEL_AUDIT, LLM_TIMEOUT,
 )
 from supply_chain import log_validation, validation_stats
 
@@ -73,6 +75,41 @@ def _dde_signal(dde_val) -> str:
     if v < -1:
         return f"DDE流出{v:+.1f}"
     return f"DDE平衡{v:+.1f}"
+
+
+def _claude_spot_check(delta_text: str, morning_data: dict) -> str | None:
+    """Haiku 快速扫描增量帖子，判断盘前假设是否仍然成立。"""
+    summary = morning_data.get("summary", "")
+    events = [e.get("name", "") for e in morning_data.get("events", [])]
+    stocks = []
+    for ev in morning_data.get("events", []):
+        for s in ev.get("target_stocks", []):
+            stocks.append(f"{s.get('code','')} {s.get('name','')} ({s.get('expected_direction','')})")
+
+    prompt = (
+        "你是一个A股盘中监控助手。下面是今早的盘前假设和盘中新增的星球帖子。"
+        "请用1-2句话判断：盘前假设是否仍然成立？有没有需要警示的新变量？"
+        "简洁直接，不要客套。\n\n"
+        f"【盘前主题】{summary}\n\n"
+        f"【盘前事件】{'; '.join(events)}\n\n"
+        f"【盘前标的】{'; '.join(stocks[:15])}\n\n"
+        f"【盘中增量帖子】\n{delta_text[:3000]}"
+    )
+
+    try:
+        result = subprocess.run(
+            ["claude.cmd", "--model", MODEL_AUDIT,
+             "--dangerously-skip-permissions"],
+            input=prompt, capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=LLM_TIMEOUT, cwd=str(BASE),
+        )
+        out = (result.stdout or "").strip()
+        if not out:
+            return None
+        return out
+    except Exception as e:
+        print(f"[spot_check] Haiku 调用失败: {e}")
+        return None
 
 
 def run(today: str = None) -> Path | None:
@@ -217,6 +254,7 @@ def run(today: str = None) -> Path | None:
 
     # --- 盘中增量情报 ---
     delta_path = REPORT_DIR / f"intraday_delta_{today}.md"
+    delta_content = ""
     if delta_path.exists():
         delta_content = delta_path.read_text(encoding="utf-8").strip()
         if delta_content:
@@ -229,6 +267,16 @@ def run(today: str = None) -> Path | None:
                     line = "## " + line[2:]
                 lines.append(line)
 
+            # --- Haiku 盘中扫描 ---
+            print("[spot_check] Haiku 扫描增量帖子...")
+            verdict = _claude_spot_check(delta_content, data)
+            if verdict:
+                lines.append("")
+                lines.append("## AI 盘中扫描")
+                lines.append("")
+                lines.append(f"> {verdict}")
+
+    report_path = REPORT_DIR / f"validation_{today}.md"
     report_text = fm + "\n".join(lines)
     report_path.write_text(report_text, encoding="utf-8")
     print(f"[validate] 报告已生成: {report_path}")

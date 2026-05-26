@@ -157,7 +157,11 @@
       "PowerShell(claude.cmd --help 2>&1 | Select-Object -First 40)",
       "PowerShell(echo \"say hello\" | claude.cmd --model claude-sonnet-4-6-20250514 --dangerously-skip-permissions 2>&1 | Select-Object -First 3)",
       "PowerShell(schtasks /create /tn \"AStock_IntradayFeeds\" /tr \"C:\\\\Users\\\\daixin\\\\myclaude\\\\morning_intel\\\\intraday_feeds.bat\" /sc DAILY /st 09:30 /ri 10 /du 5:30 /d MON,TUE,WED,THU,FRI /f)",
-      "PowerShell($target = [datetime]::Today.AddHours\\(14\\).AddMinutes\\(20\\); while \\(\\(Get-Date\\) -lt $target\\) { Start-Sleep -Seconds 10 }; Start-Sleep -Seconds 15; Get-Content \"C:\\\\Users\\\\daixin\\\\myclaude\\\\morning_intel\\\\reports\\\\_cron_intraday.log\" -Tail 20)"
+      "PowerShell($target = [datetime]::Today.AddHours\\(14\\).AddMinutes\\(20\\); while \\(\\(Get-Date\\) -lt $target\\) { Start-Sleep -Seconds 10 }; Start-Sleep -Seconds 15; Get-Content \"C:\\\\Users\\\\daixin\\\\myclaude\\\\morning_intel\\\\reports\\\\_cron_intraday.log\" -Tail 20)",
+      "PowerShell(Get-ScheduledTask *)",
+      "PowerShell(python morning_intel/run_morning.py --phase intraday)",
+      "PowerShell(python C:\\\\Users\\\\daixin\\\\myclaude\\\\morning_intel\\\\run_morning.py --phase post)",
+      "PowerShell(python -c \"from morning_intel.supply_chain import _conn; c=_conn\\(\\); c.execute\\('DELETE FROM theme_tracker'\\); c.commit\\(\\); c.close\\(\\); print\\('cleared'\\)\")"
     ]
   }
 }

@@ -53,9 +53,25 @@ def init_db():
                 validated    INTEGER DEFAULT 0,
                 notes        TEXT
             );
+            CREATE TABLE IF NOT EXISTS theme_tracker (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_name     TEXT NOT NULL,
+                date           TEXT NOT NULL,
+                day_n          INTEGER DEFAULT 1,
+                confidence     TEXT,
+                status         TEXT NOT NULL DEFAULT 'active'
+                               CHECK(status IN ('active','weakening','confirmed','dead')),
+                mainline_match TEXT,
+                fading_match   TEXT,
+                emerging_match TEXT,
+                notes          TEXT,
+                UNIQUE(event_name, date)
+            );
             CREATE INDEX IF NOT EXISTS idx_nodes_event ON supply_chain_nodes(event_id);
             CREATE INDEX IF NOT EXISTS idx_nodes_code ON supply_chain_nodes(stock_code);
             CREATE INDEX IF NOT EXISTS idx_vlog_date ON validation_log(date);
+            CREATE INDEX IF NOT EXISTS idx_tracker_event ON theme_tracker(event_name);
+            CREATE INDEX IF NOT EXISTS idx_tracker_date ON theme_tracker(date);
         """)
 
 
@@ -223,6 +239,75 @@ def validation_stats(days: int = 30) -> dict:
         "by_event": [{"event": r["event_name"], "total": r["total"],
                        "hits": r["hits"]} for r in by_event],
     }
+
+
+# ============================================================
+# 题材追踪 — 观察期规则（≥2天缓冲才判定方向）
+# ============================================================
+
+def track_theme(event_name: str, date: str, confidence: str = "",
+                mainline_match: str = "", fading_match: str = "",
+                emerging_match: str = "", notes: str = "") -> dict:
+    """记录当日题材观测，返回当前追踪状态。
+    规则：首日一律 active；连续 ≥2 天同一方向才变更状态。
+    """
+    with _conn() as conn:
+        prior = conn.execute(
+            "SELECT day_n, status, mainline_match, fading_match FROM theme_tracker "
+            "WHERE event_name = ? ORDER BY date DESC LIMIT 1",
+            (event_name,),
+        ).fetchone()
+
+        if prior is None:
+            day_n = 1
+            status = "active"
+        else:
+            day_n = prior["day_n"] + 1
+            prior_had_mainline = bool(prior["mainline_match"])
+            prior_had_fading = bool(prior["fading_match"])
+            today_has_mainline = bool(mainline_match)
+            today_has_fading = bool(fading_match)
+
+            if today_has_fading and prior_had_fading:
+                status = "weakening"
+            elif today_has_mainline and prior_had_mainline:
+                status = "confirmed"
+            else:
+                status = "active"
+
+        conn.execute(
+            "INSERT OR REPLACE INTO theme_tracker "
+            "(event_name, date, day_n, confidence, status, "
+            " mainline_match, fading_match, emerging_match, notes) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (event_name, date, day_n, confidence, status,
+             mainline_match or "", fading_match or "", emerging_match or "", notes or ""),
+        )
+
+    return {"event_name": event_name, "day_n": day_n, "status": status,
+            "mainline_match": mainline_match, "fading_match": fading_match}
+
+
+def theme_status(event_name: str) -> dict | None:
+    """查询题材当前追踪状态。"""
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM theme_tracker WHERE event_name = ? "
+            "ORDER BY date DESC LIMIT 1", (event_name,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def list_active_themes() -> list[dict]:
+    """列出所有未确认/未死亡的活跃题材。"""
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT event_name, date, day_n, confidence, status, "
+            "mainline_match, fading_match "
+            "FROM theme_tracker WHERE status IN ('active','weakening') "
+            "ORDER BY date DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 # ============================================================
