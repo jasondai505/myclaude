@@ -10,7 +10,7 @@ import requests
 sys.stdout.reconfigure(encoding="utf-8")
 
 BASE = Path(__file__).resolve().parent
-from settings import PUSHPLUS_TOKEN
+from settings import PUSHPLUS_TOKEN, PUSHPLUS_TOPIC
 
 API = "https://www.pushplus.plus/send"
 
@@ -22,7 +22,7 @@ def push(title: str, content: str) -> bool:
     try:
         r = requests.post(
             API,
-            json={"token": PUSHPLUS_TOKEN, "title": title, "content": content},
+            json={"token": PUSHPLUS_TOKEN, "title": title, "content": content, "topic": PUSHPLUS_TOPIC},
             timeout=10,
         )
         ok = r.json().get("code") == 200
