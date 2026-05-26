@@ -25,3 +25,6 @@ FEEDS_LOOKBACK_DAYS = 2
 
 # 盘中增量刷新
 ZSYNC_MAX_PAGES = 3       # 盘中星球增量同步页数（盘前全量用 10）
+
+# 微信推送通知 (PushPlus)
+PUSHPLUS_TOKEN = "9cdb736206654981a8b230bee39ee56d"

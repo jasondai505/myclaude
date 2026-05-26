@@ -15,6 +15,7 @@ REVIEW_REPORT_DIR = BASE.parent / "daily_review" / "reports"
 
 sys.path.insert(0, str(BASE))
 from supply_chain import track_theme, init_db
+from notify import daily_result as push_daily
 
 
 def _read_frontmatter(path: Path) -> dict:
@@ -441,6 +442,14 @@ def run(today: str = None) -> Path | None:
     brief_path.parent.mkdir(parents=True, exist_ok=True)
     brief_path.write_text("\n".join(parts), encoding="utf-8")
     print(f"[daily_brief] 报告已生成: {brief_path}")
+
+    # 微信推送
+    fm = _read_frontmatter(REPORT_DIR / f"validation_{today}.md")
+    total_v = int(fm.get("total", 0)) if fm else 0
+    hit_v = int(fm.get("hit", 0)) if fm else 0
+    hr = round(hit_v / total_v * 100, 1) if total_v > 0 else 0.0
+    push_daily(today, hr, hit_v, total_v)
+
     return brief_path
 
 

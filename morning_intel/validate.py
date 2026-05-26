@@ -18,6 +18,7 @@ from settings import (
     MODEL_AUDIT, LLM_TIMEOUT,
 )
 from supply_chain import log_validation, validation_stats
+from notify import intraday_validation as push_intraday
 
 sys.path.insert(0, str(REVIEW_BASE))
 from data import fetch_stock_quotes, fetch_hot_themes, fetch_ths_hot_stocks
@@ -284,6 +285,17 @@ def run(today: str = None) -> Path | None:
     stats = validation_stats(days=30)
     if stats["total"] > 0:
         print(f"[validate] 近30日累计命中率: {stats['hit_rate']}% ({stats['hits']}/{stats['total']})")
+
+    # 微信推送
+    gainers = sorted(
+        [(r["code"], r["name"], r["change_pct"]) for r in rows if r["change_pct"] > 0],
+        key=lambda x: -x[2],
+    )
+    losers = sorted(
+        [(r["code"], r["name"], r["change_pct"]) for r in rows if r["change_pct"] < 0],
+        key=lambda x: x[2],
+    )
+    push_intraday(today, total, hit, miss, pending, gainers, losers, verdict if 'verdict' in dir() else "")
 
     return report_path
 

@@ -19,6 +19,7 @@ DROPS_DIR = BASE / "drops"
 
 from settings import MODEL_INTERPRET, LLM_TIMEOUT, LLM_MAX_TOKENS, FEEDS_LOOKBACK_DAYS
 from supply_chain import to_context, init_db
+from notify import morning_brief as push_morning
 
 
 def _read_file_safe(path: Path) -> str:
@@ -213,6 +214,10 @@ def run(today: str = None, dry_run: bool = False) -> Path | None:
     json_path = REPORT_DIR / f"morning_{today}.json"
     json_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"[interpret] JSON 已保存: {json_path}")
+
+    # 8. 微信推送
+    top_events = [ev.get("name", "") for ev in data.get("events", [])]
+    push_morning(data.get("summary", ""), events_count, stocks_count, top_events)
 
     return report_path
 
