@@ -149,7 +149,15 @@
       "PowerShell(cmd /c \"where claude 2>&1\")",
       "PowerShell(cmd /c \"cd C:\\\\Users\\\\daixin\\\\myclaude\\\\daily_review && C:\\\\miniconda3\\\\python.exe -c \"\"import subprocess; r=subprocess.run\\(['claude.cmd', '--version'], capture_output=True, text=True\\); print\\('STDOUT:', r.stdout\\); print\\('STDERR:', r.stderr\\); print\\('RC:', r.returncode\\)\"\"\")",
       "Bash(Select-Object Name)",
-      "PowerShell(Get-ChildItem -Path C:\\\\Users\\\\daixin\\\\myclaude -File -Recurse -Depth 3 | Where-Object { $_.Extension -match '\\\\.\\(py|bat|md|json|toml|txt|cfg|ini\\)$' } | Select-Object FullName)"
+      "PowerShell(Get-ChildItem -Path C:\\\\Users\\\\daixin\\\\myclaude -File -Recurse -Depth 3 | Where-Object { $_.Extension -match '\\\\.\\(py|bat|md|json|toml|txt|cfg|ini\\)$' } | Select-Object FullName)",
+      "PowerShell(Test-Path *)",
+      "PowerShell($env:ECC_GATEGUARD = \"off\"; $env:ECC_DISABLED_HOOKS = \"pre:edit-write:gateguard-fact-force\")",
+      "Bash(export ECC_GATEGUARD=off ECC_DISABLED_HOOKS=pre:edit-write:gateguard-fact-force)",
+      "PowerShell(cd C:\\\\Users\\\\daixin\\\\myclaude; $env:PATH = \"C:\\\\Users\\\\daixin\\\\AppData\\\\Roaming\\\\npm;$env:PATH\"; C:\\\\miniconda3\\\\python.exe morning_intel/run_morning.py --phase pre --date 2026-05-26)",
+      "PowerShell(claude.cmd --help 2>&1 | Select-Object -First 40)",
+      "PowerShell(echo \"say hello\" | claude.cmd --model claude-sonnet-4-6-20250514 --dangerously-skip-permissions 2>&1 | Select-Object -First 3)",
+      "PowerShell(schtasks /create /tn \"AStock_IntradayFeeds\" /tr \"C:\\\\Users\\\\daixin\\\\myclaude\\\\morning_intel\\\\intraday_feeds.bat\" /sc DAILY /st 09:30 /ri 10 /du 5:30 /d MON,TUE,WED,THU,FRI /f)",
+      "PowerShell($target = [datetime]::Today.AddHours\\(14\\).AddMinutes\\(20\\); while \\(\\(Get-Date\\) -lt $target\\) { Start-Sleep -Seconds 10 }; Start-Sleep -Seconds 15; Get-Content \"C:\\\\Users\\\\daixin\\\\myclaude\\\\morning_intel\\\\reports\\\\_cron_intraday.log\" -Tail 20)"
     ]
   }
 }
