@@ -1,0 +1,215 @@
+"""盘前解读引擎 — 多源语料 → Claude 推理 → 催化事件+供应链映射+标的假设"""
+from __future__ import annotations
+
+import json
+import re
+import subprocess
+import sys
+from datetime import date, datetime, timedelta
+from pathlib import Path
+
+sys.stdout.reconfigure(encoding="utf-8")
+
+BASE = Path(__file__).resolve().parent
+REVIEW_BASE = BASE.parent / "daily_review"
+FEEDS_DIR = REVIEW_BASE / "reports" / "feeds"
+PROMPT_DIR = BASE / "prompts"
+REPORT_DIR = BASE / "reports"
+DROPS_DIR = BASE / "drops"
+
+from settings import MODEL_INTERPRET, LLM_TIMEOUT, LLM_MAX_TOKENS, FEEDS_LOOKBACK_DAYS
+from supply_chain import to_context, init_db
+
+
+def _read_file_safe(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except (FileNotFoundError, OSError):
+        return ""
+
+
+def _read_feeds(today: str) -> dict[str, str]:
+    """返回 {key: content} 映射到 prompt 变量名。回退到最近 N 天的文件。"""
+    feed_map = {
+        "ZSXQ_CONTENT": "zsxq",
+        "ANNOUNCEMENTS_CONTENT": "announcements",
+        "NEWS_CONTENT": "news",
+    }
+    result: dict[str, str] = {}
+    for varname, prefix in feed_map.items():
+        content = ""
+        for offset in range(FEEDS_LOOKBACK_DAYS + 1):
+            d = (date.fromisoformat(today) - timedelta(days=offset)).isoformat()
+            content = _read_file_safe(FEEDS_DIR / f"{prefix}_{d}.md")
+            if content:
+                break
+        result[varname] = content
+
+    # INDUSTRY_CONTENT 合并 industry + research 两份研报源
+    industry_parts = []
+    for prefix in ("industry", "research"):
+        for offset in range(FEEDS_LOOKBACK_DAYS + 1):
+            d = (date.fromisoformat(today) - timedelta(days=offset)).isoformat()
+            c = _read_file_safe(FEEDS_DIR / f"{prefix}_{d}.md")
+            if c:
+                industry_parts.append(c)
+                break
+    result["INDUSTRY_CONTENT"] = "\n\n".join(industry_parts)
+    return result
+
+
+def _read_drops() -> str:
+    """读取 drops/ 目录下手动投放的 txt/md 文件，合并为一个文本块。"""
+    if not DROPS_DIR.exists():
+        return ""
+    parts = []
+    for f in sorted(DROPS_DIR.iterdir()):
+        if f.suffix in (".txt", ".md"):
+            content = _read_file_safe(f)
+            if content:
+                parts.append(f"### {f.stem}\n\n{content}")
+    return "\n\n".join(parts)
+
+
+def _render_prompt(template: str, today: str, feed_contents: dict[str, str],
+                   drops_text: str, supply_chain_text: str) -> str:
+    now = datetime.now()
+    market_open = now.replace(hour=9, minute=30, second=0, microsecond=0)
+    minutes_left = max(0, int((market_open - now).total_seconds() // 60))
+
+    prompt = template.replace("%%TIME%%", now.strftime("%Y-%m-%d %H:%M"))
+    prompt = prompt.replace("%%MINUTES%%", str(minutes_left))
+
+    for varname, content in feed_contents.items():
+        placeholder = f"%%{varname}%%"
+        content = content or "(暂无当日语料)"
+        prompt = prompt.replace(placeholder, content)
+
+    prompt = prompt.replace("%%DROPS_CONTENT%%", drops_text or "(暂无手动投放)")
+    prompt = prompt.replace("%%SUPPLY_CHAIN_CONTEXT%%", supply_chain_text or "(暂无供应链映射)")
+
+    return prompt
+
+
+def _call_claude(prompt: str) -> str:
+    try:
+        result = subprocess.run(
+            ["claude.cmd", "-p", prompt, "--model", MODEL_INTERPRET,
+             "--max-tokens", str(LLM_MAX_TOKENS), "--dangerously-skip-permissions"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            stdin=subprocess.DEVNULL, timeout=LLM_TIMEOUT, cwd=str(BASE),
+        )
+        return (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
+    except subprocess.TimeoutExpired:
+        return "[TIMEOUT] Claude 调用超时"
+    except FileNotFoundError:
+        return "[ERROR] claude CLI 不在 PATH 上"
+    except Exception as e:
+        return f"[ERROR] Claude 调用失败: {e}"
+
+
+def _extract_json(text: str) -> dict | None:
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    try:
+        return json.loads(text[start:end + 1])
+    except json.JSONDecodeError:
+        return None
+
+
+def _clean_code(code: str) -> str:
+    """确保代码是 6 位数字字符串。"""
+    code = re.sub(r"[^0-9]", "", str(code))
+    return code.zfill(6)
+
+
+def _validate_output(data: dict) -> list[str]:
+    """校验 JSON 输出，返回警告列表。"""
+    warnings = []
+    events = data.get("events", [])
+    if not events:
+        warnings.append("未包含任何事件")
+    for i, ev in enumerate(events):
+        name = ev.get("name", f"事件{i+1}")
+        stocks = ev.get("target_stocks", [])
+        for j, s in enumerate(stocks):
+            code = s.get("code", "")
+            if len(_clean_code(code)) != 6:
+                warnings.append(f"{name} 标的[{j}] 代码无效: {code}")
+    return warnings
+
+
+def run(today: str = None, dry_run: bool = False) -> Path | None:
+    """
+    主入口：读取语料 → 渲染 prompt → 调用 Claude → 解析 JSON → 写报告。
+    返回报告路径，失败返回 None。
+    """
+    if today is None:
+        today = date.today().isoformat()
+
+    init_db()
+
+    # 1. 读取语料
+    print(f"[interpret] 读取 {today} 语料...")
+    feed_contents = _read_feeds(today)
+    drops_text = _read_drops()
+    supply_text = to_context()
+
+    # 2. 渲染 prompt
+    tpl_path = PROMPT_DIR / "interpret_v2.txt"
+    if not tpl_path.exists():
+        print(f"[ERROR] prompt 模板不存在: {tpl_path}")
+        return None
+    template = tpl_path.read_text(encoding="utf-8")
+    prompt = _render_prompt(template, today, feed_contents, drops_text, supply_text)
+
+    if dry_run:
+        out = REPORT_DIR / f"prompt_debug_{today}.txt"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(prompt, encoding="utf-8")
+        print(f"[dry-run] prompt 已写入 {out}")
+        return None
+
+    # 3. 调用 Claude
+    print(f"[interpret] 调用 {MODEL_INTERPRET} (timeout={LLM_TIMEOUT}s)...")
+    raw = _call_claude(prompt)
+    print(f"[interpret] 原始输出 {len(raw)} 字符")
+
+    # 4. 解析 JSON
+    data = _extract_json(raw)
+    if data is None:
+        err_path = REPORT_DIR / f"morning_raw_{today}.txt"
+        err_path.parent.mkdir(parents=True, exist_ok=True)
+        err_path.write_text(raw, encoding="utf-8")
+        print(f"[ERROR] 无法解析 JSON 输出，原始内容已存至 {err_path}")
+        return None
+
+    # 5. 校验
+    warnings = _validate_output(data)
+    for w in warnings:
+        print(f"[WARN] {w}")
+
+    # 6. 写入报告
+    report_path = REPORT_DIR / f"morning_{today}.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(raw, encoding="utf-8")
+    print(f"[interpret] 报告已生成: {report_path} ({len(raw)} 字符)")
+
+    # 7. 额外保存纯 JSON 供 validate.py 解析
+    json_path = REPORT_DIR / f"morning_{today}.json"
+    json_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"[interpret] JSON 已保存: {json_path}")
+
+    return report_path
+
+
+if __name__ == "__main__":
+    today = sys.argv[1] if len(sys.argv) > 1 else date.today().isoformat()
+    dry = "--dry-run" in sys.argv
+    result = run(today=today, dry_run=dry)
+    if result:
+        print(f"OK: {result}")
+    elif not dry:
+        print("FAIL: 未生成报告")
