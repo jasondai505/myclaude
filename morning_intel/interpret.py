@@ -92,12 +92,13 @@ def _render_prompt(template: str, today: str, feed_contents: dict[str, str],
 
 
 def _call_claude(prompt: str) -> str:
+    """调用 claude CLI，prompt 经 stdin 传入避免 Windows 命令行长度限制。"""
     try:
         result = subprocess.run(
-            ["claude.cmd", "-p", prompt, "--model", MODEL_INTERPRET,
-             "--max-tokens", str(LLM_MAX_TOKENS), "--dangerously-skip-permissions"],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            stdin=subprocess.DEVNULL, timeout=LLM_TIMEOUT, cwd=str(BASE),
+            ["claude.cmd", "--model", MODEL_INTERPRET,
+             "--dangerously-skip-permissions"],
+            input=prompt, capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=LLM_TIMEOUT, cwd=str(BASE),
         )
         return (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
     except subprocess.TimeoutExpired:
