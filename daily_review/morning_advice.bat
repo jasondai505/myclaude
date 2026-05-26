@@ -33,10 +33,10 @@ echo [%date% %time%] Step 3: track_recommendations >> "%LOG%"
 "%PY%" "%BASE%\track_recommendations.py" >> "%LOG%" 2>&1
 if errorlevel 1 echo [%date% %time%] WARNING: track_recommendations failed >> "%LOG%"
 
-rem === Step 4: claude advice ===
-echo [%date% %time%] Step 4: claude advice >> "%LOG%"
-"%PY%" "%BASE%\_run_advice.py" %TODAY% %YESTERDAY% >> "%LOG%" 2>&1
-if errorlevel 1 echo [%date% %time%] WARNING: claude advice failed >> "%LOG%"
+rem === Step 4: morning intel — supply chain mapping + catalyst → targets ===
+echo [%date% %time%] Step 4: morning_intel interpret >> "%LOG%"
+"%PY%" "%BASE%\..\morning_intel\run_morning.py" --phase pre --date %TODAY% >> "%LOG%" 2>&1
+if errorlevel 1 echo [%date% %time%] WARNING: morning_intel interpret failed >> "%LOG%"
 
 echo [%date% %time%] pipeline done >> "%LOG%"
 endlocal
