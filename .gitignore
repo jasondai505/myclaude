@@ -16,6 +16,7 @@ cookie*.txt
 
 # 生成报告与 feeds（可重生成，含个人/外部内容）
 daily_review/reports/
+morning_intel/reports/
 
 # Python 缓存
 __pycache__/
