@@ -205,6 +205,20 @@ def run(today: str = None) -> Path | None:
         for r in risks:
             lines.append(f"- {r}")
 
+    # --- 盘中增量情报 ---
+    delta_path = REPORT_DIR / f"intraday_delta_{today}.md"
+    if delta_path.exists():
+        delta_content = delta_path.read_text(encoding="utf-8").strip()
+        if delta_content:
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+            # 去掉 delta 的一级标题，作为子 section 嵌入
+            for line in delta_content.split("\n"):
+                if line.startswith("# "):
+                    line = "## " + line[2:]
+                lines.append(line)
+
     report_text = "\n".join(lines)
     report_path.write_text(report_text, encoding="utf-8")
     print(f"[validate] 报告已生成: {report_path}")
