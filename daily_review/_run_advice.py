@@ -8,8 +8,10 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
+# Ensure stdout can handle UTF-8 characters from claude output (bat redirects to file)
+sys.stdout.reconfigure(encoding="utf-8")
+
 BASE = Path(__file__).resolve().parent
-LOG = BASE / "reports" / "_cron_advice.log"
 
 
 def main():
@@ -23,13 +25,11 @@ def main():
 
     try:
         result = subprocess.run(
-            ["claude", "-p", prompt, "--dangerously-skip-permissions"],
-            capture_output=True, text=True, timeout=600,
-            cwd=str(BASE),
+            ["claude.cmd", "-p", prompt, "--dangerously-skip-permissions"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            stdin=subprocess.DEVNULL, timeout=600, cwd=str(BASE),
         )
-        output = result.stdout
-        if result.stderr:
-            output += "\n" + result.stderr
+        output = (result.stdout or "") + (("\n" + result.stderr) if result.stderr else "")
     except subprocess.TimeoutExpired:
         output = "[TIMEOUT] claude -p did not complete within 10 minutes"
     except FileNotFoundError:
@@ -37,13 +37,14 @@ def main():
     except Exception as e:
         output = f"[ERROR] claude invocation failed: {e}"
 
-    with open(LOG, "a", encoding="utf-8") as f:
-        f.write(output + "\n")
+    # stdout goes to batch redirect (morning_advice.bat >> _cron_advice.log)
+    print(output)
 
-    if not advice_path.exists() and output.strip():
+    if output.strip() and len(output) > 500:
         advice_path.write_text(output, encoding="utf-8")
-        with open(LOG, "a", encoding="utf-8") as f:
-            f.write("[INFO] advice saved from stdout (claude did not write file)\n")
+        print("[INFO] advice saved from stdout")
+    elif output.strip():
+        print("[WARN] advice output too short, not saving (likely error response)")
 
     print(f"  advice output: {len(output)} chars")
 
