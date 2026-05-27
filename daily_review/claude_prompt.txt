@@ -15,7 +15,7 @@
 10. reports\feeds\eps_%%TODAY%%.md — 一致预期EPS
 11. reports\feeds\review_summary_%%YESTERDAY%%.md — 昨日复盘摘要（结构化）
 12. reports\feeds\recap_%%YESTERDAY%%.md — 昨日推荐回顾（前日 advice 标的在昨天的表现）
-13. 运行 python -c "import data; print(data.fetch_global_markets())" 获取隔夜外围市场
+13. 运行 python -c "import data; print('=== 美股板块异动 ==='); import json; print(json.dumps(data.fetch_us_movers(), ensure_ascii=False, indent=2)); print('=== 日韩早盘 ==='); print(json.dumps(data.fetch_kr_jp_markets(), ensure_ascii=False, indent=2)); print('=== 外围映射字典 ==='); from config import OVERSEAS_MAP; print(json.dumps(OVERSEAS_MAP, ensure_ascii=False, indent=2))" 获取美股异动+日韩早盘+A股映射
 
 ## 分析框架
 
@@ -38,9 +38,18 @@
 - 交叉验证：高频标的中，哪些有基本面支撑（ROE>15% + 营收高增 + 净利高增 三项至少满足两项，结合 financials）？哪些有减持或异常波动风险（结合 announcements）？
 - FEV 高分标的：结合 review_summary 中的 FEV Top 标的（F/E/V 三维评分：基本面/预期差/估值），如果某只 FEV 高分标的同时出现在星球高频提及中，优先推荐（基本面+情绪共振）。
 
-### 三、隔夜外围
+### 三、隔夜外围 + 日韩早盘
 
-美股、港股收盘情况及对 A 股的映射。
+**美股**：逐指数（道琼斯/纳斯达克/标普）给出涨跌幅 + 一句话信号。重点列出美股分板块异动（加权涨跌幅 + 板块内个股涨跌），对 A 股映射做文章：
+- AI/算力 → 光模块/国产芯片/服务器
+- 存储 → 兆易创新/北京君正/江波龙
+- 半导体设备 → 北方华创/中微公司
+- 数据中心 → 交换机/液冷
+- EV/新能源 → 锂电/新势力
+
+**日韩早盘**：韩国 KOSPI + 日本日经 225 的当日开盘/盘中涨跌幅，判读对 A 股情绪的先行指引（日韩走高→亚太风险偏好改善，日韩走弱→A 股开盘承压）。
+
+**异动个股映射**：识别美股涨跌幅 >5% 的标的，利用 OVERSEAS_MAP 映射到 A 股受益/受损标的（含代码）。如果存储板块暴涨（如美光 +15%+），这直接意味着 A 股存储链将高开。这部分是最重要的 alpha —— 具体到个股级别，而非泛泛说「利好科技股」。
 
 ### 四、昨日回顾
 

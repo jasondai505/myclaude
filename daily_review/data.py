@@ -9,7 +9,7 @@ import requests
 
 from config import (
     UA, REQUEST_TIMEOUT, FETCH_DELAY, INDICES, STYLE_INDICES,
-    GLOBAL_INDICES_EM, GLOBAL_WATCHLIST_EM,
+    GLOBAL_INDICES_EM, GLOBAL_WATCHLIST_EM, OVERSEAS_MAP,
     LIXINGER_TOKEN, LIXINGER_BASE,
 )
 
@@ -782,13 +782,56 @@ def fetch_global_markets() -> dict:
             if k not in result["indices"] or not result["indices"][k].get("price"):
                 result["indices"][k] = v
 
-    us_tech_missing = [
+    us_missing = [
         item for item in GLOBAL_WATCHLIST_EM
-        if item.get("tag") == "us_tech" and item["label"] not in result["watchlist"]
+        if item.get("tag", "").startswith("us_") and item["label"] not in result["watchlist"]
     ]
-    if us_tech_missing:
-        result["watchlist"].update(_fetch_us_stocks_akshare(us_tech_missing))
+    if us_missing:
+        result["watchlist"].update(_fetch_us_stocks_akshare(us_missing))
 
+    return result
+
+
+def fetch_us_movers() -> dict:
+    """拉取美股异动股（按涨跌幅绝对值排序，>3% 标注），含 A 股映射。
+    返回 {sector_tag: {label, change_pct, a_map, movers[]}}。
+    """
+    global_data = fetch_global_markets()
+    wl = global_data.get("watchlist", {})
+
+    sectors = {}
+    for label, q in wl.items():
+        chg = q.get("change_pct") or 0
+        tag = q.get("tag", "")
+        s_name = tag.split("_", 1)[-1] if tag.startswith("us_") else tag
+        if s_name not in sectors:
+            sectors[s_name] = {"movers": [], "weighted_chg": 0}
+        sectors[s_name]["movers"].append({"label": label, "chg": chg})
+        sectors[s_name]["weighted_chg"] += chg
+
+    for key in sectors:
+        movers = sectors[key]["movers"]
+        movers.sort(key=lambda x: abs(x["chg"]), reverse=True)
+        n = len(movers)
+        sectors[key]["weighted_chg"] = round(sectors[key]["weighted_chg"] / n, 2) if n else 0
+        sectors[key]["top_gainers"] = [m for m in movers if m["chg"] > 3]
+        sectors[key]["top_losers"] = [m for m in movers if m["chg"] < -3]
+
+    return sectors
+
+
+def fetch_kr_jp_markets() -> dict:
+    """拉取日韩早盘指数快照（KOSPI + 日经225），含涨跌幅和 5 日趋势。"""
+    result = {}
+    for label in ("韩国KOSPI", "日经225"):
+        secid = GLOBAL_INDICES_EM.get(label)
+        if not secid:
+            continue
+        q = _em_quote_single(secid)
+        if q:
+            q["change_pct_5d"] = _em_kline_5d_pct(secid)
+            result[label] = q
+        time.sleep(0.2)
     return result
 
 

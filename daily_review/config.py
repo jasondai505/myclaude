@@ -146,35 +146,73 @@ GLOBAL_INDICES_EM = {
     "标普500":  "100.SPX",
     "恒生指数": "100.HSI",
     "恒生科技": "124.HSTECH",
+    "韩国KOSPI":  "100.KOSPI",
+    "日经225":    "100.N225",
 }
 
 GLOBAL_WATCHLIST_EM = [
-    {"label": "英伟达(NVDA)",   "secid": "105.NVDA",  "tag": "us_tech"},
-    {"label": "AMD",            "secid": "105.AMD",   "tag": "us_tech"},
-    {"label": "博通(AVGO)",     "secid": "105.AVGO",  "tag": "us_tech"},
-    {"label": "特斯拉(TSLA)",   "secid": "105.TSLA",  "tag": "us_tech"},
-    {"label": "超微电脑(SMCI)", "secid": "105.SMCI",  "tag": "us_tech"},
-    {"label": "微软(MSFT)",     "secid": "105.MSFT",  "tag": "us_tech"},
-    {"label": "苹果(AAPL)",     "secid": "105.AAPL",  "tag": "us_tech"},
-    {"label": "谷歌(GOOGL)",    "secid": "105.GOOGL", "tag": "us_tech"},
-    {"label": "Meta",           "secid": "105.META",  "tag": "us_tech"},
-    {"label": "亚马逊(AMZN)",   "secid": "105.AMZN",  "tag": "us_tech"},
+    # === AI/算力 ===
+    {"label": "英伟达(NVDA)",   "secid": "105.NVDA",  "tag": "us_ai"},
+    {"label": "AMD",            "secid": "105.AMD",   "tag": "us_ai"},
+    {"label": "博通(AVGO)",     "secid": "105.AVGO",  "tag": "us_ai"},
+    {"label": "迈威尔(MRVL)",   "secid": "105.MRVL",  "tag": "us_ai"},
+    {"label": "英特尔(INTC)",   "secid": "105.INTC",  "tag": "us_ai"},
+    # === 存储 ===
+    {"label": "美光(MU)",       "secid": "105.MU",    "tag": "us_storage"},
+    {"label": "西部数据(WDC)",  "secid": "105.WDC",   "tag": "us_storage"},
+    # === 半导体设备 ===
+    {"label": "应用材料(AMAT)","secid": "105.AMAT",  "tag": "us_semi_eq"},
+    {"label": "拉姆研究(LRCX)","secid": "105.LRCX",  "tag": "us_semi_eq"},
+    {"label": "科磊(KLAC)",    "secid": "105.KLAC",  "tag": "us_semi_eq"},
+    {"label": "ASML",           "secid": "105.ASML",  "tag": "us_semi_eq"},
+    # === 数据中心/基础设施 ===
+    {"label": "超微电脑(SMCI)", "secid": "105.SMCI",  "tag": "us_dc"},
+    {"label": "Arista(ANET)",   "secid": "105.ANET",  "tag": "us_dc"},
+    {"label": "Vertiv(VRT)",    "secid": "105.VRT",   "tag": "us_dc"},
+    # === 新能源/EV ===
+    {"label": "特斯拉(TSLA)",   "secid": "105.TSLA",  "tag": "us_ev"},
+    {"label": "Lucid(LCID)",    "secid": "105.LCID",  "tag": "us_ev"},
+    # === 科技巨头 ===
+    {"label": "微软(MSFT)",     "secid": "105.MSFT",  "tag": "us_giant"},
+    {"label": "苹果(AAPL)",     "secid": "105.AAPL",  "tag": "us_giant"},
+    {"label": "谷歌(GOOGL)",    "secid": "105.GOOGL", "tag": "us_giant"},
+    {"label": "Meta",           "secid": "105.META",  "tag": "us_giant"},
+    {"label": "亚马逊(AMZN)",   "secid": "105.AMZN",  "tag": "us_giant"},
+    # === 港股 ===
     {"label": "中芯国际(H)",    "secid": "116.00981", "tag": "hk"},
     {"label": "华虹半导体(H)",  "secid": "116.01347", "tag": "hk"},
 ]
 
 # 外围标的 → 国内映射标的/概念（静态，人工维护；A5 报告「国内映射标的」列）
 OVERSEAS_MAP = {
+    # AI/算力
     "英伟达(NVDA)":   "光模块(中际旭创/新易盛)/CPO/铜连接/PCB",
     "AMD":            "AI芯片(海光/寒武纪)/服务器",
     "博通(AVGO)":     "ASIC/光模块/PCB/交换芯片",
-    "特斯拉(TSLA)":   "机器人(三花/拓普)/一体压铸/锂电",
+    "迈威尔(MRVL)":   "ASIC/交换芯片/光模块",
+    "英特尔(INTC)":   "AI芯片/先进封装/服务器",
+    # 存储
+    "美光(MU)":       "存储(兆易创新/北京君正)/HBM(设备和材料)",
+    "西部数据(WDC)":  "存储(江波龙/佰维)/NAND涨价",
+    # 半导体设备
+    "应用材料(AMAT)": "半导体设备(北方华创/中微公司)",
+    "拉姆研究(LRCX)": "刻蚀设备(中微公司)/薄膜沉积",
+    "科磊(KLAC)":     "量检测(精测电子/中科飞测)",
+    "ASML":           "光刻/先进封装/国产替代",
+    # 数据中心
     "超微电脑(SMCI)": "AI服务器(工业富联)/液冷(英维克)",
+    "Arista(ANET)":   "交换机(菲菱科思/锐捷网络)",
+    "Vertiv(VRT)":    "液冷(英维克/高澜股份)/数据中心电源",
+    # 新能源/EV
+    "特斯拉(TSLA)":   "机器人(三花/拓普)/一体压铸/锂电",
+    "Lucid(LCID)":    "新势力(赛力斯/理想)/锂电",
+    # 科技巨头
     "微软(MSFT)":     "AI应用/SaaS/云计算",
     "苹果(AAPL)":     "果链(立讯/歌尔)/消费电子/折叠屏",
     "谷歌(GOOGL)":    "AI应用/光模块/PCB",
     "Meta":           "VR(歌尔)/AI算力/PCB",
     "亚马逊(AMZN)":   "云计算/AI算力/跨境电商",
+    # 港股
     "中芯国际(H)":    "半导体设备(北方华创)/材料/国产替代",
     "华虹半导体(H)":  "功率半导体/晶圆代工/设备材料",
 }
