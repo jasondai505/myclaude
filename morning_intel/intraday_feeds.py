@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 from datetime import date, datetime
 from pathlib import Path
+
+from llm import call as _llm_call
 
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -81,20 +82,10 @@ def _haiku_analyze(delta_text: str) -> str | None:
         f"{delta_text[:3000]}"
     )
 
-    try:
-        result = subprocess.run(
-            ["claude.cmd", "-p", "--model", MODEL_AUDIT,
-             "--dangerously-skip-permissions"],
-            input=prompt, capture_output=True, text=True, encoding="utf-8",
-            errors="replace", timeout=LLM_TIMEOUT, cwd=str(BASE),
-        )
-        out = (result.stdout or "").strip()
-        if not out or out == "无":
-            return None
-        return out
-    except Exception as e:
-        print(f"[intraday] Haiku 分析失败: {e}")
+    out = _llm_call(MODEL_AUDIT, prompt, timeout=LLM_TIMEOUT).strip()
+    if not out or out == "无" or out.startswith("[ERROR]"):
         return None
+    return out
 
 
 def _morning_context(today: str) -> str:

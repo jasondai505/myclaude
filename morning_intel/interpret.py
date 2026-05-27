@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
+
+from llm import call as _llm_call
 
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -93,21 +94,7 @@ def _render_prompt(template: str, today: str, feed_contents: dict[str, str],
 
 
 def _call_claude(prompt: str) -> str:
-    """调用 claude CLI，prompt 经 stdin 传入避免 Windows 命令行长度限制。"""
-    try:
-        result = subprocess.run(
-            ["claude.cmd", "-p", "--model", MODEL_INTERPRET,
-             "--dangerously-skip-permissions"],
-            input=prompt, capture_output=True, text=True, encoding="utf-8",
-            errors="replace", timeout=LLM_TIMEOUT, cwd=str(BASE),
-        )
-        return (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
-    except subprocess.TimeoutExpired:
-        return "[TIMEOUT] Claude 调用超时"
-    except FileNotFoundError:
-        return "[ERROR] claude CLI 不在 PATH 上"
-    except Exception as e:
-        return f"[ERROR] Claude 调用失败: {e}"
+    return _llm_call(MODEL_INTERPRET, prompt, max_tokens=LLM_MAX_TOKENS, timeout=LLM_TIMEOUT)
 
 
 def _extract_json(text: str) -> dict | None:

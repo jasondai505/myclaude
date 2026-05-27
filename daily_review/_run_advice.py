@@ -1,17 +1,17 @@
-"""Run claude -p with rendered prompt template, capture output to log + advice file.
-
-Eliminates batch escaping headaches — template rendering and output handling in Python.
-Called by morning_advice.bat Step 4.
+"""Render claude_prompt.txt → SDK 直调 Claude → 输出 advice 报告。
+Called by morning_advice.bat Step 5.
 """
-import subprocess
+import os
 import sys
 from datetime import date, timedelta
 from pathlib import Path
 
-# Ensure stdout can handle UTF-8 characters from claude output (bat redirects to file)
+from anthropic import Anthropic
+
 sys.stdout.reconfigure(encoding="utf-8")
 
 BASE = Path(__file__).resolve().parent
+MODEL = "claude-sonnet-4-6-20250514"
 
 
 def main():
@@ -24,20 +24,25 @@ def main():
     advice_path = BASE / "reports" / f"advice_{today}.md"
 
     try:
-        result = subprocess.run(
-            ["claude.cmd", "-p", prompt, "--dangerously-skip-permissions"],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            stdin=subprocess.DEVNULL, timeout=600, cwd=str(BASE),
+        client = Anthropic(
+            api_key=os.environ.get("ANTHROPIC_AUTH_TOKEN", ""),
+            base_url="https://api.deepseek.com/anthropic",
         )
-        output = (result.stdout or "") + (("\n" + result.stderr) if result.stderr else "")
-    except subprocess.TimeoutExpired:
-        output = "[TIMEOUT] claude -p did not complete within 10 minutes"
-    except FileNotFoundError:
-        output = "[ERROR] claude CLI not found on PATH"
+        resp = client.messages.create(
+            model=MODEL,
+            max_tokens=8000,
+            messages=[{"role": "user", "content": prompt}],
+            thinking={"type": "disabled"},
+            timeout=600,
+        )
+        parts = []
+        for block in resp.content:
+            if hasattr(block, "text") and block.text:
+                parts.append(block.text)
+        output = "\n".join(parts)
     except Exception as e:
-        output = f"[ERROR] claude invocation failed: {e}"
+        output = f"[ERROR] LLM 调用失败: {e}"
 
-    # stdout goes to batch redirect (morning_advice.bat >> _cron_advice.log)
     print(output)
 
     if output.strip() and len(output) > 500:
