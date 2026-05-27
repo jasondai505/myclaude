@@ -38,5 +38,10 @@ echo [%date% %time%] Step 4: morning_intel interpret >> "%LOG%"
 "%PY%" "%BASE%\..\morning_intel\run_morning.py" --phase pre --date %TODAY% >> "%LOG%" 2>&1
 if errorlevel 1 echo [%date% %time%] WARNING: morning_intel interpret failed >> "%LOG%"
 
+rem === Step 5: classic advice — free-form Markdown with portfolio recs ===
+echo [%date% %time%] Step 5: classic advice >> "%LOG%"
+"%PY%" "%BASE%\_run_advice.py" %TODAY% %YESTERDAY% >> "%LOG%" 2>&1
+if errorlevel 1 echo [%date% %time%] WARNING: classic advice failed >> "%LOG%"
+
 echo [%date% %time%] pipeline done >> "%LOG%"
 endlocal

@@ -143,6 +143,96 @@ def _validate_output(data: dict) -> list[str]:
     return warnings
 
 
+def _render_markdown(data: dict, today: str) -> str:
+    """将 JSON 数据渲染为人类可读的 Markdown 报告。"""
+    lines = []
+    summary = data.get("summary", "")
+    lines.append(f"# 晨间情报 {today}")
+    lines.append("")
+    if summary:
+        lines.append(f"> {summary}")
+        lines.append("")
+
+    events = data.get("events", [])
+    if events:
+        lines.append("## 催化事件")
+        lines.append("")
+        for i, ev in enumerate(events):
+            name = ev.get("name", f"事件 {i+1}")
+            conf = ev.get("confidence", "")
+            narrative = ev.get("narrative", "")
+
+            lines.append(f"### {i+1}. {name}")
+            if conf:
+                lines.append(f"置信度: `{conf}`")
+                lines.append("")
+            if narrative:
+                lines.append(narrative)
+                lines.append("")
+
+            subs = ev.get("sub_segments", [])
+            if subs:
+                lines.append("**细分环节**")
+                lines.append("")
+                lines.append("| 环节 | 方向 | 依据 |")
+                lines.append("|------|------|------|")
+                for s in subs:
+                    lines.append(f"| {s.get('name', '')} | {s.get('direction', '')} | {s.get('rationale', '')} |")
+                lines.append("")
+
+            sc = ev.get("supply_chain", {})
+            if sc:
+                has_sc = any(v for v in sc.values())
+                if has_sc:
+                    lines.append("**供应链映射**")
+                    lines.append("")
+                    lines.append("| 环节 | 代码 | 名称 | 角色 |")
+                    lines.append("|------|------|------|------|")
+                    for tier, items in sc.items():
+                        for item in items:
+                            lines.append(f"| {tier} | {item.get('code', '')} | {item.get('name', '')} | {item.get('role', '')} |")
+                    lines.append("")
+
+            stocks = ev.get("target_stocks", [])
+            if stocks:
+                lines.append("**核心标的**")
+                lines.append("")
+                lines.append("| 代码 | 名称 | 方向 | 依据 |")
+                lines.append("|------|------|------|------|")
+                for s in stocks:
+                    lines.append(
+                        f"| {s.get('code', '')} | {s.get('name', '')} | "
+                        f"{s.get('expected_direction', '')} | {s.get('rationale', '')} |"
+                    )
+                lines.append("")
+
+            gap = ev.get("expectation_gap", "")
+            if gap:
+                lines.append(f"> **预期差**：{gap}")
+                lines.append("")
+
+    watch = data.get("watch_notes", [])
+    if watch:
+        lines.append("## 观察清单")
+        lines.append("")
+        for w in watch:
+            lines.append(f"- {w}")
+        lines.append("")
+
+    risks = data.get("risk_flags", [])
+    if risks:
+        lines.append("## 风险提示")
+        lines.append("")
+        for r in risks:
+            lines.append(f"- {r}")
+        lines.append("")
+
+    lines.append("---")
+    lines.append("")
+    lines.append("*自动生成，仅供参考，不构成投资建议。*")
+    return "\n".join(lines)
+
+
 def run(today: str = None, dry_run: bool = False) -> Path | None:
     """
     主入口：读取语料 → 渲染 prompt → 调用 Claude → 解析 JSON → 写报告。
@@ -193,7 +283,7 @@ def run(today: str = None, dry_run: bool = False) -> Path | None:
     for w in warnings:
         print(f"[WARN] {w}")
 
-    # 6. 写入报告（加 YAML frontmatter 供 Obsidian Dataview 索引）
+    # 6. 渲染 Markdown 报告（YAML frontmatter 供 Obsidian Dataview 索引）
     events_count = len(data.get("events", []))
     stocks_count = sum(len(ev.get("target_stocks", [])) for ev in data.get("events", []))
     fm = (
@@ -205,10 +295,11 @@ def run(today: str = None, dry_run: bool = False) -> Path | None:
         f"summary: \"{data.get('summary', '')[:200]}\"\n"
         "---\n\n"
     )
+    md_body = _render_markdown(data, today)
     report_path = REPORT_DIR / f"morning_{today}.md"
     report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(fm + raw, encoding="utf-8")
-    print(f"[interpret] 报告已生成: {report_path} ({len(raw)} 字符)")
+    report_path.write_text(fm + md_body, encoding="utf-8")
+    print(f"[interpret] 报告已生成: {report_path} ({len(md_body)} 字符)")
 
     # 7. 额外保存纯 JSON 供 validate.py 解析
     json_path = REPORT_DIR / f"morning_{today}.json"
