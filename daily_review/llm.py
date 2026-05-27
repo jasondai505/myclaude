@@ -1,22 +1,36 @@
 """外围标的「最近逻辑催化原因」LLM 摘要。
 
 仅用于外围市场表（美股科技/港股）。单次批量调用拿全部标的的催化原因。
-任何失败（无 ANTHROPIC_API_KEY / 未装 anthropic / 超时 / 解析失败）一律返回 {}，
-由调用方兜底为「—」，绝不让复盘流程 hang 或崩。
+任何失败返回 {}，由调用方兜底为「—」，绝不让复盘流程 hang 或崩。
 """
 from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 
 MODEL = os.getenv("DR_LLM_MODEL", "claude-haiku-4-5-20251001")
 TIMEOUT = 30
 MAX_TOKENS = 1500
 
 
+def _load_api_key() -> str:
+    key = os.environ.get("ANTHROPIC_AUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY")
+    if key:
+        return key
+    settings = Path.home() / ".claude" / "settings.json"
+    if settings.exists():
+        try:
+            data = json.loads(settings.read_text(encoding="utf-8"))
+            key = data.get("env", {}).get("ANTHROPIC_AUTH_TOKEN", "")
+        except (json.JSONDecodeError, OSError):
+            pass
+    return key
+
+
 def generate_overseas_catalysts(watchlist: dict, today: str) -> dict:
     """返回 {标的label: 最近逻辑催化原因}；失败返回 {}。"""
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+    api_key = _load_api_key()
     if not api_key or not watchlist:
         return {}
 
@@ -47,6 +61,7 @@ def generate_overseas_catalysts(watchlist: dict, today: str) -> dict:
             model=MODEL,
             max_tokens=MAX_TOKENS,
             messages=[{"role": "user", "content": prompt}],
+            thinking={"type": "disabled"},
         )
         text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
         data = _extract_json(text)
