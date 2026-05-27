@@ -1,8 +1,25 @@
 """共享 LLM 调用 helper — Anthropic SDK 直调 DeepSeek，禁用 thinking。"""
+import json
 import os
+from pathlib import Path
 from anthropic import Anthropic
 
-API_KEY = os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
+
+def _load_api_key() -> str:
+    key = os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
+    if key:
+        return key
+    settings = Path.home() / ".claude" / "settings.json"
+    if settings.exists():
+        try:
+            data = json.loads(settings.read_text(encoding="utf-8"))
+            key = data.get("env", {}).get("ANTHROPIC_AUTH_TOKEN", "")
+        except (json.JSONDecodeError, OSError):
+            pass
+    return key
+
+
+API_KEY = _load_api_key()
 BASE_URL = "https://api.deepseek.com/anthropic"
 
 
