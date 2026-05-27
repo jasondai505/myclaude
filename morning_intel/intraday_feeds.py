@@ -83,7 +83,7 @@ def _haiku_analyze(delta_text: str) -> str | None:
 
     try:
         result = subprocess.run(
-            ["claude.cmd", "--model", MODEL_AUDIT,
+            ["claude.cmd", "-p", "--model", MODEL_AUDIT,
              "--dangerously-skip-permissions"],
             input=prompt, capture_output=True, text=True, encoding="utf-8",
             errors="replace", timeout=LLM_TIMEOUT, cwd=str(BASE),
