@@ -34,11 +34,32 @@ def push(title: str, content: str) -> bool:
         return False
 
 
-def morning_brief(summary: str, events_count: int, stocks_count: int, top_events: list[str]) -> bool:
-    """06:00 盘前情报推送。"""
-    events_lines = "\n".join(f"- {e[:80]}" for e in top_events[:5])
-    content = f"**{summary[:150]}**\n\n{events_count}个事件 | {stocks_count}只标的\n\n{events_lines}"
-    return push(f"☀️ 盘前情报 {len(top_events)}事件/{stocks_count}标的", content)
+def morning_brief(summary: str, events_count: int, stocks_count: int, events: list[dict]) -> bool:
+    """06:00 盘前情报推送。包含完整事件+标的+方向+依据。"""
+    lines = [f"**{summary[:150]}**", "", f"{events_count}个事件 | {stocks_count}只标的", ""]
+    for ev in events[:4]:
+        name = ev.get("name", "").strip()
+        conf = ev.get("confidence", "")
+        lines.append(f"### {name}  ({conf})")
+        lines.append("")
+        for s in ev.get("target_stocks", [])[:4]:
+            lines.append(
+                f"- **{s.get('code', '')} {s.get('name', '')}** "
+                f"{s.get('expected_direction', '')} — {s.get('rationale', '')[:80]}"
+            )
+        lines.append("")
+    watch = []
+    for ev in events:
+        watch.extend(ev.get("watch_notes", []))
+    if watch:
+        lines.append("---")
+        lines.append("🔍 观察:")
+        for w in watch[:3]:
+            lines.append(f"- {w[:100]}")
+    content = "\n".join(lines)
+    if len(content) > 4000:
+        content = content[:4000] + "\n\n... (已截断)"
+    return push(f"☀️ 盘前情报 {events_count}事件/{stocks_count}标的", content)
 
 
 def intraday_validation(
