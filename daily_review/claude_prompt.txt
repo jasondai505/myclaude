@@ -15,7 +15,22 @@
 10. reports\feeds\eps_%%TODAY%%.md — 一致预期EPS
 11. reports\feeds\review_summary_%%YESTERDAY%%.md — 昨日复盘摘要（结构化）
 12. reports\feeds\recap_%%YESTERDAY%%.md — 昨日推荐回顾（前日 advice 标的在昨天的表现）
-13. 运行 python -c "import data; print('=== 美股板块异动 ==='); import json; print(json.dumps(data.fetch_us_movers(), ensure_ascii=False, indent=2)); print('=== 日韩早盘 ==='); print(json.dumps(data.fetch_kr_jp_markets(), ensure_ascii=False, indent=2)); print('=== 外围映射字典 ==='); from config import OVERSEAS_MAP; print(json.dumps(OVERSEAS_MAP, ensure_ascii=False, indent=2))" 获取美股异动+日韩早盘+A股映射
+13. 以下是实时API拉取的隔夜市场数据（已由Python脚本预先获取，直接使用，不要修改或编造任何数值）：
+
+**美股板块异动（REAL DATA — 隔夜收盘数据，勿修改）**
+```json
+%%US_MOVERS%%
+```
+
+**日韩市场（REAL DATA — 日韩尚未开盘，以下为前日收盘数据，勿修改）**
+```json
+%%KR_JP_MARKETS%%
+```
+
+**外围映射字典（REAL DATA — US标的→A股概念/标的映射，勿修改）**
+```json
+%%OVERSEAS_MAP%%
+```
 
 ## 分析框架
 

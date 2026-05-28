@@ -12,6 +12,7 @@ from anthropic import Anthropic
 sys.stdout.reconfigure(encoding="utf-8")
 
 BASE = Path(__file__).resolve().parent
+sys.path.insert(0, str(BASE))
 MODEL = "claude-sonnet-4-6-20250514"
 
 
@@ -29,12 +30,51 @@ def _load_api_key() -> str:
     return key
 
 
+def _fetch_market_data() -> tuple[str, str, str]:
+    try:
+        import data
+        from config import OVERSEAS_MAP
+    except ImportError as e:
+        err = json.dumps({"error": f"模块导入失败: {e}"}, ensure_ascii=False)
+        return err, err, err
+
+    try:
+        us = data.fetch_us_movers()
+        us_str = json.dumps(us, ensure_ascii=False, indent=2)
+    except Exception as e:
+        us_str = json.dumps({"error": f"数据暂不可用（{e}）"}, ensure_ascii=False)
+
+    try:
+        kr_jp = data.fetch_kr_jp_markets()
+        kr_jp_str = json.dumps(kr_jp, ensure_ascii=False, indent=2)
+        if not kr_jp or kr_jp_str == "{}":
+            kr_jp_str = json.dumps(
+                {"info": "日韩尚未开盘，实时数据暂不可用（API未返回），请基于美股映射和星球信号判断"},
+                ensure_ascii=False, indent=2)
+    except Exception as e:
+        kr_jp_str = json.dumps({"error": f"数据暂不可用（{e}）"}, ensure_ascii=False)
+
+    try:
+        ov_str = json.dumps(OVERSEAS_MAP, ensure_ascii=False, indent=2)
+    except Exception as e:
+        ov_str = json.dumps({"error": f"数据暂不可用（{e}）"}, ensure_ascii=False)
+
+    return us_str, kr_jp_str, ov_str
+
+
 def main():
     today = sys.argv[1] if len(sys.argv) > 1 else date.today().isoformat()
     yesterday = sys.argv[2] if len(sys.argv) > 2 else (date.today() - timedelta(days=1)).isoformat()
 
     tpl = (BASE / "claude_prompt.txt").read_text(encoding="utf-8")
-    prompt = tpl.replace("%%TODAY%%", today).replace("%%YESTERDAY%%", yesterday)
+    us_movers, kr_jp, ov_map = _fetch_market_data()
+    prompt = (tpl
+        .replace("%%TODAY%%", today)
+        .replace("%%YESTERDAY%%", yesterday)
+        .replace("%%US_MOVERS%%", us_movers)
+        .replace("%%KR_JP_MARKETS%%", kr_jp)
+        .replace("%%OVERSEAS_MAP%%", ov_map)
+    )
 
     advice_path = BASE / "reports" / f"advice_{today}.md"
 
