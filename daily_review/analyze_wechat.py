@@ -1,6 +1,7 @@
-"""微信公众号文章深度 AI 分析。
+"""微信公众号文章深度 AI 分析（两阶段）。
 
-逐篇抓取文章正文 → Sonnet 深度推理 → 主题聚合 → 交叉印证 → 自选股映射 → 行动建议。
+阶段一 Haiku: 逐篇拆解（核心论点+关键数据+A股标的+自选关联）
+阶段二 Sonnet: 综合研判（交叉印证+确信度+行动建议）
 """
 from __future__ import annotations
 
@@ -18,12 +19,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import store
 from config import REPORT_DIR, WATCHLIST
 
-MODEL = os.getenv("DR_LLM_MODEL", "claude-sonnet-4-6-20250514")
-TIMEOUT = 120
-MAX_TOKENS = 16000
+MODEL_SONNET = os.getenv("DR_LLM_MODEL", "claude-sonnet-4-6-20250514")
+MODEL_HAIKU = "claude-haiku-4-5-20251001"
+TIMEOUT = 90
+MAX_BODY_CHARS = 1200
 FETCH_DELAY_MIN = 3.0
 FETCH_DELAY_MAX = 6.0
-MAX_BODY_CHARS = 1200
 
 UA_POOL = [
     "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36 MicroMessenger/8.0.43",
@@ -46,8 +47,12 @@ def _load_api_key() -> str:
     return key
 
 
+def _get_client():
+    from anthropic import Anthropic
+    return Anthropic(api_key=_load_api_key(), timeout=TIMEOUT)
+
+
 def _scrape_article(url: str) -> str:
-    """抓取单篇微信文章正文。"""
     headers = {
         "User-Agent": random.choice(UA_POOL),
         "Accept": "text/html,application/xhtml+xml",
@@ -61,14 +66,12 @@ def _scrape_article(url: str) -> str:
     except Exception as e:
         print(f"    [skip] {e}")
         return ""
-
     m = re.search(r'id="js_content"[^>]*>(.*?)</div>', html, re.DOTALL)
     if not m:
         m = re.search(r'class="rich_media_content[^"]*"[^>]*>(.*?)</div>',
                       html, re.DOTALL)
     if not m:
         return ""
-
     text = m.group(1)
     text = re.sub(r"<script[^>]*>.*?</script>", "", text, flags=re.DOTALL)
     text = re.sub(r"<style[^>]*>.*?</style>", "", text, flags=re.DOTALL)
@@ -76,93 +79,84 @@ def _scrape_article(url: str) -> str:
     text = re.sub(r"\s+", " ", text).strip()
     text = re.sub(r"微信扫一扫.*$", "", text)
     text = re.sub(r"关注该公众号.*$", "", text)
-
     return text[:MAX_BODY_CHARS]
 
 
-def _build_ctx(rows: list[dict]) -> tuple[str, int, int]:
-    by_feed: dict[str, list[dict]] = {}
-    for r in rows:
-        feed = r.get("feed_source", "").strip() or "未分类"
-        by_feed.setdefault(feed, []).append(r)
+# ============================================================
+# 阶段一：逐篇深度拆解（Haiku）
+# ============================================================
 
-    lines = []
-    fetched = 0
-    failed = 0
-    total = len(rows)
+_S1 = """你是 A 股基本面分析师。分析以下微信公众号文章。
 
-    for feed, articles in by_feed.items():
-        lines.append(f"\n## {feed}（{len(articles)} 篇）")
-        for i, a in enumerate(articles, 1):
-            t = (a.get("pub_date") or "")[:10]
-            title = a.get("title", "").strip()
-            url = a.get("url", "").strip()
-            lines.append(f"\n### [{feed}#{i}] {title}")
-            if t:
-                lines.append(f"日期: {t}")
+来源: {feed}  日期: {date}
+标题: {title}
+正文: {body}
 
-            if url and url.startswith("https://mp.weixin.qq.com"):
-                delay = random.uniform(FETCH_DELAY_MIN, FETCH_DELAY_MAX)
-                time.sleep(delay)
-                body = _scrape_article(url)
-                if body:
-                    lines.append(f"正文: {body}")
-                    fetched += 1
-                    print(f"    [{fetched+failed}/{total}] {title[:30]}... "
-                          f"({len(body)}字)")
-                else:
-                    failed += 1
-                    print(f"    [{fetched+failed}/{total}] {title[:30]}... "
-                          f"无内容")
-
-    return "\n".join(lines), fetched, failed
-
-
-def analyze(rows: list[dict], today: str, ctx: str = "") -> dict:
-    api_key = _load_api_key()
-    if not api_key or not rows:
-        return {}
-    try:
-        from anthropic import Anthropic
-    except ImportError:
-        print("  [WARN] 未安装 anthropic")
-        return {}
-
-    if not ctx:
-        ctx, _, _ = _build_ctx(rows)
-
-    watchlist_str = ", ".join(WATCHLIST)
-
-    prompt = f"""你是 A 股基本面投资分析师。今天是 {today}。
-以下是近 3 天微信公众号文章及正文内容。
-
-我的自选股池：{watchlist_str}
-
----
-{ctx}
----
-
-请深度分析，输出 JSON：
-
+输出 JSON:
 {{
-  "market_narrative": "当前市场核心叙事（3-4 句，点明共识、分歧与情绪）",
+  "title": "原标题",
+  "feed": "来源",
+  "thesis": "核心论点（1-2 句，引用原文关键数据和逻辑）",
+  "key_facts": ["关键事实1", "关键事实2"],
+  "tickers": [{{"code": "股票代码或名称", "name": "简称", "relevance": "关联逻辑"}}],
+  "category": "AI算力/半导体/AIPC/新能源/消费/宏观/地产/电力/其他",
+  "relevance_score": 1-5,
+  "one_liner": "一句话投资摘要"
+}}
+只输出 JSON。"""
+
+
+def _analyze_single(client, feed: str, pub_date: str, title: str,
+                    body: str) -> dict:
+    prompt = _S1.format(feed=feed, date=pub_date[:10], title=title,
+                        body=body or "（无正文）")
+    try:
+        resp = client.messages.create(
+            model=MODEL_HAIKU, max_tokens=1000,
+            messages=[{"role": "user", "content": prompt}],
+            thinking={"type": "disabled"},
+        )
+        text = "".join(b.text for b in resp.content
+                       if getattr(b, "type", "") == "text")
+        return _extract_json(text) or {}
+    except Exception as e:
+        print(f"      [Haiku err] {e}")
+        return {}
+
+
+# ============================================================
+# 阶段二：综合研判（Sonnet）
+# ============================================================
+
+_S2 = """你是 A 股基本面投资分析师。今天是 {today}。
+
+以下是近 3 天微信公众号文章的逐篇深度拆解：
+
+{articles_json}
+
+我的自选股池：{watchlist}
+
+请综合研判，输出 JSON:
+{{
+  "market_narrative": "当前市场核心叙事（3-4 句，共识+分歧+情绪）",
   "themes": [
     {{
       "name": "主题",
       "conviction": "高/中/低",
+      "article_indices": [1,2,5],
       "feeds": ["号1","号2"],
-      "thesis": "核心逻辑（引用原文关键信息，50-80 字）",
-      "catalyst": "近期催化事件及时间节点",
+      "thesis": "核心逻辑（引用原文数据和事件）",
+      "catalyst": "近期催化及时间节点",
       "horizon": "短期/中期/长期",
       "related_stocks": ["自选股代码"],
-      "risk": "主要风险或反面逻辑"
+      "risk": "主要风险"
     }}
   ],
   "cross_validation": [
     {{
       "theme": "主题",
-      "consensus_view": "多号一致看法（引用原文差异角度）",
-      "divergent_view": "不同角度、反对意见或被忽略的视角",
+      "consensus_view": "一致看法",
+      "divergent_view": "分歧或反对意见",
       "our_take": "基于自选股持仓的判断"
     }}
   ],
@@ -170,50 +164,43 @@ def analyze(rows: list[dict], today: str, ctx: str = "") -> dict:
     {{
       "code": "自选股代码",
       "signal": "正面/负面/关注",
-      "reason": "原文具体逻辑（引用文章中的关键信息，50 字）",
+      "reason": "具体逻辑（引用原文数据）",
       "urgency": "高/中/低"
     }}
   ],
   "action_items": [
     {{
       "action": "建议操作",
-      "target": "标的或板块（尽量用自选股代码）",
-      "rationale": "理由（引用原文支撑）",
+      "target": "标的（尽量用自选股代码）",
+      "rationale": "理由",
       "priority": 1-5
     }}
   ],
-  "key_question": "当前最需要回答的关键问题（1 个）",
+  "key_question": "当前最需要回答的关键问题",
   "summary": "200 字整体摘要"
 }}
+只输出 JSON。article_indices 指向上方拆解编号。"""
 
-规则：
-- 引用原文中的具体数据、事件、逻辑，不要泛泛而谈
-- watchlist_alerts 仅当文章与自选股有明确关联时才输出
-- action_items 最多 5 条，按 priority 降序
-- 只输出 JSON"""
 
+def _synthesize(client, articles: list[dict], today: str) -> dict:
+    prompt = _S2.format(today=today,
+                        articles_json=json.dumps(articles, ensure_ascii=False, indent=2),
+                        watchlist=", ".join(WATCHLIST))
     try:
-        client = Anthropic(api_key=api_key, timeout=TIMEOUT)
         resp = client.messages.create(
-            model=MODEL,
-            max_tokens=MAX_TOKENS,
+            model=MODEL_SONNET, max_tokens=12000,
             messages=[{"role": "user", "content": prompt}],
             thinking={"type": "disabled"},
         )
-        text = "".join(
-            b.text for b in resp.content if getattr(b, "type", "") == "text"
-        )
-        data = _extract_json(text)
-        return data if isinstance(data, dict) else {}
+        text = "".join(b.text for b in resp.content
+                       if getattr(b, "type", "") == "text")
+        return _extract_json(text) or {}
     except Exception as e:
-        import traceback
-        print(f"  [WARN] AI 分析失败: {e}")
-        traceback.print_exc()
+        print(f"  [Sonnet err] {e}")
         return {}
 
 
 def _extract_json(text: str) -> dict | None:
-    # 尝试提取 JSON from markdown code block
     m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if m:
         text = m.group(1)
@@ -225,27 +212,28 @@ def _extract_json(text: str) -> dict | None:
         return json.loads(text[start : end + 1])
     except json.JSONDecodeError as e:
         print(f"  [WARN] JSON 解析失败: {e}")
-        print(f"  原文前200字符: {text[:200]}")
         return None
 
 
-def _write_report(data: dict, rows: list[dict], today: str,
-                  fetched: int = 0, failed: int = 0):
-    path = REPORT_DIR / f"wechat_analysis_{today}.md"
-    n_feeds = len(set(r.get("feed_source", "") for r in rows))
-    status = f"{len(rows)} 篇 | {n_feeds} 个来源"
-    if fetched:
-        status += f" | {fetched} 篇有正文"
-    if failed:
-        status += f" | {failed} 篇无正文"
-    buf = [f"# 公众号深度分析 {today}", "", f"> {status}", ""]
+# ============================================================
+# 报告输出
+# ============================================================
 
-    narrative = data.get("market_narrative", "")
-    if narrative:
-        buf.append("## 市场叙事")
-        buf.append("")
-        buf.append(narrative)
-        buf.append("")
+def _write_report(data: dict, single_results: list[dict],
+                  today: str, fetched: int, failed: int):
+    path = REPORT_DIR / f"wechat_analysis_{today}.md"
+    n_feeds = len(set(a.get("feed", "") for a in single_results if a))
+    buf = [
+        f"# 公众号深度分析 {today}", "",
+        f"> {len(single_results)} 篇 | {n_feeds} 个号 | {fetched} 篇有正文",
+    ]
+    if failed:
+        buf[-1] += f" | {failed} 篇无正文"
+    buf.append("")
+
+    n = data.get("market_narrative", "")
+    if n:
+        buf.extend(["## 市场叙事", "", n, ""])
 
     themes = data.get("themes", [])
     if themes:
@@ -254,13 +242,17 @@ def _write_report(data: dict, rows: list[dict], today: str,
         for t in themes:
             conv = t.get("conviction", "·")
             emoji = {"高": "🔥", "中": "📌", "低": "👀"}.get(conv, "·")
-            buf.append(f"### {emoji} {t.get('name','')} （{conv}确信度）")
+            indices = t.get("article_indices", [])
+            idx_str = ""
+            if indices:
+                idx_str = " （#" + ", #".join(str(i) for i in indices) + "）"
+            buf.append(f"### {emoji} {t.get('name','')} （{conv}确信度）{idx_str}")
             buf.append("")
             for key, label in [("thesis", "逻辑"), ("catalyst", "催化"),
                                ("horizon", "时间维度"), ("risk", "风险")]:
-                val = t.get(key, "")
-                if val:
-                    buf.append(f"- **{label}**: {val}")
+                v = t.get(key, "")
+                if v:
+                    buf.append(f"- **{label}**: {v}")
             feeds = t.get("feeds", [])
             if feeds:
                 buf.append(f"- **来源**: {', '.join(feeds)}")
@@ -279,9 +271,9 @@ def _write_report(data: dict, rows: list[dict], today: str,
             for key, label in [("consensus_view", "一致看法"),
                                ("divergent_view", "分歧/补充"),
                                ("our_take", "我们的判断")]:
-                val = c.get(key, "")
-                if val:
-                    buf.append(f"- **{label}**: {val}")
+                v = c.get(key, "")
+                if v:
+                    buf.append(f"- **{label}**: {v}")
             buf.append("")
 
     alerts = data.get("watchlist_alerts", [])
@@ -302,52 +294,68 @@ def _write_report(data: dict, rows: list[dict], today: str,
         buf.append("## 行动建议")
         buf.append("")
         for a in sorted(actions, key=lambda x: x.get("priority", 99)):
-            buf.append(f"- **P{a.get('priority', '?')}** [{a.get('target','')}] "
+            buf.append(f"- **P{a.get('priority','?')}** [{a.get('target','')}] "
                        f"{a.get('action','')} — {a.get('rationale','')}")
         buf.append("")
 
     q = data.get("key_question", "")
     if q:
-        buf.append("## 关键问题")
-        buf.append("")
-        buf.append(f"> {q}")
-        buf.append("")
+        buf.extend(["## 关键问题", "", f"> {q}", ""])
 
     s = data.get("summary", "")
     if s:
-        buf.append("## 整体摘要")
-        buf.append("")
-        buf.append(s)
-        buf.append("")
+        buf.extend(["## 整体摘要", "", s, ""])
 
-    buf.append("## 分析文章")
+    # 逐篇拆解详情
+    buf.append("## 逐篇拆解")
     buf.append("")
-    by_feed: dict[str, list[dict]] = {}
-    for r in rows:
-        by_feed.setdefault(r.get("feed_source", "").strip() or "未分类", []).append(r)
-    for feed in sorted(by_feed.keys()):
-        buf.append(f"### {feed}")
-        for a in by_feed[feed]:
-            t = (a.get("pub_date") or "")[:10]
-            title = a.get("title", "").strip()
-            url = a.get("url", "").strip()
-            if url:
-                buf.append(f"- [{title}]({url}) ({t})")
-            else:
-                buf.append(f"- {title} ({t})")
+    for i, sr in enumerate(single_results, 1):
+        if not sr:
+            continue
+        feed = sr.get("feed", "?")
+        title = sr.get("title", "?")
+        thesis = sr.get("thesis", "")
+        facts = sr.get("key_facts", [])
+        tickers = sr.get("tickers", [])
+        cat = sr.get("category", "?")
+        score = sr.get("relevance_score", 0)
+        oneliner = sr.get("one_liner", "")
+
+        buf.append(f"### #{i} [{feed}] {title}")
         buf.append("")
+        buf.append(f"**{cat}** | {'★' * score}{'☆' * (5 - score)}")
+        buf.append("")
+        if thesis:
+            buf.append(f"**论点**: {thesis}")
+            buf.append("")
+        if facts:
+            for f in facts:
+                buf.append(f"- {f}")
+            buf.append("")
+        if tickers:
+            buf.append("| 标的 | 关联逻辑 |")
+            buf.append("|------|---------|")
+            for tk in tickers:
+                buf.append(f"| {tk.get('code','')} | {tk.get('relevance','')} |")
+            buf.append("")
+        if oneliner:
+            buf.append(f"> {oneliner}")
+            buf.append("")
 
     path.write_text("\n".join(buf), encoding="utf-8")
     print(f"\n  报告: {path}")
     return path
 
 
+# ============================================================
+# 主流程
+# ============================================================
+
 def main():
     today = date.today().isoformat()
     since = (date.today() - timedelta(days=3)).isoformat()
 
-    print(f"公众号深度分析 | {since} ~ {today}")
-    print("  抓取文章正文...")
+    print(f"公众号深度分析（两阶段）| {since} ~ {today}")
 
     store.init_feeds_tables()
     rows = store.query_wechat_articles(since)
@@ -355,21 +363,53 @@ def main():
         print("  无近期文章")
         return
 
-    n_feeds = len(set(r.get("feed_source", "") for r in rows))
-    url_count = sum(1 for r in rows
-                    if (r.get("url") or "").startswith("https://mp.weixin.qq.com"))
-    print(f"  共 {len(rows)} 篇（{n_feeds} 个号），{url_count} 篇有链接")
-
-    ctx, fetched, failed = _build_ctx(rows)
-    print(f"  正文: {fetched} 成功, {failed} 失败")
-
-    data = analyze(rows, today, ctx)
-    if not data:
-        print("  AI 分析不可用")
-        _write_report({}, rows, today, fetched, failed)
+    key = _load_api_key()
+    if not key:
+        print("  API key 不可用")
         return
 
-    _write_report(data, rows, today, fetched, failed)
+    from anthropic import Anthropic
+    client = Anthropic(api_key=key, timeout=TIMEOUT)
+
+    # 抓取正文
+    print(f"  抓取 {len(rows)} 篇文章正文...")
+    articles_with_body = []
+    for r in rows:
+        url = (r.get("url") or "").strip()
+        body = ""
+        if url.startswith("https://mp.weixin.qq.com"):
+            time.sleep(random.uniform(FETCH_DELAY_MIN, FETCH_DELAY_MAX))
+            body = _scrape_article(url)
+        articles_with_body.append({
+            "feed": r.get("feed_source", "").strip() or "未分类",
+            "date": (r.get("pub_date") or "")[:10],
+            "title": r.get("title", "").strip(),
+            "body": body,
+        })
+    fetched = sum(1 for a in articles_with_body if a["body"])
+    failed = len(articles_with_body) - fetched
+    print(f"  正文: {fetched} 成功, {failed} 失败")
+
+    # 阶段一
+    print(f"\n  阶段一: Haiku 逐篇拆解...")
+    single_results = []
+    for i, a in enumerate(articles_with_body):
+        sr = _analyze_single(client, a["feed"], a["date"], a["title"], a["body"])
+        single_results.append(sr)
+        score = sr.get("relevance_score", 0)
+        stars = "★" * score + "☆" * (5 - score)
+        print(f"    [{i+1}/{len(articles_with_body)}] {stars} "
+              f"{a['title'][:30]}...")
+
+    # 阶段二
+    print(f"\n  阶段二: Sonnet 综合研判...")
+    data = _synthesize(client, single_results, today)
+    if not data:
+        print("  Sonnet 不可用")
+        _write_report({}, single_results, today, fetched, failed)
+        return
+
+    _write_report(data, single_results, today, fetched, failed)
     print("  完成")
 
 
