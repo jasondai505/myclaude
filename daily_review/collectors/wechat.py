@@ -18,7 +18,7 @@ from .base import (
 )
 
 SOURCE_NAME = "wechat"
-_JSON_URL = "http://111.231.44.12:4000/feeds/all.json"
+_JSON_URL = "http://111.231.44.12:4000/feeds/all.json?limit=500"
 REQUEST_TIMEOUT = 30
 
 
