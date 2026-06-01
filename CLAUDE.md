@@ -58,17 +58,21 @@ valuation.py              # 行业估值分位
 models.py                 # 核心 dataclass（StockQuote/ThemeEntry/FEVScore 等）
 ```
 
-### morning_advice.bat 流水线（5 步，04:57 触发）
+### morning_advice.bat 流水线（6 步，04:57 触发）
 
 ```
-Step 1: daily_collect.py          # 补全今日数据源
-Step 2: review_summary.py         # 生成复盘摘要
-Step 3: track_recommendations.py  # 追踪历史推荐标的
-Step 4: morning_intel/run_morning.py --phase pre  # 盘前解读（供应链映射+催化→标的）
-Step 5: _run_advice.py            # SDK 直调生成盘前建议（claude_prompt.txt 模板）
+Step 1: daily_collect.py          # 补全今日数据源（含微信公众号文章采集）
+Step 2: analyze_wechat.py         # 公众号文章 AI 分析（摘要+主题+标的）
+Step 3: review_summary.py         # 生成复盘摘要
+Step 4: track_recommendations.py  # 追踪历史推荐标的
+Step 5: morning_intel/run_morning.py --phase pre  # 盘前解读（供应链映射+催化→标的）
+Step 6: _run_advice.py            # SDK 直调生成盘前建议（claude_prompt.txt 模板）
 ```
 
-**设计原则**：prompt 模板只放指令框架，**数据由 Python 预先拉取注入 `%%PLACEHOLDER%%`**。不要写「运行 python 命令」「读取文件」等 LLM 做不到的指令——模型只能生成文本，不能执行代码或访问文件系统。
+**设计原则**：prompt 模板只放指令框架，**数据由 Python 预先拉取注入 `%%PLACEHOLDER%%`**。
+
+> **禁止在 prompt 模板中写「读取文件」「运行命令」等指令**——LLM 无法执行代码或访问文件系统，会导致模型**静默编造/幻觉**所有数据（如瞎编成交额、编造涨跌幅、错误分类个股大小盘），且不会报错。2026-05-29 事故：claude_prompt.txt 写了「阅读以下文件」但 LLM 读不到，导致 advice 中成交额编造为 8000 亿（实际 29682 亿）、寒武纪 8700 亿被标为小盘股、推荐回顾数据全部虚构。<br>
+> 正确做法：Python 端读文件/调 API → 注入 `%%PLACEHOLDER%%` → LLM 只做推理。参考 `_run_advice.py` 的注入模式。
 
 ### 数据流
 

@@ -23,23 +23,28 @@ if errorlevel 1 (
     echo [%date% %time%] WARNING: daily_collect failed, continuing with cached data >> "%LOG%"
 )
 
-rem === Step 2: review_summary ===
-echo [%date% %time%] Step 2: review_summary >> "%LOG%"
+rem === Step 2: wechat AI analysis ===
+echo [%date% %time%] Step 2: analyze_wechat >> "%LOG%"
+"%PY%" "%BASE%\analyze_wechat.py" >> "%LOG%" 2>&1
+if errorlevel 1 echo [%date% %time%] WARNING: analyze_wechat failed >> "%LOG%"
+
+rem === Step 3: review_summary ===
+echo [%date% %time%] Step 3: review_summary >> "%LOG%"
 "%PY%" "%BASE%\review_summary.py" >> "%LOG%" 2>&1
 if errorlevel 1 echo [%date% %time%] WARNING: review_summary failed >> "%LOG%"
 
-rem === Step 3: track_recommendations ===
-echo [%date% %time%] Step 3: track_recommendations >> "%LOG%"
+rem === Step 4: track_recommendations ===
+echo [%date% %time%] Step 4: track_recommendations >> "%LOG%"
 "%PY%" "%BASE%\track_recommendations.py" >> "%LOG%" 2>&1
 if errorlevel 1 echo [%date% %time%] WARNING: track_recommendations failed >> "%LOG%"
 
-rem === Step 4: morning intel — supply chain mapping + catalyst → targets ===
-echo [%date% %time%] Step 4: morning_intel interpret >> "%LOG%"
+rem === Step 5: morning intel — supply chain mapping + catalyst → targets ===
+echo [%date% %time%] Step 5: morning_intel interpret >> "%LOG%"
 "%PY%" "%BASE%\..\morning_intel\run_morning.py" --phase pre --date %TODAY% >> "%LOG%" 2>&1
 if errorlevel 1 echo [%date% %time%] WARNING: morning_intel interpret failed >> "%LOG%"
 
-rem === Step 5: classic advice — free-form Markdown with portfolio recs ===
-echo [%date% %time%] Step 5: classic advice >> "%LOG%"
+rem === Step 6: classic advice — free-form Markdown with portfolio recs ===
+echo [%date% %time%] Step 6: classic advice >> "%LOG%"
 "%PY%" "%BASE%\_run_advice.py" %TODAY% %YESTERDAY% >> "%LOG%" 2>&1
 if errorlevel 1 echo [%date% %time%] WARNING: classic advice failed >> "%LOG%"
 

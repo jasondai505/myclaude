@@ -65,10 +65,27 @@ def init_db():
                 updated_at TEXT,
                 PRIMARY KEY (code, data_type)
             );
+            CREATE TABLE IF NOT EXISTS sector_rotation_log (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                date           TEXT NOT NULL,
+                row_type       TEXT NOT NULL,
+                score          REAL,
+                sector         TEXT DEFAULT '',
+                status_code    TEXT DEFAULT '',
+                leader_stock   TEXT DEFAULT '',
+                auction_leader TEXT DEFAULT '',
+                stocks_json    TEXT DEFAULT '[]',
+                volume_ratio   REAL,
+                raw_data       TEXT DEFAULT '{}'
+            );
+            CREATE INDEX IF NOT EXISTS idx_srl_date ON sector_rotation_log(date);
+            CREATE INDEX IF NOT EXISTS idx_srl_type ON sector_rotation_log(row_type);
+            CREATE INDEX IF NOT EXISTS idx_srl_sector ON sector_rotation_log(sector);
         """)
 
 
 # ---- 题材持久化 ----
+
 
 def save_themes(date: str, theme_counts: dict[str, dict]):
     """
@@ -689,6 +706,18 @@ def init_feeds_tables():
             );
             CREATE INDEX IF NOT EXISTS idx_indres_pub ON industry_research(publish_date);
 
+            CREATE TABLE IF NOT EXISTS wechat_articles (
+                feed_source  TEXT NOT NULL,
+                title        TEXT NOT NULL,
+                url          TEXT,
+                pub_date     TEXT NOT NULL,
+                description  TEXT,
+                fetched_at   TEXT,
+                PRIMARY KEY (feed_source, pub_date, title)
+            );
+            CREATE INDEX IF NOT EXISTS idx_wechat_pub ON wechat_articles(pub_date);
+            CREATE INDEX IF NOT EXISTS idx_wechat_feed ON wechat_articles(feed_source);
+
             CREATE TABLE IF NOT EXISTS financial_indicators (
                 code                TEXT NOT NULL,
                 name                TEXT,
@@ -765,6 +794,45 @@ def save_stock_news(rows: list[dict]) -> int:
         )
         after = conn.execute("SELECT COUNT(*) FROM stock_news").fetchone()[0]
     return after - before
+
+
+def save_wechat_articles(rows: list[dict]) -> int:
+    if not rows:
+        return 0
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    with _conn() as conn:
+        before = conn.execute("SELECT COUNT(*) FROM wechat_articles").fetchone()[0]
+        conn.executemany(
+            "INSERT OR IGNORE INTO wechat_articles "
+            "(feed_source, title, url, pub_date, description, fetched_at) "
+            "VALUES (?,?,?,?,?,?)",
+            [
+                (
+                    r.get("feed_source", ""), r.get("title", ""),
+                    r.get("url", ""), r.get("pub_date", ""),
+                    r.get("description", ""), now,
+                )
+                for r in rows
+            ],
+        )
+        after = conn.execute("SELECT COUNT(*) FROM wechat_articles").fetchone()[0]
+    return after - before
+
+
+def query_wechat_articles(since: str, until: str = "") -> list[dict]:
+    if until:
+        sql = ("SELECT * FROM wechat_articles "
+               "WHERE pub_date >= ? AND pub_date < ? "
+               "ORDER BY pub_date DESC, feed_source")
+        params = (since, until)
+    else:
+        sql = ("SELECT * FROM wechat_articles "
+               "WHERE pub_date >= ? "
+               "ORDER BY pub_date DESC, feed_source")
+        params = (since,)
+    with _conn() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [dict(r) for r in rows]
 
 
 def save_interactions(rows: list[dict]) -> int:

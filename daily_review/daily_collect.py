@@ -45,6 +45,7 @@ _COLLECTOR_IMPORTS = {
     "eps": "eps_forecast",
     "industry": "industry_research",
     "financials": "financials",
+    "wechat": "wechat",
 }
 
 ALL_SOURCES = {}
@@ -67,6 +68,7 @@ SOURCE_LABELS = {
     "eps": "一致预期EPS",
     "industry": "行业研报",
     "financials": "财务指标",
+    "wechat": "微信公众号",
 }
 
 SOURCE_TABLE = {
@@ -81,6 +83,7 @@ SOURCE_TABLE = {
     "eps": ("eps_forecast", "fetched_at"),
     "industry": ("industry_research", "publish_date"),
     "financials": ("financial_indicators", "fetched_at"),
+    "wechat": ("wechat_articles", "pub_date"),
 }
 
 

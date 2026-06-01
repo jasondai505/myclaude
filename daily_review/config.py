@@ -15,6 +15,10 @@ REPORT_DIR.mkdir(parents=True, exist_ok=True)
 # ============================================================
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/117.0.0.0 Safari/537.36"
 REQUEST_TIMEOUT = 15
+
+# WeWe-RSS 微信公众号采集
+WEWE_RSS_URL = "http://111.231.44.12:4000/feeds/all.rss"
+
 FETCH_DELAY = 0.3             # API 调用间隔（秒），防反爬
 LIXINGER_TOKEN = "95b52199-4f8b-48f8-86b5-1b8a6437aff9"
 LIXINGER_BASE = "https://open.lixinger.com/api"
