@@ -18,8 +18,8 @@ from .base import (
 )
 
 SOURCE_NAME = "wechat"
-_JSON_URL = "http://111.231.44.12:4000/feeds/all.json?limit=500"
-REQUEST_TIMEOUT = 30
+_JSON_URL = "http://111.231.44.12:4000/feeds/all.json?limit=200"
+REQUEST_TIMEOUT = 90
 
 
 def _fetch() -> list[dict]:
@@ -54,7 +54,7 @@ def _fetch() -> list[dict]:
         if content:
             import re, html
             text = html.unescape(content)
-            text = re.sub(r"<[^>]+>", "", text)[:500]
+            text = re.sub(r"<[^>]+>", "", text)[:2000]
             description = text
 
         rows.append({
