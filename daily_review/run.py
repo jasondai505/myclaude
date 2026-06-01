@@ -34,6 +34,10 @@ from zsxq_cross import run_cross, load_cookie, fetch_recent_topics, analyze_zsxq
 from zsxq_collector import sync
 from llm import generate_overseas_catalysts
 import strength as strength_mod
+from engine_sector_rotation import sector_frequency, sector_persistence, sector_cooccurrence
+from engine_market_rhythm import rhythm_report
+from engine_leader_backtest import top_leader_report
+from engine_similar_days import similar_days_report
 
 
 def check_deps():
@@ -68,7 +72,48 @@ def _parse_args():
     parser.add_argument("--earnings", "-e", action="store_true", help="盈利预测选股")
     parser.add_argument("--cross", "-x", action="store_true", help="知识星球×盈利预测交叉验证")
     parser.add_argument("--zsxq", action="store_true", help="同步知识星球帖子")
+    parser.add_argument("--sector-rotation", "-sr", action="store_true",
+                        help="板块轮动分析（基于强势板块.xlsx 历史数据）")
     return parser.parse_args()
+
+
+def _generate_sector_rotation_report() -> str:
+    """生成板块轮动分析报告"""
+    lines = ["", "=" * 50, "  板块轮动分析（强势板块.xlsx 历史复盘数据）", "=" * 50, ""]
+
+    freq = sector_frequency(60)
+    lines.append("## 近 60 日高频板块")
+    lines.append("| 板块 | 出现天数 | 首次 | 最近 |")
+    lines.append("|------|---------|------|------|")
+    for s in freq[:15]:
+        lines.append(f"| {s['sector']} | {s['days']} | {s['first_date']} | {s['last_date']} |")
+
+    lines.append("")
+    pers = sector_persistence(5)
+    lines.append("## 板块持续性 Top 10")
+    lines.append("| 板块 | 累计天数 | 轮次 | 最长连续 | 平均连续 |")
+    lines.append("|------|---------|------|---------|---------|")
+    for s in pers[:10]:
+        lines.append(
+            f"| {s['sector']} | {s['total_days']} | {s['runs']} | "
+            f"{s['max_streak']} | {s['avg_streak']} |")
+
+    lines.append("")
+    cooc = sector_cooccurrence(120)
+    lines.append("## 板块共现 Top 10（近 120 日）")
+    lines.append("| 板块 A | 板块 B | 共现天数 |")
+    lines.append("|--------|--------|---------|")
+    for c in cooc[:10]:
+        lines.append(f"| {c['sector_a']} | {c['sector_b']} | {c['co_days']} |")
+
+    lines.append("")
+    lines.append(rhythm_report())
+    lines.append("")
+    lines.append(top_leader_report(15))
+    lines.append("")
+    lines.append(similar_days_report(target_date=None))
+
+    return "\n".join(lines)
 
 
 def _dispatch_early(args) -> bool:
@@ -105,6 +150,12 @@ def _dispatch_early(args) -> bool:
 
     if args.zsxq:
         sync()
+        return True
+
+    if args.sector_rotation:
+        check_deps()
+        store.init_db()
+        print(_generate_sector_rotation_report())
         return True
 
     return False

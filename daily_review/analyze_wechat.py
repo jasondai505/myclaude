@@ -219,8 +219,41 @@ def _extract_json(text: str) -> dict | None:
 # 报告输出
 # ============================================================
 
+def _build_name_map(single_results: list[dict], data: dict) -> dict[str, str]:
+    codes = set()
+    for sr in single_results:
+        if not sr: continue
+        for tk in sr.get("tickers", []):
+            c = str(tk.get("code", ""))
+            if re.match(r"^\d{6}$", c): codes.add(c)
+    for t in data.get("themes", []):
+        for c in t.get("related_stocks", []):
+            c = str(c)
+            if re.match(r"^\d{6}$", c): codes.add(c)
+    for a in data.get("watchlist_alerts", []):
+        c = str(a.get("code", ""))
+        if re.match(r"^\d{6}$", c): codes.add(c)
+    for a in data.get("action_items", []):
+        target = str(a.get("target", ""))
+        for m in re.finditer(r"\b(\d{6})\b", target): codes.add(m.group(1))
+    if not codes: return {}
+    try:
+        from data import fetch_stock_quotes
+        quotes = fetch_stock_quotes(list(codes), batch_size=30)
+        return {c: q.get("name", "") for c, q in quotes.items()}
+    except Exception:
+        return {}
+
+
+def _fmt_code(c: str, nm: dict[str, str]) -> str:
+    c = str(c)
+    name = nm.get(c, "")
+    return f"{c} {name}" if name else c
+
+
 def _write_report(data: dict, single_results: list[dict],
                   today: str, fetched: int, failed: int):
+    nm = _build_name_map(single_results, data)
     path = REPORT_DIR / f"wechat_analysis_{today}.md"
     n_feeds = len(set(a.get("feed", "") for a in single_results if a))
     buf = [
@@ -258,7 +291,7 @@ def _write_report(data: dict, single_results: list[dict],
                 buf.append(f"- **来源**: {', '.join(feeds)}")
             stocks = t.get("related_stocks", [])
             if stocks:
-                buf.append(f"- **关联标的**: {', '.join(stocks)}")
+                buf.append(f"- **关联标的**: {', '.join(_fmt_code(s, nm) for s in stocks)}")
             buf.append("")
 
     cross = data.get("cross_validation", [])
@@ -285,7 +318,7 @@ def _write_report(data: dict, single_results: list[dict],
         for a in alerts:
             sig = a.get("signal", "·")
             sig_emoji = {"正面": "🟢", "负面": "🔴", "关注": "🟡"}.get(sig, "·")
-            buf.append(f"| {a.get('code','')} | {sig_emoji} {sig} | "
+            buf.append(f"| {_fmt_code(a.get('code',''), nm)} | {sig_emoji} {sig} | "
                        f"{a.get('reason','')} | {a.get('urgency','')} |")
         buf.append("")
 
@@ -294,7 +327,9 @@ def _write_report(data: dict, single_results: list[dict],
         buf.append("## 行动建议")
         buf.append("")
         for a in sorted(actions, key=lambda x: x.get("priority", 99)):
-            buf.append(f"- **P{a.get('priority','?')}** [{a.get('target','')}] "
+            target = str(a.get("target", ""))
+            target_fmt = ", ".join(_fmt_code(t.strip(), nm) for t in target.split(",") if t.strip())
+            buf.append(f"- **P{a.get('priority','?')}** [{target_fmt}] "
                        f"{a.get('action','')} — {a.get('rationale','')}")
         buf.append("")
 
@@ -336,7 +371,7 @@ def _write_report(data: dict, single_results: list[dict],
             buf.append("| 标的 | 关联逻辑 |")
             buf.append("|------|---------|")
             for tk in tickers:
-                buf.append(f"| {tk.get('code','')} | {tk.get('relevance','')} |")
+                buf.append(f"| {_fmt_code(tk.get('code',''), nm)} | {tk.get('relevance','')} |")
             buf.append("")
         if oneliner:
             buf.append(f"> {oneliner}")

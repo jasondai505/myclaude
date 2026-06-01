@@ -121,7 +121,7 @@ def render_sentiment(lines, sentiment):
     lines.append("")
 
 
-def render_sectors(lines, sectors):
+def render_sectors(lines, sectors, trade_date=None):
     lines.append("## 三、行业轮动\n")
     lines.append("### 领涨 TOP5\n")
     lines.append("| # | 行业 | 涨跌幅 | 领涨股 |")
@@ -135,6 +135,11 @@ def render_sectors(lines, sectors):
     for s in sectors.get("bottom", []):
         lines.append(f"| {s['rank']} | {s['name']} | {s['change_pct']}% | {s.get('leader', '')} |")
     lines.append("")
+
+    if trade_date:
+        from engine_similar_days import similar_days_report
+        lines.append(similar_days_report(trade_date))
+        lines.append("")
 
 
 def render_themes(lines, themes, theme_stock_details, focus_pool_data,

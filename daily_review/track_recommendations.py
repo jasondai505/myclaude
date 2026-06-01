@@ -150,12 +150,14 @@ def _generate_recap(results: list[dict], advice_date: str, trade_date: str) -> s
     lines.append("")
     lines.append("## 解读")
     lines.append("")
+    lines.append("注意：一日涨跌不代表推荐逻辑对错。催化剂从发酵到定价通常需要3-5个交易日，")
+    lines.append("持续追踪同一逻辑的兑现进程，而非根据单日涨跌频繁切换方向。")
     if avg_chg > 2 and len(good) >= len(bad) * 2:
-        lines.append("整体命中率高，推荐框架有效。关注哪些特征（事件驱动/基本面共振/低位启动）贡献了主要收益。")
+        lines.append("今日整体涨幅较好，关注催化剂是否已充分兑现（若已大幅上涨考虑获利了结）。")
     elif avg_chg < -2:
-        lines.append("整体表现不佳，需审视：是否追高？是否忽略大盘风险？是否集中度过高？")
+        lines.append("今日整体回调，区分：是催化剂被证伪（需调整），还是正常波动（逻辑未变可维持）。")
     else:
-        lines.append("整体表现分化，关注涨跌两端的共同特征，优化筛选标准。")
+        lines.append("整体表现分化，关注涨跌两端催化逻辑的差异，同一板块内也会有个股分化。")
 
     lines.append("")
     return "\n".join(lines)

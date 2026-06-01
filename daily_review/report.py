@@ -60,7 +60,7 @@ def render_report(
         render_sentiment(lines, sentiment)
 
     # 三、行业轮动
-    render_sectors(lines, sectors)
+    render_sectors(lines, sectors, trade_date)
 
     # 四、题材热度
     render_themes(lines, themes, theme_stock_details, focus_pool_data,

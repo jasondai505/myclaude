@@ -43,7 +43,7 @@ echo [%date% %time%] Step 5: morning_intel interpret >> "%LOG%"
 "%PY%" "%BASE%\..\morning_intel\run_morning.py" --phase pre --date %TODAY% >> "%LOG%" 2>&1
 if errorlevel 1 echo [%date% %time%] WARNING: morning_intel interpret failed >> "%LOG%"
 
-rem === Step 6: classic advice — free-form Markdown with portfolio recs ===
+rem === Step 6: classic advice (吸收公众号分析结论 + 星球信号 + 外围映射) ===
 echo [%date% %time%] Step 6: classic advice >> "%LOG%"
 "%PY%" "%BASE%\_run_advice.py" %TODAY% %YESTERDAY% >> "%LOG%" 2>&1
 if errorlevel 1 echo [%date% %time%] WARNING: classic advice failed >> "%LOG%"
