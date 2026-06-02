@@ -26,8 +26,9 @@ python daily_review/daily_collect.py --days 30               # 回补30天
 python daily_review/daily_collect.py --status                # 查看采集状态
 
 # 定时任务（Windows Task Scheduler）
-daily_review/run_review.bat        # 每日复盘 @ 17:50
-daily_review/morning_advice.bat    # 盘前流水线 @ 5:00（采集→公众号深度分析→摘要→跟踪→Claude advice）
+AStock_DailyReview          # 每日复盘 @ 17:50 (daily_review/run_review.bat)
+morning_advice              # 盘前流水线 @ 5:00（采集→公众号深度分析→摘要→跟踪→Claude advice）
+BOM_Daily_Analysis          # BOM产业链每日分析 @ 18:30 (bom_analyzer/run_daily.bat)
 ```
 
 ## 项目结构
