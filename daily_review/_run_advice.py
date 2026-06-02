@@ -193,6 +193,31 @@ def _inject_stock_context(codes: set[str]) -> str:
     return json.dumps(ctx, ensure_ascii=False, indent=2)
 
 
+def _validate_code_names(output: str) -> str:
+    pairs = re.findall(r"([一-龥]+)\((\d{6})\)", output)
+    if not pairs: return output
+    codes = sorted(set(c for _, c in pairs))
+    try:
+        import data
+        quotes = data.fetch_stock_quotes(codes, batch_size=30)
+    except Exception as e:
+        print(f"  [WARN] 代码校验查询失败: {e}")
+        return output
+    name_map = {c: q.get("name", "") for c, q in quotes.items()}
+    fixed = 0
+    for llm_name, code in pairs:
+        real_name = name_map.get(code, "")
+        if not real_name: continue
+        if llm_name != real_name:
+            old = f"{llm_name}({code})"
+            new = f"{real_name}({code})"
+            output = output.replace(old, new)
+            print(f"  [FIX] {old} → {new}")
+            fixed += 1
+    if fixed: print(f"  共修正 {fixed} 处代码-名称不匹配")
+    return output
+
+
 def main():
     today = sys.argv[1] if len(sys.argv) > 1 else date.today().isoformat()
     yesterday = sys.argv[2] if len(sys.argv) > 2 else (date.today() - timedelta(days=1)).isoformat()
@@ -238,6 +263,8 @@ def main():
         output = "\n".join(parts)
     except Exception as e:
         output = f"[ERROR] LLM 调用失败: {e}"
+
+    output = _validate_code_names(output)
 
     print(output)
 
