@@ -194,6 +194,39 @@ def _inject_stock_context(codes: set[str]) -> str:
     return json.dumps(ctx, ensure_ascii=False, indent=2)
 
 
+def _inject_bom_context() -> str:
+    """注入 BOM 产业链知识库摘要。"""
+    try:
+        import sys
+        parent = str(BASE.parent)
+        if parent not in sys.path:
+            sys.path.insert(0, parent)
+        from bom_analyzer import chain_db
+        chain_db.init_db()
+        industries = chain_db.list_industries()
+        if not industries:
+            return "（BOM 知识库暂无数据）"
+        lines = ["## BOM产业链知识库（最近分析）", ""]
+        for ind in industries[:10]:
+            data = chain_db.query_industry(ind)
+            segs = data.get("segments", [])
+            h3_segs = [s for s in segs if s.get("is_3h")]
+            if not h3_segs:
+                continue
+            lines.append(f"### {ind}")
+            for s in h3_segs:
+                leaders = s.get("leaders", [])
+                top = leaders[:3] if leaders else []
+                stock_str = " / ".join(
+                    f"{l['stock_name']}({l['stock_code']}) {l.get('moat_total',0)}分"
+                    for l in top)
+                lines.append(f"- {s['segment']}（{s['tier']}）: {stock_str}")
+            lines.append("")
+        return "\n".join(lines) if len(lines) > 3 else "（无三高赛道数据）"
+    except Exception as e:
+        return f"（BOM 数据获取失败: {e}）"
+
+
 def _validate_code_names(output: str) -> str:
     pairs = re.findall(r"([一-龥]+)\((\d{6})\)", output)
     if not pairs: return output
@@ -230,6 +263,7 @@ def main():
     feeds["%%WECHAT_ANALYSIS%%"] = wechat_analysis
     codes = _extract_codes_from_feeds(feeds)
     stock_ctx = _inject_stock_context(codes)
+    bom_ctx = _inject_bom_context()
 
     prompt = (tpl
         .replace("%%TODAY%%", today)
@@ -239,6 +273,7 @@ def main():
         .replace("%%OVERSEAS_MAP%%", ov_map)
         .replace("%%STOCK_CONTEXT%%", stock_ctx)
         .replace("%%WECHAT_ANALYSIS%%", wechat_analysis)
+        .replace("%%BOM_CONTEXT%%", bom_ctx)
     )
     for key, val in feeds.items():
         prompt = prompt.replace(key, val)
