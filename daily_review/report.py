@@ -105,6 +105,9 @@ def render_report(
     # 十、操作建议
     render_advice(lines, suggestions)
 
+    # 十一、BOM 产业链交叉视角
+    render_bom_cross_ref(lines, sectors)
+
     lines.append("---")
     lines.append("*本报告由每日复盘系统自动生成，仅供参考，不构成投资建议。*")
 
@@ -212,3 +215,65 @@ def _build_frontmatter(
         "",
     ]
     return "\n".join(fm_lines)
+
+
+def render_bom_cross_ref(lines: list[str], sectors: dict | None):
+    """BOM 产业链 × 今日强势行业 交叉引用。"""
+    lines.append("## 十一、BOM 产业链视角")
+    lines.append("")
+    try:
+        import sys
+        from pathlib import Path
+        parent = str(Path(__file__).resolve().parent.parent)
+        if parent not in sys.path:
+            sys.path.insert(0, parent)
+        from bom_analyzer import chain_db
+        chain_db.init_db()
+        industries = chain_db.list_industries()
+    except Exception:
+        lines.append("> BOM 知识库暂不可用")
+        lines.append("")
+        return
+
+    if not industries:
+        lines.append("> BOM 知识库暂无数据")
+        lines.append("")
+        return
+
+    # 取当日强势行业名
+    strong_names: set[str] = set()
+    if sectors and sectors.get("all"):
+        for r in sectors["all"][:15]:
+            strong_names.add(r["name"])
+
+    matched = []
+    for ind in industries[:15]:
+        data = chain_db.query_industry(ind)
+        h3_segs = [s for s in data.get("segments", []) if s.get("is_3h")]
+        if not h3_segs:
+            continue
+        # 检查是否与当日强势行业匹配
+        match = ind in strong_names
+        match_tag = "🔥" if match else ""
+        seg_strs = []
+        for s in h3_segs:
+            ldrs = s.get("leaders", [])[:2]
+            stock_str = "、".join(
+                f"{l['stock_name']}({l['stock_code']})" for l in ldrs)
+            seg_strs.append(f"{s['segment']} → {stock_str}")
+        matched.append((match, ind, seg_strs))
+
+    matched.sort(key=lambda x: (not x[0], x[1]))
+
+    if matched:
+        lines.append("| 赛道 | 当日表现 | 三高环节 | 核心龙头 |")
+        lines.append("|------|:--------:|----------|----------|")
+        for is_strong, ind, segs in matched:
+            flag = "🔥强势" if is_strong else "已覆盖"
+            lines.append(f"| {ind} | {flag} | {'<br>'.join(segs[:3])} | - |")
+        lines.append("")
+        strong_count = sum(1 for m in matched if m[0])
+        lines.append(f"> BOM 覆盖 {len(matched)} 个赛道，其中 {strong_count} 个为今日强势行业。")
+    else:
+        lines.append("> 暂无交叉覆盖")
+    lines.append("")
