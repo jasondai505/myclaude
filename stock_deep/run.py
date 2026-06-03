@@ -34,6 +34,7 @@ def _parse_args():
     p = argparse.ArgumentParser(description="个股深度分析")
     p.add_argument("code", nargs="?", type=str, help="股票代码")
     p.add_argument("--code", "-c", dest="code_opt", type=str)
+    p.add_argument("--peers", "-p", type=str, help="同行代码，逗号分隔")
     return p.parse_args()
 
 
@@ -49,6 +50,66 @@ def _load_api_key() -> str:
         except (json.JSONDecodeError, OSError):
             pass
     return key
+
+
+def _find_peers(code: str, db) -> list[str]:
+    """从BOM知识库中找同赛道同行（直接匹配+概念兜底）。"""
+    import sqlite3
+    try:
+        # 1. 直接同赛道匹配
+        rows = db._conn().execute(
+            "SELECT DISTINCT l2.stock_code FROM bom_leaders l1 "
+            "JOIN bom_leaders l2 ON l1.chain_id = l2.chain_id "
+            "WHERE l1.stock_code = ? AND l2.stock_code != ? "
+            "ORDER BY l2.moat_total DESC LIMIT 6",
+            (code, code)
+        ).fetchall()
+        if rows:
+            return [r["stock_code"] for r in rows]
+
+        # 2. 概念标签兜底：查该股概念，匹配BOM segment
+        import data
+        tags = data.fetch_concept_tags(code)
+        if tags:
+            placeholders = ",".join("?" * len(tags))
+            rows = db._conn().execute(
+                f"SELECT DISTINCT l.stock_code FROM bom_leaders l "
+                f"JOIN bom_chains c ON l.chain_id = c.id "
+                f"WHERE l.stock_code != ? AND ("
+                + " OR ".join("c.segment LIKE ?" for _ in tags) + ") "
+                f"ORDER BY l.moat_total DESC LIMIT 6",
+                [code] + [f"%{t}%" for t in tags[:5]]
+            ).fetchall()
+            return [r["stock_code"] for r in rows]
+    except Exception:
+        pass
+    return []
+
+
+def _fetch_peer_data(peer_codes: list[str]) -> str:
+    """拉取同行公司的行情+财务对比数据。"""
+    import data
+    lines = ["## 同行业可比公司真实数据\n"]
+    try:
+        quotes = data.fetch_stock_quotes(peer_codes, batch_size=30)
+        fin = data.fetch_financial_indicators_lixinger(peer_codes)
+        lines.append("| 代码 | 名称 | PE(TTM) | PB | 市值(亿) | ROE% | 毛利率% | 营收YoY% | 利润YoY% |")
+        lines.append("|------|------|---------|-----|----------|------|---------|----------|----------|")
+        for c in peer_codes:
+            q = quotes.get(c, {})
+            name = q.get("name", "")
+            pe = round(q.get("pe_ttm", 0) or 0, 1)
+            pb = round(q.get("pb", 0) or 0, 1)
+            mcap = round((q.get("mcap_yi", 0) or 0))
+            r = fin.get(c, [{}])[0] if fin.get(c) else {}
+            roe = r.get("roe", "N/A")
+            gm = r.get("gross_margin", "N/A")
+            ry = r.get("revenue_yoy", "N/A")
+            py = r.get("profit_yoy", "N/A")
+            lines.append(f"| {c} | {name} | {pe} | {pb} | {mcap} | {roe} | {gm} | {ry} | {py} |")
+    except Exception as e:
+        lines.append(f"（同行数据获取失败: {e}）")
+    return "\n".join(lines)
 
 
 def _fetch_all(code: str) -> dict[str, str]:
@@ -178,8 +239,17 @@ def _fetch_all(code: str) -> dict[str, str]:
     except Exception:
         result["concepts"] = "（获取失败）"
 
-    # 同行（LLM自行判断）
-    result["peers"] = "（请LLM根据行业知识自行对标可比公司）"
+    # 同行（BOM DB + 实时数据）
+    try:
+        from bom_analyzer import chain_db
+        chain_db.init_db()
+        peers = _find_peers(code, chain_db)
+        if peers:
+            result["peers"] = _fetch_peer_data(peers)
+        else:
+            result["peers"] = "（未在BOM知识库中找到同行，请LLM根据行业知识自行对标）"
+    except Exception:
+        result["peers"] = "（获取失败）"
 
     return result
 
@@ -261,13 +331,18 @@ def _save_report(data: dict, code: str) -> str:
     return str(path)
 
 
-def run(code: str):
+def run(code: str, peers: str = ""):
     print(f"\n{'='*60}")
     print(f"  个股深度分析: {code}")
     print(f"{'='*60}\n")
 
     print("  [Fetch] 拉取语料数据...")
     ctx = _fetch_all(code)
+    if peers:
+        peer_codes = [c.strip() for c in peers.split(",") if c.strip()]
+        if peer_codes:
+            print(f"  同行: {', '.join(peer_codes)}")
+            ctx["peers"] = _fetch_peer_data(peer_codes)
     name = ""
     try:
         info = json.loads(ctx["stock_info"])
@@ -316,8 +391,9 @@ def main():
     code = args.code or args.code_opt
     if not code:
         print("用法: python stock_deep/run.py 300476")
+        print("      python stock_deep/run.py 300476 --peers 002916,002384,603228")
         return
-    run(code)
+    run(code, args.peers or "")
 
 
 if __name__ == "__main__":
