@@ -25,8 +25,13 @@ if errorlevel 1 (
 
 rem === Step 2: wechat AI analysis ===
 echo [%date% %time%] Step 2: analyze_wechat >> "%LOG%"
-"%PY%" "%BASE%\analyze_wechat.py" >> "%LOG%" 2>&1
-if errorlevel 1 echo [%date% %time%] WARNING: analyze_wechat failed >> "%LOG%"
+powershell -NoProfile -Command "$feed='%BASE%\reports\feeds\wechat_%TODAY%.md'; if (Test-Path $feed) { $c=Get-Content $feed -Raw; if ($c -match '新文章' -or $c.Length -gt 200) { exit 0 } } exit 1" >> "%LOG%" 2>&1
+if errorlevel 1 (
+    echo [%date% %time%] WARNING: wechat feed empty or missing, skip AI analysis >> "%LOG%"
+) else (
+    "%PY%" "%BASE%\analyze_wechat.py" >> "%LOG%" 2>&1
+    if errorlevel 1 echo [%date% %time%] WARNING: analyze_wechat failed >> "%LOG%"
+)
 
 rem === Step 3: review_summary ===
 echo [%date% %time%] Step 3: review_summary >> "%LOG%"
