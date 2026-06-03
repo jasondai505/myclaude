@@ -158,9 +158,10 @@ def _inject_wechat_analysis(today: str) -> str:
 
 
 def _extract_codes_from_feeds(feeds: dict[str, str]) -> set[str]:
-    """从 recap 和 review_summary 中提取6位股票代码。"""
+    """从所有 feed 中提取6位股票代码，覆盖公众号/星球/资讯。"""
     codes = set()
-    for key in ("%%RECAP%%", "%%REVIEW_SUMMARY%%"):
+    for key in ("%%RECAP%%", "%%REVIEW_SUMMARY%%", "%%ZSXQ%%",
+                "%%WECHAT_ANALYSIS%%", "%%NEWS%%", "%%INDUSTRY%%"):
         text = feeds.get(key, "")
         codes.update(re.findall(r"\b(\d{6})\b", text))
     return codes
@@ -225,10 +226,10 @@ def main():
     tpl = (BASE / "claude_prompt.txt").read_text(encoding="utf-8")
     us_movers, kr_jp, ov_map = _fetch_market_data()
     feeds = _inject_feeds(today, yesterday)
+    wechat_analysis = _inject_wechat_analysis(today)
+    feeds["%%WECHAT_ANALYSIS%%"] = wechat_analysis
     codes = _extract_codes_from_feeds(feeds)
     stock_ctx = _inject_stock_context(codes)
-
-    wechat_analysis = _inject_wechat_analysis(today)
 
     prompt = (tpl
         .replace("%%TODAY%%", today)
