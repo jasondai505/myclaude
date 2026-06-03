@@ -26,7 +26,7 @@ REPORT_DIR = BASE / "reports"
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
 MODEL = "claude-sonnet-4-6-20250514"
 BASE_URL = "https://api.deepseek.com/anthropic"
-MAX_TOKENS = 12000
+MAX_TOKENS = 16000
 TIMEOUT = 180
 
 
@@ -219,8 +219,13 @@ def _extract_json(text: str) -> dict | None:
 
 def _render_report(data: dict) -> str:
     m = data.get("moat", {})
-    total = sum(m.get(k, 0) for k in
-                ["tech", "cost", "scale", "brand", "switch_cost", "network"])
+    dims = [("tech", "技术专利", "tech_reason"),
+            ("cost", "成本优势", "cost_reason"),
+            ("scale", "规模效应", "scale_reason"),
+            ("brand", "品牌溢价", "brand_reason"),
+            ("switch_cost", "转换成本", "switch_reason"),
+            ("network", "网络效应", "network_reason")]
+    total = sum(m.get(k, 0) for k, _, _ in dims)
 
     lines = [
         f"# {data.get('name','')}({data.get('code','')}) 深度分析",
@@ -229,23 +234,22 @@ def _render_report(data: dict) -> str:
         "## 1. 公司概况", data.get("overview", ""), "",
         "## 2. 财务全景", data.get("financials", ""), "",
         "## 3. 成长性评估", data.get("growth", ""), "",
-        "## 4. 护城河评分",
-        "| 维度 | 评分 |",
-        "|------|:----:|",
+        "## 4. 护城河评估",
+        f"**综合评级: {m.get('rating','')}** | 总分: {total}/60",
+        "",
+        "| 维度 | 评分 | 分析 |",
+        "|------|:----:|------|",
     ]
-    for k, label in [("tech", "技术专利"), ("cost", "成本优势"),
-                     ("scale", "规模效应"), ("brand", "品牌溢价"),
-                     ("switch_cost", "转换成本"), ("network", "网络效应")]:
-        lines.append(f"| {label} | {m.get(k, 0)} |")
-    lines.append(f"| **总分** | **{total}** |")
-    lines.append("")
-    if m.get("summary"):
-        lines.append(m["summary"])
-    lines.extend(["", "## 5. 股权与筹码", data.get("holder", ""), "",
-                   "## 6. 历史叙事演变", data.get("narrative", ""), "",
-                   "## 7. 同行业对比", data.get("peers", ""), "",
-                   "## 8. 催化剂与风险", data.get("catalyst_risk", ""), "",
-                   "## 9. 综合结论", data.get("conclusion", ""), ""])
+    for k, label, reason in dims:
+        score = m.get(k, 0)
+        r = m.get(reason, "")
+        lines.append(f"| {label} | {score} | {r} |")
+    lines.extend(["", "## 5. 股权结构与筹码", data.get("holder", ""), "",
+                   "## 6. 管理层与公司治理", data.get("management", ""), "",
+                   "## 7. 历史叙事演变", data.get("narrative", ""), "",
+                   "## 8. 行业与竞争格局", data.get("industry_comp", ""), "",
+                   "## 9. 催化剂与风险矩阵", data.get("catalyst_risk", ""), "",
+                   "## 10. 估值与投资建议", data.get("valuation", ""), ""])
     return "\n".join(lines)
 
 
