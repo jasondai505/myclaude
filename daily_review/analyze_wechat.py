@@ -388,7 +388,7 @@ def _write_report(data: dict, single_results: list[dict],
 
 def main():
     today = date.today().isoformat()
-    since = (date.today() - timedelta(days=3)).isoformat()
+    since = (date.today() - timedelta(days=1)).isoformat()
 
     print(f"公众号深度分析（两阶段）| {since} ~ {today}")
 
