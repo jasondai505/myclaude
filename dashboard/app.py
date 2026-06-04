@@ -14,7 +14,9 @@ st.set_page_config(page_title="A股仪表盘", page_icon="📊", layout="wide",
 
 with st.sidebar:
     st.caption(f"📊 {_today_str()}")
-    if st.button("🔄 复盘", use_container_width=True):
+    if st.button("⚡ 实时快扫", use_container_width=True):
+        st.switch_page("pages/6_⚡_实时快扫.py")
+    if st.button("🔄 流程触发", use_container_width=True):
         st.switch_page("pages/3_🚀_流程触发.py")
 
 # === 指数快照（单行紧凑）===

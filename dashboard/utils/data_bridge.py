@@ -32,7 +32,8 @@ def _parse_date_from_filename(p: Path) -> str | None:
 def _safe_import(module_path: str, attr: str = None):
     """安全导入，失败返回 None"""
     try:
-        mod = __import__(module_path, fromlist=[attr] if attr else [])
+        import importlib
+        mod = importlib.import_module(module_path)
         return getattr(mod, attr) if attr else mod
     except Exception:
         return None
@@ -605,3 +606,76 @@ def get_market_index_snapshot() -> dict[str, Any]:
         return {"indices": indices, "time": datetime.now().isoformat()}
     except Exception as e:
         return {"error": str(e)}
+
+
+# ============================================================
+# 公共 API — 实时快扫
+# ============================================================
+
+_LIVE_SCAN_CACHE: dict[str, Any] = {}
+
+
+def run_live_scan(force_refresh: bool = False) -> dict[str, Any]:
+    """全A实时行情快扫，结果缓存到内存"""
+    global _LIVE_SCAN_CACHE
+    if not force_refresh and _LIVE_SCAN_CACHE.get("timestamp"):
+        age = (datetime.now() - _LIVE_SCAN_CACHE["timestamp"]).total_seconds()
+        if age < 30:
+            return _LIVE_SCAN_CACHE
+
+    t0 = time.perf_counter()
+    try:
+        scanner = _safe_import("daily_review.live_scanner")
+        if scanner is None:
+            return {"error": "无法导入 live_scanner 模块"}
+
+        df = scanner.scan_all()
+        if df.empty:
+            return {"error": "未获取到数据（非交易时间？）", "count": 0, "elapsed": 0}
+
+        elapsed = time.perf_counter() - t0
+        result = {
+            "data": df,
+            "count": len(df),
+            "elapsed": round(elapsed, 1),
+            "timestamp": datetime.now(),
+            "columns": df.columns.tolist(),
+        }
+
+        if "change_pct" in df.columns:
+            chg = df["change_pct"].dropna()
+            result["summary"] = {
+                "up_count": int((chg > 0).sum()),
+                "down_count": int((chg < 0).sum()),
+                "limit_up": int((chg >= 9.9).sum()),
+                "limit_down": int((chg <= -9.9).sum()),
+                "avg_change": round(float(chg.mean()), 2),
+                "median_change": round(float(chg.median()), 2),
+                "top_gainer": None,
+                "top_loser": None,
+            }
+            if not df.empty:
+                top = df.nlargest(1, "change_pct").iloc[0]
+                bot = df.nsmallest(1, "change_pct").iloc[0]
+                result["summary"]["top_gainer"] = {
+                    "code": str(top.get("code", "")), "name": str(top.get("name", "")),
+                    "change_pct": float(top.get("change_pct", 0) or 0),
+                }
+                result["summary"]["top_loser"] = {
+                    "code": str(bot.get("code", "")), "name": str(bot.get("name", "")),
+                    "change_pct": float(bot.get("change_pct", 0) or 0),
+                }
+
+        _LIVE_SCAN_CACHE = result
+        return result
+    except Exception as e:
+        return {"error": str(e), "elapsed": 0}
+
+
+def get_cached_scan() -> dict[str, Any] | None:
+    """获取缓存的扫描结果"""
+    if _LIVE_SCAN_CACHE.get("timestamp"):
+        age = (datetime.now() - _LIVE_SCAN_CACHE["timestamp"]).total_seconds()
+        if age < 120:
+            return _LIVE_SCAN_CACHE
+    return None
