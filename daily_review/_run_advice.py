@@ -268,6 +268,55 @@ def _inject_supply_chain_intel(today: str) -> str:
         return f"（晨间情报读取失败: {e}）"
 
 
+def _validate_index_claims(output: str, us_indices_json: str) -> str:
+    """校验 LLM 输出中的指数涨跌幅声明，与注入的真实数据比对，不匹配时自动修正。"""
+    try:
+        real = json.loads(us_indices_json)
+    except (json.JSONDecodeError, TypeError):
+        return output
+
+    if not real or "error" in real:
+        return output
+
+    # 构建 {指数名: 真实涨跌幅} 映射
+    truth: dict[str, float] = {}
+    for name, info in real.items():
+        chg = info.get("change_pct")
+        if chg is not None:
+            truth[name] = round(float(chg), 2)
+
+    if not truth:
+        return output
+
+    fixed = 0
+    for idx_name, real_chg in truth.items():
+        short = idx_name.replace("指数", "").replace("综合", "")
+        # 匹配 "纳斯达克 +1.2%" / "标普500 -0.5%" / "道琼斯 +0.3%" 等模式
+        for pattern in [
+            rf"({re.escape(idx_name)}|{re.escape(short)})\s*[：:]*\s*[+\-]?\d+\.?\d*\s*%",
+        ]:
+            for m in re.finditer(pattern, output):
+                claimed_text = m.group(0)
+                claimed_val = re.search(r"([+\-]?\d+\.?\d*)\s*%", claimed_text)
+                if not claimed_val:
+                    continue
+                claimed_num = round(float(claimed_val.group(1)), 2)
+                if abs(claimed_num - real_chg) > 0.01:
+                    sign = "+" if real_chg >= 0 else ""
+                    correct_text = re.sub(
+                        r"[+\-]?\d+\.?\d*\s*%",
+                        f"{sign}{real_chg}%",
+                        claimed_text,
+                    )
+                    output = output.replace(claimed_text, correct_text, 1)
+                    print(f"  [FIX] {claimed_text.strip()} → {correct_text.strip()}")
+                    fixed += 1
+
+    if fixed:
+        print(f"  共修正 {fixed} 处指数涨跌幅编造")
+    return output
+
+
 def _validate_code_names(output: str) -> str:
     pairs = re.findall(r"([一-龥]+)\((\d{6})\)", output)
     if not pairs: return output
@@ -344,6 +393,7 @@ def main():
     except Exception as e:
         output = f"[ERROR] LLM 调用失败: {e}"
 
+    output = _validate_index_claims(output, us_indices)
     output = _validate_code_names(output)
 
     print(output)
