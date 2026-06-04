@@ -68,22 +68,35 @@ def intraday_validation(
     hit: int,
     miss: int,
     pending: int,
-    top_gainers: list[tuple],
-    top_losers: list[tuple],
+    rows: list[dict],
     spot_verdict: str = "",
 ) -> bool:
-    """10:30 / 14:00 盘中验证推送。"""
+    """10:30 / 14:00 盘中验证推送 — 按事件分组，板块内按涨幅排序，全部展示。"""
     hit_rate = round(hit / total * 100, 1) if total > 0 else 0
     parts = [f"命中 {hit}/{total} ({hit_rate}%) | 背离 {miss} | 待定 {pending}", ""]
-    if top_gainers:
-        items = "\n".join(f"- {c} {n} {chg:+.1f}% ✅" for c, n, chg in top_gainers[:5])
-        parts.append(f"📈 涨幅前5:\n{items}")
-    if top_losers:
-        items = "\n".join(f"- {c} {n} {chg:+.1f}% ❌" for c, n, chg in top_losers[:5])
-        parts.append(f"📉 跌幅前5:\n{items}")
+
+    events: dict[str, list[dict]] = {}
+    for r in rows:
+        ev = r.get("event", "") or "其他"
+        if ev not in events:
+            events[ev] = []
+        events[ev].append(r)
+
+    for ev_name, stocks in events.items():
+        stocks.sort(key=lambda x: x.get("change_pct", 0), reverse=True)
+        parts.append(f"**{ev_name[:40]}**")
+        for s in stocks:
+            chg = s.get("change_pct", 0)
+            icon = {1: "✅", -1: "❌", 0: "⏳"}.get(s.get("validated", 0), "—")
+            parts.append(f"{icon} {s['name']}({s['code']}) {chg:+.1f}%")
+        parts.append("")
+
     if spot_verdict:
-        parts.append(f"\n🤖 {spot_verdict[:200]}")
-    return push(f"📊 盘中验证 命中率{hit_rate}%", "\n".join(parts))
+        parts.append(f"🤖 {spot_verdict[:200]}")
+    content = "\n".join(parts)
+    if len(content) > 4000:
+        content = content[:4000] + "\n\n...(已截断)"
+    return push(f"📊 盘中验证 命中率{hit_rate}%", content)
 
 
 def daily_result(

@@ -277,16 +277,9 @@ def run(today: str = None) -> Path | None:
     if stats["total"] > 0:
         print(f"[validate] 近30日累计命中率: {stats['hit_rate']}% ({stats['hits']}/{stats['total']})")
 
-    # 微信推送
-    gainers = sorted(
-        [(r["code"], r["name"], r["change_pct"]) for r in rows if r["change_pct"] > 0],
-        key=lambda x: -x[2],
-    )
-    losers = sorted(
-        [(r["code"], r["name"], r["change_pct"]) for r in rows if r["change_pct"] < 0],
-        key=lambda x: x[2],
-    )
-    push_intraday(today, total, hit, miss, pending, gainers, losers, verdict if 'verdict' in dir() else "")
+    # 微信推送 — 按事件分组，板块内按涨幅排序，全部展示
+    push_intraday(today, total, hit, miss, pending, rows,
+                  verdict if 'verdict' in dir() else "")
 
     return report_path
 
