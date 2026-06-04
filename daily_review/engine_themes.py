@@ -716,9 +716,9 @@ def enrich_themes_with_bom(theme_results: dict) -> dict:
 
     themes = []
     for t in theme_results.get("today", []):
-        themes.append(t.get("theme", ""))
+        themes.append(t[0] if isinstance(t, tuple) else t.get("theme", ""))
     for t in theme_results.get("persistent", []):
-        themes.append(t.get("theme", ""))
+        themes.append(t[0] if isinstance(t, tuple) else t.get("theme", ""))
 
     themes = [t for t in themes if t]
     if not themes:
