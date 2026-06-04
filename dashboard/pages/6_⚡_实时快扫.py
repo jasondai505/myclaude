@@ -1,13 +1,25 @@
 """实时快扫 — 全A行情 5 秒级刷新"""
 import sys; from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+import importlib
 import time
 from datetime import datetime
 
 import streamlit as st
 import pandas as pd
 
-from dashboard.utils.data_bridge import run_live_scan, get_cached_scan
+
+def _get_bridge():
+    try:
+        from dashboard.utils.data_bridge import run_live_scan, get_cached_scan
+        return run_live_scan, get_cached_scan
+    except ImportError:
+        importlib.invalidate_caches()
+        m = importlib.import_module("dashboard.utils.data_bridge")
+        return m.run_live_scan, m.get_cached_scan
+
+
+run_live_scan, get_cached_scan = _get_bridge()
 
 st.set_page_config(page_title="实时快扫", page_icon="⚡", layout="wide", initial_sidebar_state="collapsed")
 
@@ -50,7 +62,7 @@ if st.session_state.auto_refresh:
 
 result = st.session_state.scan_result
 
-if result is None:
+if result is None or not isinstance(result, dict):
     st.info("点击「扫描全A」开始获取实时行情")
     st.stop()
 
