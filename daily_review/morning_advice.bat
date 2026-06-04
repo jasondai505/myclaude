@@ -15,6 +15,13 @@ for /f "delims=" %%i in ('powershell -NoProfile -Command "(Get-Date).AddDays(-1)
 
 echo [%date% %time%] start morning pipeline for %TODAY% >> "%LOG%"
 
+rem === Step 0: RSS health check (before collect to catch stale sessions early) ===
+echo [%date% %time%] Step 0: RSS health check >> "%LOG%"
+"%PY%" "%BASE%\check_rss_health.py" >> "%LOG%" 2>&1
+if errorlevel 1 (
+    echo [%date% %time%] WARNING: RSS unhealthy (check_rss_health exit=%ERRORLEVEL%), continuing anyway >> "%LOG%"
+)
+
 rem === Step 1: daily_collect ===
 echo [%date% %time%] Step 1: daily_collect >> "%LOG%"
 cd /d "%BASE%"

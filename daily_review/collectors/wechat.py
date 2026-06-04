@@ -33,6 +33,27 @@ def _alert_rss(msg: str):
         pass
 
 
+def _check_freshness(items: list[dict]) -> str | None:
+    STALE_HOURS = 24
+    if not items:
+        return None
+    dm = items[0].get("date_modified", "")
+    if not dm:
+        return None
+    try:
+        latest_dt = datetime.strptime(dm[:19], "%Y-%m-%dT%H:%M:%S")
+    except ValueError:
+        return None
+    age = datetime.now() - latest_dt
+    if age.total_seconds() > STALE_HOURS * 3600:
+        return (
+            f"⚠️ 公众号RSS数据陈旧: 最新文章 {latest_dt.strftime('%m-%d %H:%M')}"
+            f"（{age.total_seconds()/3600:.0f}h 前），"
+            f"请检查 WeWe-RSS 是否需要重新登录: http://111.231.44.12:4000/dash"
+        )
+    return None
+
+
 def _fetch() -> list[dict]:
     req = Request(_JSON_URL, headers={"User-Agent": config.UA,
                   "Accept": "application/json"})
@@ -40,6 +61,11 @@ def _fetch() -> list[dict]:
         data = json.loads(resp.read().decode("utf-8"))
 
     items = data.get("items", [])
+    stale_msg = _check_freshness(items)
+    if stale_msg:
+        print(f"  [STALE] {stale_msg}")
+        _alert_rss(stale_msg)
+
     rows = []
     for it in items:
         title = (it.get("title") or "").strip()
