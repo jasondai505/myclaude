@@ -1203,3 +1203,47 @@ def query_financial_indicators(code: str, limit: int = 4) -> list[dict]:
             (code, limit),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ============================================================
+# feed 内容缓存 — Markdown → SQLite，消费者优先读库，文件兜底
+# ============================================================
+
+def init_feed_cache_table():
+    with _conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS feed_cache (
+                source TEXT NOT NULL,
+                date   TEXT NOT NULL,
+                content TEXT NOT NULL,
+                cached_at TEXT,
+                PRIMARY KEY (source, date)
+            )
+        """)
+
+
+def save_feed_cache(source: str, date_str: str, content: str) -> bool:
+    if not content or not content.strip():
+        return False
+    try:
+        with _conn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO feed_cache (source, date, content, cached_at) "
+                "VALUES (?, ?, ?, ?)",
+                (source, date_str, content, datetime.now().strftime("%Y-%m-%d %H:%M")),
+            )
+        return True
+    except Exception:
+        return False
+
+
+def get_feed_cache(source: str, date_str: str) -> str | None:
+    try:
+        with _conn() as conn:
+            row = conn.execute(
+                "SELECT content FROM feed_cache WHERE source = ? AND date = ?",
+                (source, date_str),
+            ).fetchone()
+        return row["content"] if row else None
+    except Exception:
+        return None

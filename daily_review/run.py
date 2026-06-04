@@ -291,6 +291,7 @@ def _run_core_analysis(indices, industry, hot_df, northbound, global_data,
     sentiment_result = engine.analyze_sentiment(hot_df)
     sector_result = engine.analyze_sectors(industry)
     theme_result = engine.analyze_themes(hot_df, trade_date)
+    theme_result = engine.enrich_themes_with_bom(theme_result)
     nb_result = engine.analyze_northbound(northbound)
     global_result = engine.analyze_global(global_data)
 
@@ -728,6 +729,14 @@ def _build_focus_pool_full(trade_date, watchlist, zt_pool, all_quotes_merged,
             if s.get("code") and s.get("label"):
                 limit_up_label_map[s["code"]] = s["label"]
 
+    try:
+        from bom_bridge import get_stock_moat_scores
+        bom_moat_map = get_stock_moat_scores(list(focus_pool.keys()))
+        if bom_moat_map:
+            print(f"  BOM护城河覆盖: {len(bom_moat_map)} 只")
+    except ImportError:
+        bom_moat_map = {}
+
     focus_pool_data = []
     for code, pool_info in focus_pool.items():
         fev = fev_map.get(code, {})
@@ -752,6 +761,7 @@ def _build_focus_pool_full(trade_date, watchlist, zt_pool, all_quotes_merged,
             zsxq_mentions=zsxq_mentions_map.get(code, 0),
             crash_warnings=crash_warnings_map.get(code, []),
             limit_up_label=limit_up_label_map.get(code),
+            bom_moat=bom_moat_map.get(code),
         )
 
         q = all_quotes_merged.get(code, {})
@@ -799,6 +809,7 @@ def _build_focus_pool_full(trade_date, watchlist, zt_pool, all_quotes_merged,
             "lhb_summary": lhb_summary,
             "zsxq_mentions": zsxq_mentions_map.get(code, 0),
             "crash_warnings": crash_warnings_map.get(code, []),
+            "bom_moat": bom_moat_map.get(code),
             "corpus": corpus_map.get(code, {"announcements": [], "irm": [], "news": []}),
         })
 
@@ -940,6 +951,15 @@ def main():
     strength_result, all_klines_merged, all_quotes_merged, code_to_themes, theme_pool = _run_strength_phase(
         theme_result, all_extra_klines, stock_klines, stock_quotes,
         extra_quotes, zt_pool, trade_date, aesthetics_result)
+
+    try:
+        from bom_bridge import get_sector_linkages
+        linkages = get_sector_linkages()
+        if linkages:
+            strength_result["bom_linkages"] = linkages
+            print(f"  BOM产业链联动: {len(linkages)} 条")
+    except ImportError:
+        pass
 
     all_quotes_merged.update(hot_quotes)
 

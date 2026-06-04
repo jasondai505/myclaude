@@ -607,6 +607,11 @@ def render_focus_pool(lines, focus_pool_data):
                 reason_parts.append("/".join(s["concept_tags"][:2]))
             if s.get("research_summary"):
                 reason_parts.append(s["research_summary"])
+            if s.get("bom_moat"):
+                bm = s["bom_moat"]
+                reason_parts.append(
+                    f"BOM{bm.get('industry','')}#{bm.get('rank',0)}护城河{bm.get('moat_score',0)}分"
+                )
             reason = ", ".join(reason_parts) if reason_parts else "-"
             lines.append(
                 f"| **{advice_level}** | {s.get('code','')} | {s.get('name','')} "
@@ -766,4 +771,16 @@ def _render_strength(lines: list, sd: dict, focus_pool_data: list = None):
         if conclusion:
             lines.append(f"\n> {conclusion}")
 
+        lines.append("")
+
+    bom_linkages = sd.get("bom_linkages")
+    if bom_linkages:
+        lines.append("### 产业链联动（BOM视角）\n")
+        for link in bom_linkages[:6]:
+            lines.append(f"**{link['industry']}**")
+            lines.append(f"- 上游: {'、'.join(link['upstream'][:4])}")
+            if link.get("midstream"):
+                lines.append(f"- 中游: {'、'.join(link['midstream'][:4])}")
+            lines.append(f"- 下游: {'、'.join(link['downstream'][:4])}")
+            lines.append("")
         lines.append("")

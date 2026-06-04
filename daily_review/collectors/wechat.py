@@ -22,6 +22,17 @@ _JSON_URL = "http://111.231.44.12:4000/feeds/all.json?limit=200"
 REQUEST_TIMEOUT = 90
 
 
+def _alert_rss(msg: str):
+    """公众号 RSS 异常时微信告警"""
+    try:
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "morning_intel"))
+        from notify import push
+        push("WeWe-RSS 异常", msg)
+    except Exception:
+        pass
+
+
 def _fetch() -> list[dict]:
     req = Request(_JSON_URL, headers={"User-Agent": config.UA,
                   "Accept": "application/json"})
@@ -103,9 +114,18 @@ def run(since: date, until: date,
     section(f"采集微信公众号 {fmt_iso(since)} ~ {fmt_iso(until)}")
     store.init_feeds_tables()
 
-    raw = _fetch()
+    try:
+        raw = _fetch()
+    except Exception as e:
+        msg = f"RSS 不可达: {e}"
+        print(f"  [DEAD] {msg}")
+        _alert_rss(f"🔴 公众号RSS断连: {e}")
+        store.upsert_collect_status(SOURCE_NAME, fmt_iso(until), "error", msg, 0)
+        return {"last_date": fmt_iso(until), "added": 0, "status": "error", "message": msg}
+
     if not raw:
         msg = "JSON Feed 返回空"
+        _alert_rss("⚠️ 公众号RSS返回空 — 可能需要重新登录")
         store.upsert_collect_status(SOURCE_NAME, fmt_iso(until), "error", msg, 0)
         return {"last_date": fmt_iso(until), "added": 0, "status": "error",
                 "message": msg}
@@ -115,6 +135,7 @@ def run(since: date, until: date,
 
     if not rows:
         msg = f"无新文章（最新 {len(raw)} 篇均早于 {since_str}）"
+        _alert_rss(f"⚠️ 公众号24h内无新文章 — 最新: {raw[0]['pub_date'][:10] if raw else '未知'}")
         store.upsert_collect_status(SOURCE_NAME, fmt_iso(until), "skip", msg, 0)
         return {"last_date": fmt_iso(until), "added": 0, "status": "skip",
                 "message": msg}

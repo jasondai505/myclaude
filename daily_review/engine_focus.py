@@ -49,6 +49,7 @@ def compute_composite_score(
     zsxq_mentions: int = 0,
     crash_warnings: list[str] = None,
     limit_up_label: str | None = None,
+    bom_moat: dict | None = None,
 ) -> dict:
     scores = {}
 
@@ -57,6 +58,7 @@ def compute_composite_score(
     _score_hot(scores, stock)
     _score_momentum(scores, stock)
     _score_catalyst(scores, stock, lhb_info, research, zsxq_mentions, limit_up_label)
+    _score_bom_moat(scores, stock["code"], bom_moat)
     _score_tech_risk(scores, stock, crash_warnings)
 
     return _compute_advice(scores)
@@ -184,6 +186,34 @@ def _score_tech_risk(scores: dict, stock: dict, crash_warnings: list[str] | None
     if "ST" in stock.get("name", ""):
         risk_penalty += 5
     scores["risk"] = max(10 - risk_penalty, 0)
+
+
+# ============================================================
+# Helper: BOM 护城河加权
+# ============================================================
+
+def _score_bom_moat(scores: dict, code: str, bom_moat: dict | None):
+    """BOM 产业链龙头护城河加权：三高赛道龙头额外加分。"""
+    if not bom_moat or code not in bom_moat:
+        scores["bom"] = 0
+        return
+
+    m = bom_moat[code]
+    moat = m.get("moat_score", 0)
+    rank = m.get("rank", 99)
+
+    if rank == 1 and moat >= 8:
+        bonus = 10
+    elif rank <= 3 and moat >= 6:
+        bonus = 7
+    elif rank <= 5 and moat >= 4:
+        bonus = 4
+    elif moat >= 2:
+        bonus = 2
+    else:
+        bonus = 0
+
+    scores["bom"] = bonus
 
 
 # ============================================================

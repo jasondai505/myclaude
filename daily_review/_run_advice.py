@@ -114,30 +114,42 @@ def _summarize_feed(content: str, source_name: str) -> str:
 
 
 def _inject_feeds(today: str, yesterday: str) -> dict[str, str]:
-    """读取 feed 文件，大文件经 Haiku 摘要，返回 placeholder→content 映射。"""
+    """读取 feed — 优先 SQLite 缓存，回退文件。大文件经 Haiku 摘要。"""
+    try:
+        import store
+        store.init_feed_cache_table()
+    except Exception:
+        store = None
+
+    def _read_feed(stem: str, date_str: str) -> str | None:
+        if store:
+            cached = store.get_feed_cache(stem, date_str)
+            if cached:
+                return cached
+        path = FEEDS_DIR / f"{stem}_{date_str}.md"
+        if path.exists():
+            return path.read_text(encoding="utf-8")
+        return None
+
     result = {}
 
-    # recap + review_summary 始终直接注入（通常 < 2KB）
     for placeholder, stem in [("%%RECAP%%", "recap"), ("%%REVIEW_SUMMARY%%", "review_summary")]:
-        path = FEEDS_DIR / f"{stem}_{yesterday}.md"
-        if path.exists():
-            content = path.read_text(encoding="utf-8")
-            if len(content) > MAX_DIRECT_CHARS:
-                content = _summarize_feed(content, stem)
-            result[placeholder] = content
-        else:
+        content = _read_feed(stem, yesterday)
+        if content is None:
             result[placeholder] = f"（{stem}_{yesterday}.md 暂未生成）"
+        elif len(content) > MAX_DIRECT_CHARS:
+            result[placeholder] = _summarize_feed(content, stem)
+        else:
+            result[placeholder] = content
 
-    # 其他 feed 按大小决定直接注入或摘要
     for placeholder, stem, _required in FEED_FILES:
-        path = FEEDS_DIR / f"{stem}_{today}.md"
-        if not path.exists():
+        content = _read_feed(stem, today)
+        if content is None:
             result[placeholder] = f"（{stem}_{today}.md 暂未生成）"
-            continue
-        content = path.read_text(encoding="utf-8")
-        if len(content) > MAX_DIRECT_CHARS:
-            content = _summarize_feed(content, stem)
-        result[placeholder] = content
+        elif len(content) > MAX_DIRECT_CHARS:
+            result[placeholder] = _summarize_feed(content, stem)
+        else:
+            result[placeholder] = content
 
     return result
 
@@ -161,7 +173,8 @@ def _extract_codes_from_feeds(feeds: dict[str, str]) -> set[str]:
     """从所有 feed 中提取6位股票代码，覆盖公众号/星球/资讯。"""
     codes = set()
     for key in ("%%RECAP%%", "%%REVIEW_SUMMARY%%", "%%ZSXQ%%",
-                "%%WECHAT_ANALYSIS%%", "%%NEWS%%", "%%INDUSTRY%%"):
+                "%%WECHAT_ANALYSIS%%", "%%NEWS%%", "%%INDUSTRY%%",
+                "%%SUPPLY_CHAIN_INTEL%%"):
         text = feeds.get(key, "")
         codes.update(re.findall(r"\b(\d{6})\b", text))
     return codes
@@ -227,6 +240,20 @@ def _inject_bom_context() -> str:
         return f"（BOM 数据获取失败: {e}）"
 
 
+def _inject_supply_chain_intel(today: str) -> str:
+    """注入 morning_intel interpret.py 的供应链映射分析结果。"""
+    path = BASE.parent / "morning_intel" / "reports" / f"morning_{today}.md"
+    if not path.exists():
+        return "（晨间情报报告暂未生成）"
+    try:
+        content = path.read_text(encoding="utf-8")
+        if len(content) > MAX_DIRECT_CHARS * 2:
+            content = content[:MAX_DIRECT_CHARS * 2] + "\n...(truncated)"
+        return content
+    except Exception as e:
+        return f"（晨间情报读取失败: {e}）"
+
+
 def _validate_code_names(output: str) -> str:
     pairs = re.findall(r"([一-龥]+)\((\d{6})\)", output)
     if not pairs: return output
@@ -264,6 +291,7 @@ def main():
     codes = _extract_codes_from_feeds(feeds)
     stock_ctx = _inject_stock_context(codes)
     bom_ctx = _inject_bom_context()
+    supply_chain = _inject_supply_chain_intel(today)
 
     prompt = (tpl
         .replace("%%TODAY%%", today)
@@ -274,6 +302,7 @@ def main():
         .replace("%%STOCK_CONTEXT%%", stock_ctx)
         .replace("%%WECHAT_ANALYSIS%%", wechat_analysis)
         .replace("%%BOM_CONTEXT%%", bom_ctx)
+        .replace("%%SUPPLY_CHAIN_INTEL%%", supply_chain)
     )
     for key, val in feeds.items():
         prompt = prompt.replace(key, val)

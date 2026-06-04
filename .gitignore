@@ -31,3 +31,4 @@ venv/
 Thumbs.db
 *.swp
 stock_deep/reports/
+backup-*.zip

@@ -30,8 +30,29 @@ def _read_file_safe(path: Path) -> str:
         return ""
 
 
+def _read_feed_smart(prefix: str, today: str, lookback_days: int) -> str:
+    """读取 feed — 优先 SQLite 缓存，回退文件。"""
+    try:
+        sys.path.insert(0, str(REVIEW_BASE))
+        import store
+        store.init_feed_cache_table()
+    except Exception:
+        store = None
+
+    for offset in range(lookback_days + 1):
+        d = (date.fromisoformat(today) - timedelta(days=offset)).isoformat()
+        if store:
+            cached = store.get_feed_cache(prefix, d)
+            if cached:
+                return cached
+        content = _read_file_safe(FEEDS_DIR / f"{prefix}_{d}.md")
+        if content:
+            return content
+    return ""
+
+
 def _read_feeds(today: str) -> dict[str, str]:
-    """返回 {key: content} 映射到 prompt 变量名。回退到最近 N 天的文件。"""
+    """返回 {key: content} 映射到 prompt 变量名。优先 SQLite 缓存。"""
     feed_map = {
         "ZSXQ_CONTENT": "zsxq",
         "ANNOUNCEMENTS_CONTENT": "announcements",
@@ -39,23 +60,13 @@ def _read_feeds(today: str) -> dict[str, str]:
     }
     result: dict[str, str] = {}
     for varname, prefix in feed_map.items():
-        content = ""
-        for offset in range(FEEDS_LOOKBACK_DAYS + 1):
-            d = (date.fromisoformat(today) - timedelta(days=offset)).isoformat()
-            content = _read_file_safe(FEEDS_DIR / f"{prefix}_{d}.md")
-            if content:
-                break
-        result[varname] = content
+        result[varname] = _read_feed_smart(prefix, today, FEEDS_LOOKBACK_DAYS)
 
-    # INDUSTRY_CONTENT 合并 industry + research 两份研报源
     industry_parts = []
     for prefix in ("industry", "research"):
-        for offset in range(FEEDS_LOOKBACK_DAYS + 1):
-            d = (date.fromisoformat(today) - timedelta(days=offset)).isoformat()
-            c = _read_file_safe(FEEDS_DIR / f"{prefix}_{d}.md")
-            if c:
-                industry_parts.append(c)
-                break
+        c = _read_feed_smart(prefix, today, FEEDS_LOOKBACK_DAYS)
+        if c:
+            industry_parts.append(c)
     result["INDUSTRY_CONTENT"] = "\n\n".join(industry_parts)
     return result
 

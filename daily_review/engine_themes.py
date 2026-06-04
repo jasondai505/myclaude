@@ -705,3 +705,41 @@ def analyze_theme_aesthetics(leveled_themes: list[dict],
 
         results.append(analysis)
     return results
+
+
+def enrich_themes_with_bom(theme_results: dict) -> dict:
+    """用 BOM 产业链知识库验证题材逻辑，添加 bom_context 字段。"""
+    try:
+        from bom_bridge import get_theme_bom_context
+    except ImportError:
+        return theme_results
+
+    themes = []
+    for t in theme_results.get("today", []):
+        themes.append(t.get("theme", ""))
+    for t in theme_results.get("persistent", []):
+        themes.append(t.get("theme", ""))
+
+    themes = [t for t in themes if t]
+    if not themes:
+        return theme_results
+
+    bom_ctx = get_theme_bom_context(themes)
+    if not bom_ctx:
+        return theme_results
+
+    matched_industries = list(bom_ctx.keys())
+    segments_summary = []
+    for ind, segs in bom_ctx.items():
+        tier_map: dict[str, list[str]] = {}
+        for s in segs:
+            tier_map.setdefault(s["tier"], []).append(s["segment"])
+        parts = [f"{t}:{','.join(ss)}" for t, ss in tier_map.items()]
+        segments_summary.append(f"{ind}({' | '.join(parts)})")
+
+    theme_results["bom_context"] = {
+        "matched_industries": matched_industries,
+        "segments_summary": segments_summary,
+        "detail": {ind: segs for ind, segs in bom_ctx.items()},
+    }
+    return theme_results

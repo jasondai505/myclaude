@@ -225,6 +225,19 @@ def main():
         print(f"  {emoji} {label:<10}: {r.get('message','')}（最新到 {r.get('last_date','')}）")
 
     _write_index()
+
+    store.init_feed_cache_table()
+    cached = 0
+    for src in sources:
+        for d in daterange(since, until):
+            fp = FEEDS_DIR / f"{src}_{fmt_iso(d)}.md"
+            if fp.exists():
+                content = fp.read_text(encoding="utf-8")
+                if store.save_feed_cache(src, fmt_iso(d), content):
+                    cached += 1
+    if cached:
+        print(f"  📦 feed 缓存: {cached} 篇 → SQLite feed_cache")
+
     print("\n✅ 全部完成")
 
 
