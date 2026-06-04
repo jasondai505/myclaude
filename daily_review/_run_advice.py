@@ -47,19 +47,33 @@ def _load_api_key() -> str:
     return key
 
 
-def _fetch_market_data() -> tuple[str, str, str]:
+def _fetch_market_data() -> tuple[str, str, str, str]:
     try:
         import data
         from config import OVERSEAS_MAP
     except ImportError as e:
         err = json.dumps({"error": f"模块导入失败: {e}"}, ensure_ascii=False)
-        return err, err, err
+        return err, err, err, err
 
     try:
         us = data.fetch_us_movers()
         us_str = json.dumps(us, ensure_ascii=False, indent=2)
     except Exception as e:
         us_str = json.dumps({"error": f"数据暂不可用（{e}）"}, ensure_ascii=False)
+
+    try:
+        global_data = data.fetch_global_markets()
+        us_idx = global_data.get("indices", {})
+        us_idx_out = {}
+        for k, v in us_idx.items():
+            us_idx_out[k] = {
+                "price": v.get("price"),
+                "change_pct": v.get("change_pct"),
+                "change_pct_5d": v.get("change_pct_5d"),
+            }
+        us_idx_str = json.dumps(us_idx_out, ensure_ascii=False, indent=2)
+    except Exception as e:
+        us_idx_str = json.dumps({"error": f"数据暂不可用（{e}）"}, ensure_ascii=False)
 
     try:
         kr_jp = data.fetch_kr_jp_markets()
@@ -76,7 +90,7 @@ def _fetch_market_data() -> tuple[str, str, str]:
     except Exception as e:
         ov_str = json.dumps({"error": f"数据暂不可用（{e}）"}, ensure_ascii=False)
 
-    return us_str, kr_jp_str, ov_str
+    return us_str, us_idx_str, kr_jp_str, ov_str
 
 
 def _summarize_feed(content: str, source_name: str) -> str:
@@ -284,7 +298,7 @@ def main():
     yesterday = sys.argv[2] if len(sys.argv) > 2 else (date.today() - timedelta(days=1)).isoformat()
 
     tpl = (BASE / "claude_prompt.txt").read_text(encoding="utf-8")
-    us_movers, kr_jp, ov_map = _fetch_market_data()
+    us_movers, us_indices, kr_jp, ov_map = _fetch_market_data()
     feeds = _inject_feeds(today, yesterday)
     wechat_analysis = _inject_wechat_analysis(today)
     feeds["%%WECHAT_ANALYSIS%%"] = wechat_analysis
@@ -297,6 +311,7 @@ def main():
         .replace("%%TODAY%%", today)
         .replace("%%YESTERDAY%%", yesterday)
         .replace("%%US_MOVERS%%", us_movers)
+        .replace("%%US_INDICES%%", us_indices)
         .replace("%%KR_JP_MARKETS%%", kr_jp)
         .replace("%%OVERSEAS_MAP%%", ov_map)
         .replace("%%STOCK_CONTEXT%%", stock_ctx)
