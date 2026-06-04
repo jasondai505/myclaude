@@ -1,7 +1,6 @@
 """实时快扫 — 全A行情 5 秒级刷新"""
 import sys; from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-import importlib
 import time
 from datetime import datetime
 
@@ -9,23 +8,62 @@ import streamlit as st
 import pandas as pd
 
 
-def _get_bridge():
-    try:
-        from dashboard.utils.data_bridge import run_live_scan, get_cached_scan
-        return run_live_scan, get_cached_scan
-    except ImportError:
-        importlib.invalidate_caches()
-        m = importlib.import_module("dashboard.utils.data_bridge")
-        return m.run_live_scan, m.get_cached_scan
+def _do_scan(force_refresh: bool = True) -> dict:
+    """直接调用 live_scanner，不经过 data_bridge"""
+    import importlib
 
+    for key in list(sys.modules):
+        if "live_scanner" in key:
+            del sys.modules[key]
+    importlib.invalidate_caches()
 
-run_live_scan, get_cached_scan = _get_bridge()
+    from daily_review.live_scanner import scan_all
+
+    t0 = time.perf_counter()
+    df = scan_all()
+    elapsed = time.perf_counter() - t0
+
+    if df.empty:
+        return {"error": "未获取到数据（非交易时间？）", "count": 0, "elapsed": 0}
+
+    result: dict = {
+        "data": df,
+        "count": len(df),
+        "elapsed": round(elapsed, 1),
+        "timestamp": datetime.now(),
+    }
+
+    if "change_pct" in df.columns:
+        chg = df["change_pct"].dropna()
+        result["summary"] = {
+            "up_count": int((chg > 0).sum()),
+            "down_count": int((chg < 0).sum()),
+            "limit_up": int((chg >= 9.9).sum()),
+            "limit_down": int((chg <= -9.9).sum()),
+            "avg_change": round(float(chg.mean()), 2),
+            "median_change": round(float(chg.median()), 2),
+            "top_gainer": None,
+            "top_loser": None,
+        }
+        if len(df) > 0:
+            top = df.nlargest(1, "change_pct").iloc[0]
+            bot = df.nsmallest(1, "change_pct").iloc[0]
+            result["summary"]["top_gainer"] = {
+                "code": str(top.get("code", "")), "name": str(top.get("name", "")),
+                "change_pct": float(top.get("change_pct", 0) or 0),
+            }
+            result["summary"]["top_loser"] = {
+                "code": str(bot.get("code", "")), "name": str(bot.get("name", "")),
+                "change_pct": float(bot.get("change_pct", 0) or 0),
+            }
+
+    return result
+
 
 st.set_page_config(page_title="实时快扫", page_icon="⚡", layout="wide", initial_sidebar_state="collapsed")
 
 if "scan_result" not in st.session_state:
-    cached = get_cached_scan()
-    st.session_state.scan_result = cached
+    st.session_state.scan_result = None
 if "auto_refresh" not in st.session_state:
     st.session_state.auto_refresh = False
 if "last_scan_time" not in st.session_state:
@@ -38,7 +76,7 @@ with c1:
 with c2:
     if st.button("🔍 扫描全A", type="primary", use_container_width=True):
         with st.spinner("正在扫描全A 5200+ 只股票..."):
-            st.session_state.scan_result = run_live_scan(force_refresh=True)
+            st.session_state.scan_result = _do_scan()
             st.session_state.last_scan_time = time.time()
         st.rerun()
 with c3:
@@ -51,19 +89,19 @@ with c4:
 with c5:
     st.caption(f"🕐 {datetime.now().strftime('%H:%M:%S')}")
 
-# ---- 自动刷新逻辑 ----
-if st.session_state.auto_refresh:
+# ---- 自动刷新 ----
+if st.session_state.auto_refresh and st.session_state.scan_result is not None:
     interval_map = {"30s": 30, "60s": 60, "120s": 120}
     interval = interval_map[a_interval]
     if st.session_state.last_scan_time is None or (time.time() - st.session_state.last_scan_time) > interval:
-        st.session_state.scan_result = run_live_scan(force_refresh=True)
+        st.session_state.scan_result = _do_scan()
         st.session_state.last_scan_time = time.time()
     st.rerun()
 
 result = st.session_state.scan_result
 
 if result is None or not isinstance(result, dict):
-    st.info("点击「扫描全A」开始获取实时行情")
+    st.info("点击「🔍 扫描全A」开始获取实时行情")
     st.stop()
 
 if "error" in result:
