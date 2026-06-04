@@ -305,7 +305,8 @@ def run(today: str = None, dry_run: bool = False) -> Path | None:
     print(f"[interpret] JSON 已保存: {json_path}")
 
     # 8. 微信推送
-    push_morning(data.get("summary", ""), events_count, stocks_count, data.get("events", []))
+    ok = push_morning(data.get("summary", ""), events_count, stocks_count, data.get("events", []))
+    print(f"[interpret] 微信推送: {'OK' if ok else 'FAIL'}")
 
     return report_path
 
