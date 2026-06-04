@@ -76,9 +76,11 @@ def _haiku_analyze(delta_text: str) -> str | None:
     """Haiku 快速扫描增量帖子，判断是否有值得推送的内容。返回 None 表示无值得关注的内容。"""
     prompt = (
         "你是A股盘中监控助手。下面是盘中新增的知识星球帖子。\n"
-        "请用1-2句话简洁判断：有没有值得关注的增量信息？\n"
-        "如果有：指出是什么事件/方向/标的，简短一句话。\n"
-        "如果没有：只回复一个字「无」。不要客套，不要解释。\n\n"
+        "如果有值得关注的增量信息，按以下格式回复：\n"
+        "事件: <一句话描述>\n"
+        "标的: <名称>(<6位代码>) <方向>\n"
+        "（每事件最多3只标的，没有代码的不要列）\n"
+        "如果没有值得关注的内容，只回复「无」。\n\n"
         f"{delta_text[:3000]}"
     )
 
@@ -171,7 +173,7 @@ def run(today: str = None) -> dict:
             emoji = "🟢" if "利好" in verdict or "机会" in verdict else "🟡"
             msg = (
                 f"**{now_str} 盘中增量** ({len(new_posts)}帖/{len(new_drops)}投放)\n\n"
-                f"{emoji} {verdict[:300]}"
+                f"{verdict[:800]}"
             )
             pushed = push(f"🔔 盘中情报 {now_str}", msg)
             if pushed:
