@@ -33,6 +33,14 @@ UA_POOL = [
 ]
 
 
+def _alert(msg: str):
+    try:
+        from morning_intel.notify import push
+        push("公众号分析告警", msg)
+    except Exception:
+        pass
+
+
 def _load_api_key() -> str:
     key = os.environ.get("ANTHROPIC_AUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY")
     if key:
@@ -396,6 +404,7 @@ def main():
     rows = store.query_wechat_articles(since)
     if not rows:
         print("  无近期文章")
+        _alert("⚠️ 公众号分析跳过: DB 无近期文章（24h内采集入库为空）")
         return
 
     key = _load_api_key()

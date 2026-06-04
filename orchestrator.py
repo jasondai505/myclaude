@@ -29,7 +29,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
         "desc": "数据采集 → 复盘 → 简报",
         "trigger": "15:30 收盘后",
         "steps": [
-            {"id": "watchdog", "name": "RSS存活检测", "cmd": "python daily_review/wewe_watchdog.py"},
+            {"id": "health", "name": "系统健康检查", "cmd": "python daily_review/health_check.py"},
             {"id": "collect", "name": "数据采集", "cmd": "python daily_review/daily_collect.py"},
             {"id": "review", "name": "收盘复盘", "cmd": "python daily_review/run.py"},
             {"id": "brief", "name": "日报简报", "cmd": "python morning_intel/daily_brief.py"},
@@ -40,7 +40,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
         "desc": "监控 → 采集 → 公众号 → 摘要 → 追踪 → 解读 → 建议",
         "trigger": "05:00 盘前",
         "steps": [
-            {"id": "watchdog", "name": "RSS存活检测", "cmd": "python daily_review/wewe_watchdog.py"},
+            {"id": "health", "name": "系统健康检查", "cmd": "python daily_review/health_check.py"},
             {"id": "collect", "name": "数据采集", "cmd": "python daily_review/daily_collect.py"},
             {"id": "wechat", "name": "公众号分析", "cmd": "python daily_review/analyze_wechat.py"},
             {"id": "summary", "name": "复盘摘要", "cmd": "python daily_review/review_summary.py"},
