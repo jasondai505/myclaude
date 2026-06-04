@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import store
 from config import REPORT_DIR
-from collectors.base import fmt_iso, FEEDS_DIR
+from collectors.base import fmt_iso, FEEDS_DIR, daterange
 
 # universe 是所有 collector 的依赖项，必须成功
 from collectors import universe
