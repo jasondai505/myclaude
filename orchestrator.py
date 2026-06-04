@@ -64,6 +64,16 @@ PIPELINES: dict[str, dict[str, Any]] = {
             {"id": "collect", "name": "数据采集", "cmd": "python daily_review/daily_collect.py"},
         ],
     },
+    "intraday": {
+        "name": "盘中流水线",
+        "desc": "增量采集 → 盘中情报 → 盘前验证",
+        "trigger": "10:30 / 14:00",
+        "steps": [
+            {"id": "health", "name": "系统健康检查", "cmd": "python daily_review/health_check.py"},
+            {"id": "feeds", "name": "盘中情报", "cmd": "python morning_intel/intraday_feeds.py"},
+            {"id": "validate", "name": "盘中验证", "cmd": "python morning_intel/run_morning.py --phase intraday"},
+        ],
+    },
     "wechat_only": {
         "name": "仅公众号分析",
         "desc": "微信公众号两阶段 AI 分析",
