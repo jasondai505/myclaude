@@ -173,9 +173,14 @@ def get_report_content(report_type: str, date_str: str = "") -> dict[str, Any]:
             path = PROJECT_ROOT / f"daily_review/reports/advice_{date_str}.md"
         elif report_type == "wechat":
             path = PROJECT_ROOT / f"daily_review/reports/wechat_analysis_{date_str}.md"
+        elif report_type == "bom":
+            return _get_bom_content(date_str)
         else:
             return {"error": f"未知报告类型: {report_type}", "content": ""}
     else:
+        if report_type == "bom":
+            date_str = _today_str()
+            return _get_bom_content(date_str)
         reports = _find_reports(report_type, 1)
         if not reports:
             return {"error": f"未找到 {report_type} 报告", "content": ""}
@@ -194,6 +199,36 @@ def get_report_content(report_type: str, date_str: str = "") -> dict[str, Any]:
         "path": str(path),
         "date": date_str or _parse_date_from_filename(path) or "",
         "type": report_type,
+    }
+
+
+def _get_bom_content(date_str: str) -> dict[str, Any]:
+    """获取指定日期的所有 BOM 报告，合并为一份"""
+    files = sorted(PROJECT_ROOT.glob(f"bom_analyzer/reports/bom_*_{date_str}.md"))
+    if not files:
+        return {"error": f"未找到 {date_str} 的 BOM 报告", "content": ""}
+
+    parts = [f"# BOM 产业链分析 {date_str}", "",
+             f"> {len(files)} 个行业", ""]
+    paths = []
+    for f in files:
+        industry = f.stem.replace("bom_", "").replace(f"_{date_str}", "")
+        try:
+            body = f.read_text(encoding="utf-8")
+            body = re.sub(r"^#\s+.*$", f"## {industry}", body, count=1, flags=re.MULTILINE)
+            parts.append(body)
+            parts.append("")
+            paths.append(str(f))
+        except Exception:
+            parts.append(f"## {industry}\n\n_读取失败_")
+            parts.append("")
+
+    return {
+        "content": "\n".join(parts),
+        "path": ", ".join(paths),
+        "date": date_str,
+        "type": "bom",
+        "industry_count": len(files),
     }
 
 
