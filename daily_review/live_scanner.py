@@ -136,9 +136,18 @@ _PREFERRED_COLS = [
 
 
 def _scan_via_eastmoney() -> pd.DataFrame | None:
-    """东财 clist 分页扫描，失败返回 None"""
+    """东财 clist 分页扫描，失败返回 None
+
+    防缓存: _ 时间戳 + Cache-Control header
+    防频率限制: 页间 0.15s 间隔 + 单页最多重试 2 次
+    """
     url = "https://push2.eastmoney.com/api/qt/clist/get"
-    headers = {"User-Agent": _UA, "Referer": "https://quote.eastmoney.com/"}
+    headers = {
+        "User-Agent": _UA,
+        "Referer": "https://quote.eastmoney.com/",
+        "Cache-Control": "no-cache, no-store",
+        "Pragma": "no-cache",
+    }
     all_rows = []
 
     for fs, pattern in [
@@ -151,37 +160,52 @@ def _scan_via_eastmoney() -> pd.DataFrame | None:
                 "fields": _EM_FIELDS, "fs": fs,
                 "pn": pn, "pz": 100,
                 "ut": "fa5fd1943c7b386f172d6893dbbd1",
+                "_": int(time.time() * 1000),
             }
-            try:
-                r = requests.get(url, params=params, headers=headers, timeout=15)
-                data = r.json().get("data") or {}
-                items = data.get("diff", [])
-                if isinstance(items, dict):
-                    items = list(items.values())
-                if not items:
+
+            page_items = None
+            page_total = 0
+            for attempt in range(3):
+                try:
+                    r = requests.get(url, params=params, headers=headers, timeout=15)
+                    data = r.json().get("data") or {}
+                    page_items = data.get("diff", [])
+                    if isinstance(page_items, dict):
+                        page_items = list(page_items.values())
+                    page_total = data.get("total", 0)
                     break
-                for item in items:
-                    code = item.get("f12", "")
-                    if pattern.match(code):
-                        row = {}
-                        for fkey, col in _EM_FIELD_MAP.items():
-                            val = item.get(fkey, None)
-                            if val is None or val == "-":
-                                row[col] = None
-                            elif col in ("code", "name", "industry", "concepts"):
-                                row[col] = str(val)
-                            else:
-                                try:
-                                    row[col] = float(val)
-                                except (ValueError, TypeError):
-                                    row[col] = None
-                        all_rows.append(row)
-                total = data.get("total", 0)
-                if pn * 100 >= total:
-                    break
-                pn += 1
-            except Exception:
+                except Exception:
+                    if attempt < 2:
+                        time.sleep(1.0 * (attempt + 1))
+                    else:
+                        return None
+
+            if page_items is None:
                 return None
+            if not page_items:
+                break
+
+            for item in page_items:
+                code = item.get("f12", "")
+                if pattern.match(code):
+                    row = {}
+                    for fkey, col in _EM_FIELD_MAP.items():
+                        val = item.get(fkey, None)
+                        if val is None or val == "-":
+                            row[col] = None
+                        elif col in ("code", "name", "industry", "concepts"):
+                            row[col] = str(val)
+                        else:
+                            try:
+                                row[col] = float(val)
+                            except (ValueError, TypeError):
+                                row[col] = None
+                    all_rows.append(row)
+
+            if pn * 100 >= page_total:
+                break
+            pn += 1
+            time.sleep(0.15)
 
     if not all_rows:
         return None
@@ -204,8 +228,11 @@ def _scan_via_eastmoney() -> pd.DataFrame | None:
 def _tencent_batch(prefixed_codes: list[str]) -> dict[str, dict]:
     """批量查腾讯行情，返回 {prefixed_code: {...}}"""
     url = "https://qt.gtimg.cn/q=" + ",".join(prefixed_codes)
+    url += f"?_={int(time.time() * 1000)}"
     req = urllib.request.Request(url)
     req.add_header("User-Agent", _UA)
+    req.add_header("Cache-Control", "no-cache, no-store")
+    req.add_header("Pragma", "no-cache")
     try:
         resp = urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT)
         raw = resp.read().decode("gbk")
