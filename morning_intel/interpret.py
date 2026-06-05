@@ -141,6 +141,74 @@ def _validate_output(data: dict) -> list[str]:
     return warnings
 
 
+def _load_name_map() -> dict[str, str]:
+    """加载全A代码→名称映射"""
+    import json
+    cache = Path(__file__).parent.parent / "daily_review" / "data" / "stock_codes.json"
+    try:
+        if cache.exists():
+            data = json.loads(cache.read_text(encoding="utf-8"))
+            codes = data.get("codes", [])
+            if codes:
+                return {str(c["code"]).zfill(6): str(c["name"]) for c in codes}
+    except Exception:
+        pass
+    try:
+        from daily_review.live_scanner import _load_code_list
+        df = _load_code_list()
+        if not df.empty and "code" in df.columns and "name" in df.columns:
+            return dict(zip(df["code"].astype(str).str.zfill(6), df["name"].astype(str)))
+    except Exception:
+        pass
+    return {}
+
+
+def _verify_and_fix(data: dict) -> tuple[dict, list[str]]:
+    """代码-名称交叉验证，修正 LLM 编造的代码。"""
+    name_map = _load_name_map()
+    warnings = []
+    if not name_map:
+        warnings.append("无法加载股票代码表，跳过代码-名称验证")
+        return data, warnings
+
+    events = data.get("events", [])
+    fixed = 0
+    for ev in events:
+        for s in ev.get("target_stocks", []):
+            code = _clean_code(s.get("code", ""))
+            name = str(s.get("name", "")).strip()
+            if not code or len(code) != 6 or not name:
+                continue
+            real_name = name_map.get(code, "")
+            if not real_name:
+                continue
+            if name != real_name:
+                old = f"{code} {name}"
+                s["code"] = code
+                s["_original_name"] = name
+                s["name"] = real_name
+                warnings.append(f"代码-名称修正: {old} → {code} {real_name}")
+                fixed += 1
+
+        for node in ev.get("supply_chain", []):
+            for item in node.get("stocks", []):
+                code = _clean_code(item.get("code", ""))
+                name = str(item.get("name", "")).strip()
+                if not code or len(code) != 6 or not name:
+                    continue
+                real_name = name_map.get(code, "")
+                if real_name and name != real_name:
+                    old = f"{code} {name}"
+                    item["_original_name"] = name
+                    item["name"] = real_name
+                    warnings.append(f"供应链 代码-名称修正: {old} → {code} {real_name}")
+                    fixed += 1
+
+    if fixed:
+        print(f"  [FIX] 代码-名称修正 {fixed} 处")
+    return data, warnings
+
+
 def _render_markdown(data: dict, today: str) -> str:
     """将 JSON 数据渲染为人类可读的 Markdown 报告。"""
     lines = []
@@ -280,6 +348,11 @@ def run(today: str = None, dry_run: bool = False) -> Path | None:
     warnings = _validate_output(data)
     for w in warnings:
         print(f"[WARN] {w}")
+
+    # 5.5 代码-名称交叉验证
+    data, fix_warnings = _verify_and_fix(data)
+    for w in fix_warnings:
+        print(f"[FIX] {w}")
 
     # 6. 渲染 Markdown 报告（YAML frontmatter 供 Obsidian Dataview 索引）
     events_count = len(data.get("events", []))
