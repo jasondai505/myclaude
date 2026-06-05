@@ -224,7 +224,76 @@ def _extract_json(text: str) -> dict | None:
 
 
 # ============================================================
-# 报告输出
+# 阶段三：引擎客观验证
+# ============================================================
+
+def _enrich_with_engine(data: dict, single_results: list[dict]) -> dict:
+    """用 ThemeStockEngine 客观验证主题→标的映射，记录 L3 定性信号"""
+    if not data or not data.get("themes"):
+        return data
+
+    try:
+        from theme_stock import ThemeStockEngine
+        from theme_stock.store import ThemeStockStore
+        engine = ThemeStockEngine()
+        store = engine._store
+    except Exception as e:
+        print(f"  [WARN] 引擎不可用: {e}")
+        return data
+
+    # 写入 L3 信号: Haiku 提取的 ticker
+    signal_count = 0
+    for sr in single_results:
+        if not sr:
+            continue
+        for tk in sr.get("tickers", []):
+            code = str(tk.get("code", "")).strip()
+            if not code or not re.match(r"^\d{6}$", code):
+                continue
+            try:
+                store.add_signal(
+                    code=code, theme=sr.get("category", "其他"),
+                    signal_type="wechat_article", direction="neutral",
+                    strength=0.3, detail=tk.get("relevance", ""),
+                    source_url="", market="A", ttl_days=7,
+                )
+                signal_count += 1
+            except Exception:
+                pass
+    if signal_count:
+        print(f"  L3 信号: {signal_count} 条")
+
+    # 用引擎查询每个主题的客观标的
+    for t in data["themes"]:
+        name = t.get("name", "")
+        if not name:
+            continue
+        try:
+            r = engine.query(name, limit=15)
+            t["engine_stocks"] = [
+                {
+                    "code": e.code, "name": e.name, "market": e.market,
+                    "score": e.score, "tier": e.tier, "segment": e.segment,
+                    "role": e.role, "moat_total": e.moat_total,
+                    "tier_label": e.tier_label,
+                    "sources": [{"source": s.source, "detail": s.detail}
+                               for s in e.sources],
+                }
+                for e in r.stocks
+            ]
+            t["engine_total"] = r.total
+            t["chain_context"] = r.chain_context
+            if r.stocks:
+                print(f"  [{name}] 引擎→{len(r.stocks)}只 (共{r.total})")
+            else:
+                print(f"  [{name}] 引擎→无匹配 (LLM={len(t.get('related_stocks',[]))}只)")
+        except Exception as e:
+            print(f"  [WARN] 引擎查询 [{name}] 失败: {e}")
+
+    engine.close()
+    return data
+
+
 # ============================================================
 
 def _build_name_map(single_results: list[dict], data: dict) -> dict[str, str]:
@@ -297,10 +366,37 @@ def _write_report(data: dict, single_results: list[dict],
             feeds = t.get("feeds", [])
             if feeds:
                 buf.append(f"- **来源**: {', '.join(feeds)}")
-            stocks = t.get("related_stocks", [])
-            if stocks:
-                buf.append(f"- **关联标的**: {', '.join(_fmt_code(s, nm) for s in stocks)}")
-            buf.append("")
+            # 引擎客观标的（主表）
+            eng = t.get("engine_stocks", [])
+            if eng:
+                buf.append(f"- **关联标的** (引擎, {len(eng)}只):")
+                buf.append("")
+                buf.append("| 代码 | 名称 | 位置 | 置信度 | 来源 |")
+                buf.append("|------|------|------|--------|------|")
+                for e in eng[:10]:
+                    pos = f"{e.get('tier','')}/{e.get('segment','')}" if e.get("tier") else "-"
+                    srcs = ", ".join(s["source"].replace("concept_","").replace("chain_","")
+                                    for s in e.get("sources", [])[:2])
+                    m = "🔵" if e.get("market") == "HK" else "🇺🇸" if e.get("market") == "US" else ""
+                    buf.append(f"| {e['code']} | {m}{e['name']} | {pos} | "
+                              f"{e['score']:.0%} | {srcs} |")
+                buf.append("")
+
+            # Sonnet LLM 原始输出（折叠，审计用）
+            llm_stocks = t.get("related_stocks", [])
+            if llm_stocks:
+                llm_list = ', '.join(_fmt_code(s, nm) for s in llm_stocks)
+                buf.append(f"- <details><summary>🤖 LLM 原始输出: {llm_list}</summary>")
+                if eng:
+                    eng_codes = {e["code"] for e in eng}
+                    new_codes = [s for s in llm_stocks if str(s) not in eng_codes]
+                    if new_codes:
+                        buf.append(f"  > ⚠️ 引擎未覆盖: {', '.join(_fmt_code(s, nm) for s in new_codes)}")
+                buf.append("</details>")
+                buf.append("")
+            elif not eng:
+                buf.append("- **关联标的**: 无")
+                buf.append("")
 
     cross = data.get("cross_validation", [])
     if cross:
@@ -452,6 +548,10 @@ def main():
         print("  Sonnet 不可用")
         _write_report({}, single_results, today, fetched, failed)
         return
+
+    # 阶段三: 引擎客观验证
+    print(f"\n  阶段三: 引擎客观验证...")
+    data = _enrich_with_engine(data, single_results)
 
     _write_report(data, single_results, today, fetched, failed)
     print("  完成")
