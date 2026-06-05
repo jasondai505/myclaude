@@ -238,8 +238,22 @@ def main():
     if cached:
         print(f"  📦 feed 缓存: {cached} 篇 → SQLite feed_cache")
 
+    _build_theme_index()
+
     print("\n✅ 全部完成")
+
+
+def _build_theme_index():
+    """采集后更新主题-标的映射索引"""
+    try:
+        from theme_stock.build_all import build_all
+        print("\n--- 主题-标的索引 ---")
+        result = build_all(live_scan=True)
+        print(f"  索引: chain={result['chain']} concept={result['concept']} depth={result['depth']}")
+    except Exception as e:
+        print(f"  [WARN] 主题索引构建失败: {e}")
 
 
 if __name__ == "__main__":
     main()
+
