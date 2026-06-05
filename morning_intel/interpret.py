@@ -164,48 +164,70 @@ def _load_name_map() -> dict[str, str]:
 
 
 def _verify_and_fix(data: dict) -> tuple[dict, list[str]]:
-    """代码-名称交叉验证，修正 LLM 编造的代码。"""
+    """双向交叉验证 LLM 输出的代码-名称对。
+
+    策略: 代码和名称哪个对用哪个。都找不到真实匹配则移除。
+    """
     name_map = _load_name_map()
+    name_to_code = {v: k for k, v in name_map.items()}
     warnings = []
     if not name_map:
-        warnings.append("无法加载股票代码表，跳过代码-名称验证")
+        warnings.append("无法加载股票代码表，跳过验证")
         return data, warnings
 
     events = data.get("events", [])
     fixed = 0
+    removed = 0
+
+    def _fix_one(item: dict, context: str):
+        nonlocal fixed, removed
+        code = _clean_code(item.get("code", ""))
+        name = str(item.get("name", "")).strip()
+        if not code or len(code) != 6 or not name:
+            return
+
+        real_name = name_map.get(code, "")
+        real_code = name_to_code.get(name, "")
+
+        if name == real_name:
+            return  # 完全匹配，无需修正
+
+        if real_code and real_code != code:
+            # 名称匹配到了真实代码 → LLM编造了代码，用真实代码
+            item["_original_code"] = code
+            item["code"] = real_code
+            warnings.append(f"{context} 代码修正: {code} {name} → {real_code} {name}")
+            fixed += 1
+        elif real_name:
+            # 代码匹配到了真实名称 → LLM编造了名称，用真实名称
+            item["_original_name"] = name
+            item["name"] = real_name
+            warnings.append(f"{context} 名称修正: {code} {name} → {code} {real_name}")
+            fixed += 1
+        else:
+            # 代码和名称都找不到真实匹配 → 移除
+            item["_invalid"] = True
+            warnings.append(f"{context} 代码-名称均无效，已标记: {code} {name}")
+            removed += 1
+
     for ev in events:
         for s in ev.get("target_stocks", []):
-            code = _clean_code(s.get("code", ""))
-            name = str(s.get("name", "")).strip()
-            if not code or len(code) != 6 or not name:
-                continue
-            real_name = name_map.get(code, "")
-            if not real_name:
-                continue
-            if name != real_name:
-                old = f"{code} {name}"
-                s["code"] = code
-                s["_original_name"] = name
-                s["name"] = real_name
-                warnings.append(f"代码-名称修正: {old} → {code} {real_name}")
-                fixed += 1
+            _fix_one(s, f"[{ev.get('name','?')}]")
 
         for node in ev.get("supply_chain", []):
             for item in node.get("stocks", []):
-                code = _clean_code(item.get("code", ""))
-                name = str(item.get("name", "")).strip()
-                if not code or len(code) != 6 or not name:
-                    continue
-                real_name = name_map.get(code, "")
-                if real_name and name != real_name:
-                    old = f"{code} {name}"
-                    item["_original_name"] = name
-                    item["name"] = real_name
-                    warnings.append(f"供应链 代码-名称修正: {old} → {code} {real_name}")
-                    fixed += 1
+                _fix_one(item, f"[供应链 {ev.get('name','?')}]")
 
-    if fixed:
-        print(f"  [FIX] 代码-名称修正 {fixed} 处")
+    # 清理无效标的
+    for ev in events:
+        ev["target_stocks"] = [s for s in ev.get("target_stocks", [])
+                                if not s.get("_invalid")]
+        for node in ev.get("supply_chain", []):
+            node["stocks"] = [s for s in node.get("stocks", [])
+                             if not s.get("_invalid")]
+
+    if fixed or removed:
+        print(f"  [FIX] 修正 {fixed} 处, 移除 {removed} 处无效标的")
     return data, warnings
 
 
