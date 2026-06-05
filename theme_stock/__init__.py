@@ -9,5 +9,7 @@
 """
 
 from .store import ThemeStockStore
+from .engine import ThemeStockEngine, StockEntry, StockList, SourceRef
 
-__all__ = ["ThemeStockStore"]
+__all__ = ["ThemeStockStore", "ThemeStockEngine",
+           "StockEntry", "StockList", "SourceRef"]
