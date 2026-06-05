@@ -226,7 +226,28 @@
       "PowerShell(python daily_review/analyze_wechat.py --days 3 2>&1)",
       "PowerShell($task = Get-ScheduledTask -TaskName \"morning_advice\"; $task.Triggers | Format-List)",
       "PowerShell(Set-ScheduledTask *)",
-      "PowerShell(\\(Get-ScheduledTask -TaskName \"morning_advice\"\\).Triggers[0].StartBoundary)"
+      "PowerShell(\\(Get-ScheduledTask -TaskName \"morning_advice\"\\).Triggers[0].StartBoundary)",
+      "PowerShell(python -c \"import sys; sys.stdout.reconfigure\\(encoding='utf-8'\\); sys.path.insert\\(0,'daily_review'\\); from data import fetch_stock_quotes; q = fetch_stock_quotes\\(['603256','002256','603002','002002','601256']\\); [print\\(k, q.get\\(k,{}\\).get\\('name','?'\\)\\) for k in sorted\\(q\\)]\" 2>&1)",
+      "Bash(pkill -f \"streamlit run dashboard/app.py\")",
+      "Bash(echo \"exit: $?\")",
+      "Bash(findstr /i \"refresh\\\\|api\\\\|fetch\\\\|update\\\\|sync\")",
+      "PowerShell($js = Invoke-WebRequest -Uri \"http://111.231.44.12:4000/dash/assets/index-DdrV8jkS.js\" -TimeoutSec 15 -UseBasicParsing | Select-Object -ExpandProperty Content; $pattern = '[\"\\\\''`]\\(/\\(?:api|trpc\\)/[^\"''`]+\\)[\"''`]'; $matches = [regex]::Matches\\($js, $pattern\\); $matches | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)",
+      "PowerShell($js = Invoke-WebRequest -Uri \"http://111.231.44.12:4000/dash/assets/index-DdrV8jkS.js\" -TimeoutSec 15 -UseBasicParsing | Select-Object -ExpandProperty Content; $pattern = '\\\\/api\\\\/[a-zA-Z0-9\\\\/_.-]+'; $matches = [regex]::Matches\\($js, $pattern\\) | ForEach-Object { $_.Value } | Sort-Object -Unique; $matches | ForEach-Object { Write-Host $_ }.)",
+      "PowerShell(taskkill *)",
+      "PowerShell(Start-Process -FilePath \"C:\\\\miniconda3\\\\python.exe\" -ArgumentList \"-m\", \"streamlit\", \"run\", \"dashboard/app.py\", \"--server.port\", \"8501\" -WorkingDirectory \"C:\\\\Users\\\\daixin\\\\myclaude\" -WindowStyle Hidden; Write-Host \"Dashboard starting on http://localhost:8501\")"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\miniconda3\\python.exe -c \"import json,subprocess,sys,os; q=os.environ.get('CLAUDE_TOOL_INPUT','[]'); json.dump(json.loads(q) if isinstance(json.loads(q),list) else [json.loads(q)], open(os.environ.get('TEMP','.')+'\\\\_claude_question.json','w',encoding='utf-8')); subprocess.Popen([sys.executable, r'C:\\Users\\daixin\\myclaude\\daily_review\\_remind_pending.py', '--file', os.environ.get('TEMP','.')+'\\\\_claude_question.json'], creationflags=0x00000008, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\""
+          }
+        ]
+      }
     ]
   }
 }
