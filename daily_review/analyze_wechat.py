@@ -142,7 +142,7 @@ _S2 = """你是 A 股基本面投资分析师。今天是 {today}。
 
 {articles_json}
 
-我的自选股池：{watchlist}
+我的自选股池（仅供参考我的关注方向）：{watchlist}
 
 请综合研判，输出 JSON:
 {{
@@ -156,7 +156,7 @@ _S2 = """你是 A 股基本面投资分析师。今天是 {today}。
       "thesis": "核心逻辑（引用原文数据和事件）",
       "catalyst": "近期催化及时间节点",
       "horizon": "短期/中期/长期",
-      "related_stocks": ["自选股代码"],
+      "related_stocks": ["关联的A股代码"],
       "risk": "主要风险"
     }}
   ],
@@ -170,7 +170,7 @@ _S2 = """你是 A 股基本面投资分析师。今天是 {today}。
   ],
   "watchlist_alerts": [
     {{
-      "code": "自选股代码",
+      "code": "股票代码",
       "signal": "正面/负面/关注",
       "reason": "具体逻辑（引用原文数据）",
       "urgency": "高/中/低"
@@ -179,7 +179,7 @@ _S2 = """你是 A 股基本面投资分析师。今天是 {today}。
   "action_items": [
     {{
       "action": "建议操作",
-      "target": "标的（尽量用自选股代码）",
+      "target": "标的代码",
       "rationale": "理由",
       "priority": 1-5
     }}
