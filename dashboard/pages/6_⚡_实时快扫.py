@@ -184,7 +184,7 @@ if "turnover_pct" in display.columns:
     display["换手%"] = display["turnover_pct"].round(2)
     display = display.drop(columns=["turnover_pct"])
 if "pe_ttm" in display.columns:
-    display["PE"] = display["pe_ttm"].round(1)
+    display["PE"] = display["pe_ttm"].round(2)
     display = display.drop(columns=["pe_ttm"])
 if "pb" in display.columns:
     display["PB"] = display["pb"].round(2)
