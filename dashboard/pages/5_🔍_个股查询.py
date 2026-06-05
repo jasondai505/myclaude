@@ -27,7 +27,7 @@ if "error" in ov: st.error(ov["error"]); st.stop()
 cols = st.columns(6)
 cap = ov.get("market_cap", 0)
 items = [("价格", f"{ov.get('price',0):.2f}"), ("涨跌", f"{ov.get('change_pct',0):+.1f}%"),
-    ("PE", f"{ov.get('pe',0):.1f}"), ("PB", f"{ov.get('pb',0):.2f}"),
+    ("PE", f"{ov.get('pe',0):.2f}"), ("PB", f"{ov.get('pb',0):.2f}"),
     ("市值", f"{cap/10000:.0f}亿" if cap else "-"), ("换手", f"{ov.get('turnover_rate',0):.2f}%")]
 for i, (label, val) in enumerate(items):
     with cols[i]: st.metric(label, val)
