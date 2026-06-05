@@ -209,6 +209,13 @@ styled = display.style
 if "涨跌幅%" in display.columns:
     styled = styled.map(_color_pct, subset=["涨跌幅%"])
 
+_num_cols = {}
+for c in ["现价", "涨跌幅%", "换手%", "PE", "PB", "量比", "成交额(亿)"]:
+    if c in display.columns:
+        _num_cols[c] = "{:.2f}"
+if _num_cols:
+    styled = styled.format(_num_cols, na_rep="-")
+
 st.dataframe(
     styled,
     use_container_width=True,
