@@ -2,7 +2,7 @@
 from config import OVERSEAS_MAP
 from engine import rate_theme
 from report_utils import (
-    _render_10d_row, _render_classified_table, _render_theme_block,
+    _render_10d_row, _render_10d_board_row, _render_classified_table, _render_theme_block,
     _render_focus_table, _fmt_5d, _cell, _fmt_strength_row, _fmt_theme_amount_line,
 )
 
@@ -44,17 +44,38 @@ def render_market_overview(lines, market, sectors):
         _render_10d_row(lines, history, "涨停", "limit_up_count")
         _render_10d_row(lines, history, "连板≥2", "limit_up_2plus")
         _render_10d_row(lines, history, "跌停", "limit_down_count")
+        _render_10d_board_row(lines, history)
         lines.append("")
 
     lines.append("| 指数 | 收盘 | 涨跌幅 | 成交额(亿) | 振幅 |")
     lines.append("|------|-----:|-------:|-----------:|-----:|")
+    sh_amt = 0
+    sz_amt = 0
     for label, data in market.get("indices", {}).items():
         price = data.get("price", 0)
         chg = data.get("change_pct", 0)
         amount = data.get("amount_wan", 0) / 10000
         amp = data.get("amplitude_pct", 0)
+        if label == "上证指数":
+            sh_amt = amount
+        elif label == "深证成指":
+            sz_amt = amount
         sign = "+" if chg > 0 else ""
         lines.append(f"| {label} | {price:.2f} | {sign}{chg}% | {amount:.0f} | {amp}% |")
+
+    if sh_amt > 0 and sz_amt > 0:
+        total_amt = sh_amt + sz_amt
+        if total_amt >= 10000:
+            total_str = f"{total_amt:.0f}亿（{total_amt/10000:.2f}万亿）"
+        else:
+            total_str = f"{total_amt:.0f}亿"
+        prev_amt = market.get("prev_total_amount_yi")
+        if prev_amt and prev_amt > 0:
+            chg_pct = (total_amt - prev_amt) / prev_amt * 100
+            chg_str = f"环比{chg_pct:+.1f}%"
+        else:
+            chg_str = "—"
+        lines.append(f"| **两市合计** | — | {chg_str} | **{total_str}** | — |")
     lines.append("")
 
 

@@ -8,13 +8,14 @@ from utils import is_st, safe_str
 def analyze_market(indices: dict, industry_data: dict = None,
                     hot_df: pd.DataFrame = None,
                     zt_pool: dict = None, dt_pool: dict = None,
-                    trade_date: str = None) -> dict:
+                    trade_date: str = None,
+                    sentiment_result: dict = None) -> dict:
     result = {}
 
     _market_index_sentiment(result, indices)
     _market_amount_liquidity(result, indices, trade_date)
     _market_breadth_limits(result, industry_data, hot_df, zt_pool, dt_pool)
-    _market_history_10d(result, trade_date)
+    _market_history_10d(result, trade_date, zt_pool, sentiment_result)
     _market_profit_effect(result, industry_data)
 
     return result
@@ -127,9 +128,23 @@ def _market_breadth_limits(result: dict, industry_data: dict | None,
 # Helper: 10日历史
 # ============================================================
 
-def _market_history_10d(result: dict, trade_date: str | None):
+def _market_history_10d(result: dict, trade_date: str | None,
+                        zt_pool: dict = None, sentiment_result: dict = None):
     if not trade_date:
         return
+
+    max_board_count = None
+    max_board_stock = ""
+    if zt_pool:
+        best = None
+        for code, info in zt_pool.items():
+            cb = info.get("consecutive_boards", 0) or 0
+            if best is None or cb > best[0]:
+                best = (cb, info.get("name", ""))
+        if best and best[0] >= 2:
+            max_board_count = best[0]
+            max_board_stock = best[1]
+
     history = store.get_market_snapshot_history(trade_date, 10)
     today_row = {
         "date": trade_date,
@@ -137,6 +152,8 @@ def _market_history_10d(result: dict, trade_date: str | None):
         "limit_up_count": result.get("limit_up_filtered", 0),
         "limit_up_2plus": result.get("limit_up_2plus", 0),
         "limit_down_count": result.get("limit_down_count", 0),
+        "max_board_count": max_board_count,
+        "max_board_stock": max_board_stock,
     }
     if history and history[-1]["date"] == trade_date:
         history[-1].update(today_row)

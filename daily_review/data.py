@@ -309,6 +309,7 @@ def fetch_zt_pool(date: str = None) -> dict[str, dict]:
         first_time = f"{ft[:2]}:{ft[2:4]}:{ft[4:]}" if len(ft) == 6 else ft
         last_time = f"{lt[:2]}:{lt[2:4]}:{lt[4:]}" if len(lt) == 6 else lt
         result[code] = {
+            "name": str(row.get("名称", "")),
             "first_time": first_time,
             "last_time": last_time,
             "zt_stats": str(row.get("涨停统计", "")),

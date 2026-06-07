@@ -24,6 +24,18 @@ def _render_10d_row(lines, history, label, key):
     lines.append(f"| {label} | " + " | ".join(vals) + " |")
 
 
+def _render_10d_board_row(lines, history):
+    vals = []
+    for h in history:
+        n = h.get("max_board_count")
+        stock = h.get("max_board_stock", "")
+        if n is not None and n >= 2:
+            vals.append(f"{n}板({stock})")
+        else:
+            vals.append("—")
+    lines.append(f"| 最高连板 | " + " | ".join(vals) + " |")
+
+
 def _render_classified_table(lines, title, stocks):
     if not stocks:
         return
@@ -92,7 +104,21 @@ def _render_theme_block(lines, t, stocks, narrative_labels, level_icons, zt_pool
         lines.append("- （无个股明细）\n")
         return
 
-    show_stocks = stocks[:12]
+    zt_stocks = [s for s in stocks if s.get("is_limit_up")]
+    nonzt_stocks = [s for s in stocks if not s.get("is_limit_up")]
+
+    def _nonzt_key(s):
+        p = theme_pool_lookup.get(s["code"], {})
+        hr = p.get("hot_rank", 999) if p else 999
+        r10 = s.get("r10")
+        r10_val = r10 if r10 is not None else -999
+        return (-r10_val, hr)
+
+    nonzt_stocks.sort(key=_nonzt_key)
+
+    show_zt = zt_stocks[:10]
+    show_nonzt = nonzt_stocks[:5]
+    show_stocks = show_zt + show_nonzt
     if not show_stocks:
         lines.append("")
         return
@@ -101,8 +127,8 @@ def _render_theme_block(lines, t, stocks, narrative_labels, level_icons, zt_pool
     lines.append(_theme_block_amount_summary(show_stocks, zt_set, hot100_set))
     lines.append("")
     _zt = zt_pool or {}
-    lines.append("| 标的 | 代码 | 标签 | 来源 | 当日% | 涨停时间 | 连板 | 10日% | 5日% | 成交额 | F | E | V | 备注 |")
-    lines.append("|------|------|:----:|:----:|------:|:--------:|:----:|------:|-----:|-------:|--:|--:|--:|------|")
+    lines.append("| 标的 | 代码 | 标签 | 来源 | 当日% | 涨停时间 | 连板 | 10日% | 5日% | 成交额 | 人气# | F | E | V | 备注 |")
+    lines.append("|------|------|:----:|:----:|------:|:--------:|:----:|------:|-----:|-------:|------:|--:|--:|--:|------|")
     for s in show_stocks:
         chg5_str = f"{s['chg5']:+.1f}%" if s.get("chg5") is not None else "—"
         r10_str = f"{s['r10']:+.1f}%" if s.get("r10") is not None else "—"
@@ -114,9 +140,13 @@ def _render_theme_block(lines, t, stocks, narrative_labels, level_icons, zt_pool
         zt_time = zt.get("first_time", "")
         cb = zt.get("consecutive_boards", 0)
         cb_str = f"{cb}板" if cb else ""
+        hot_str = "-"
         f_str = e_str = v_str = "-"
         p = theme_pool_lookup.get(s["code"])
         if p:
+            hr = p.get("hot_rank")
+            if hr:
+                hot_str = str(hr)
             fev = p.get("fev") or {}
             if fev.get("f_score") is not None:
                 f_str = str(fev["f_score"])
@@ -128,7 +158,7 @@ def _render_theme_block(lines, t, stocks, narrative_labels, level_icons, zt_pool
             f"| {s['name']} | {s['code']} | {lbl} | {src_str} "
             f"| {s['chg']:+.1f}% | {zt_time} | {cb_str} "
             f"| {r10_str} | {chg5_str} "
-            f"| {amt_str} | {f_str} | {e_str} | {v_str} | {reason} |"
+            f"| {amt_str} | {hot_str} | {f_str} | {e_str} | {v_str} | {reason} |"
         )
     lines.append("")
 

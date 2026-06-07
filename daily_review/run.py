@@ -36,6 +36,7 @@ from llm import generate_overseas_catalysts
 import strength as strength_mod
 from engine_sector_rotation import sector_frequency, sector_persistence, sector_cooccurrence
 from engine_market_rhythm import rhythm_report
+from engine_themes import _calc_chg5, _calc_r10
 from engine_leader_backtest import top_leader_report
 from engine_similar_days import similar_days_report
 
@@ -283,12 +284,13 @@ def _run_core_analysis(indices, industry, hot_df, northbound, global_data,
     if dt_pool:
         print(f"  ✓ 跌停池 {len(dt_pool)} 只")
 
+    sentiment_result = engine.analyze_sentiment(hot_df)
     market_result = engine.analyze_market(
         indices, industry_data=industry, hot_df=hot_df,
         zt_pool=zt_pool, dt_pool=dt_pool, trade_date=trade_date,
+        sentiment_result=sentiment_result,
     )
     style_result = engine.analyze_style(indices)
-    sentiment_result = engine.analyze_sentiment(hot_df)
     sector_result = engine.analyze_sectors(industry)
     theme_result = engine.analyze_themes(hot_df, trade_date)
     theme_result = engine.enrich_themes_with_bom(theme_result)
@@ -442,6 +444,74 @@ def _run_theme_expansion(hot_df, theme_result, stock_quotes, stock_klines,
     theme_new_dirs = engine.attach_merged_to_themes(theme_stock_details, leveled, merged_pool)
     theme_longtail = merged_pool["longtail"]
     print(f"    合并题材 {len(merged_pool['themes'])} 个 / 新方向 {len(theme_new_dirs)} 个 / 长尾 {len(theme_longtail)} 个")
+
+    missing_codes = set()
+    all_existing_quotes = {**stock_quotes, **extra_quotes}
+    for stocks in theme_stock_details.values():
+        for s in stocks:
+            code = s["code"]
+            if (s.get("amount_wan") or 0) == 0:
+                eq = all_existing_quotes.get(code)
+                if eq:
+                    s["amount_wan"] = eq.get("amount_wan", 0) or 0
+                    s["chg"] = s["chg"] or eq.get("change_pct", 0) or 0
+                    s["turnover"] = s["turnover"] or eq.get("turnover_pct", 0) or 0
+                    s["mcap_yi"] = s.get("mcap_yi") or eq.get("mcap_yi", 0) or 0
+                else:
+                    missing_codes.add(code)
+    if missing_codes:
+        missing_list = sorted(missing_codes)
+        print(f"  补全合池标的行情（{len(missing_list)}只）...")
+        merged_quotes = data.fetch_stock_quotes(missing_list)
+        for s_list in theme_stock_details.values():
+            for s in s_list:
+                q = merged_quotes.get(s["code"])
+                if q:
+                    if not s.get("amount_wan"):
+                        s["amount_wan"] = q.get("amount_wan", 0) or 0
+                    if not s.get("chg"):
+                        s["chg"] = q.get("change_pct", 0) or 0
+                    if not s.get("turnover"):
+                        s["turnover"] = q.get("turnover_pct", 0) or 0
+                    if not s.get("mcap_yi"):
+                        s["mcap_yi"] = q.get("mcap_yi", 0) or 0
+
+    nonzt_need_klines = set()
+    all_klines_now = {**hot_klines, **stock_klines, **extra_klines_map}
+    for stocks in theme_stock_details.values():
+        for s in stocks:
+            if s.get("is_limit_up"):
+                continue
+            if s.get("r10") is None or s.get("chg5") is None:
+                code = s["code"]
+                kdf = all_klines_now.get(code)
+                if kdf is not None:
+                    if s.get("r10") is None:
+                        s["r10"] = _calc_r10(kdf)
+                    if s.get("chg5") is None:
+                        s["chg5"] = _calc_chg5(kdf)
+                else:
+                    nonzt_need_klines.add(code)
+    if nonzt_need_klines:
+        kline_list = sorted(nonzt_need_klines)[:80]
+        print(f"  拉取非涨停标的K线（{len(kline_list)}只）...")
+        for code in progress_bar(kline_list, desc="  非涨停K线", unit="只",
+                         bar_format="  {desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"):
+            kl = data.fetch_klines(code, days=15)
+            if kl is not None:
+                all_klines_now[code] = kl
+                all_extra_klines[code] = kl
+            time.sleep(0.1)
+        for stocks in theme_stock_details.values():
+            for s in stocks:
+                if s.get("is_limit_up"):
+                    continue
+                kdf = all_klines_now.get(s["code"])
+                if kdf is not None:
+                    if s.get("r10") is None:
+                        s["r10"] = _calc_r10(kdf)
+                    if s.get("chg5") is None:
+                        s["chg5"] = _calc_chg5(kdf)
 
     theme_groups = engine.classify_themes_by_trend(theme_result, aesthetics_result)
 
