@@ -499,6 +499,17 @@ def main():
     store.init_feeds_tables()
     all_rows = store.query_wechat_articles(since, unanalyzed_only=False)
     new_rows = store.query_wechat_articles(since, unanalyzed_only=True)
+
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    recent_any = store.query_wechat_articles(yesterday, unanalyzed_only=False)
+    latest_dates = sorted(set(r["pub_date"][:10] for r in all_rows), reverse=True)
+    latest_str = latest_dates[0] if latest_dates else "无"
+    if not recent_any:
+        print(f"  ⚠️ RSS 数据可能滞后！最新文章日期: {latest_str}，距今天已超过1天")
+        print(f"  → 请先刷新 WeWe-RSS 后再跑 daily_collect --source wechat")
+    else:
+        print(f"  最新文章日期: {latest_str}")
+
     skipped = len(all_rows) - len(new_rows)
     if skipped > 0:
         print(f"  已分析跳过: {skipped} 篇")

@@ -844,7 +844,7 @@ def mark_wechat_analyzed(articles: list[dict]):
         for a in articles:
             conn.execute(
                 "UPDATE wechat_articles SET analyzed_at = ? "
-                "WHERE feed_source = ? AND pub_date = ? AND title = ?",
+                "WHERE feed_source = ? AND substr(pub_date, 1, 10) = ? AND title = ?",
                 (now, a.get("feed", ""), a.get("date", ""), a.get("title", "")),
             )
 
