@@ -492,16 +492,20 @@ def _write_report(data: dict, single_results: list[dict],
 
 def main():
     today = date.today().isoformat()
-    since = (date.today() - timedelta(days=1)).isoformat()
+    since = (date.today() - timedelta(days=3)).isoformat()
 
     print(f"公众号深度分析（两阶段）| {since} ~ {today}")
 
     store.init_feeds_tables()
-    rows = store.query_wechat_articles(since)
-    if not rows:
-        print("  无近期文章")
-        _alert("⚠️ 公众号分析跳过: DB 无近期文章（24h内采集入库为空）")
+    all_rows = store.query_wechat_articles(since, unanalyzed_only=False)
+    new_rows = store.query_wechat_articles(since, unanalyzed_only=True)
+    skipped = len(all_rows) - len(new_rows)
+    if skipped > 0:
+        print(f"  已分析跳过: {skipped} 篇")
+    if not new_rows:
+        print(f"  无新文章（近3天共{len(all_rows)}篇，均已分析）")
         return
+    rows = new_rows
 
     key = _load_api_key()
     if not key:
@@ -554,7 +558,8 @@ def main():
     data = _enrich_with_engine(data, single_results)
 
     _write_report(data, single_results, today, fetched, failed)
-    print("  完成")
+    store.mark_wechat_analyzed(articles_with_body)
+    print(f"  完成（已标记 {len(articles_with_body)} 篇为已分析）")
 
 
 if __name__ == "__main__":

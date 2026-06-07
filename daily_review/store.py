@@ -713,6 +713,7 @@ def init_feeds_tables():
                 pub_date     TEXT NOT NULL,
                 description  TEXT,
                 fetched_at   TEXT,
+                analyzed_at  TEXT,
                 PRIMARY KEY (feed_source, pub_date, title)
             );
             CREATE INDEX IF NOT EXISTS idx_wechat_pub ON wechat_articles(pub_date);
@@ -747,6 +748,10 @@ def init_feeds_tables():
             CREATE INDEX IF NOT EXISTS idx_finind_code ON financial_indicators(code);
             CREATE INDEX IF NOT EXISTS idx_finind_date ON financial_indicators(report_date);
         """)
+        try:
+            conn.execute("ALTER TABLE wechat_articles ADD COLUMN analyzed_at TEXT")
+        except Exception:
+            pass
 
 
 def save_announcements(rows: list[dict]) -> int:
@@ -819,20 +824,29 @@ def save_wechat_articles(rows: list[dict]) -> int:
     return after - before
 
 
-def query_wechat_articles(since: str, until: str = "") -> list[dict]:
+def query_wechat_articles(since: str, until: str = "", unanalyzed_only: bool = True) -> list[dict]:
+    where = "WHERE pub_date >= ?"
+    params = [since]
     if until:
-        sql = ("SELECT * FROM wechat_articles "
-               "WHERE pub_date >= ? AND pub_date < ? "
-               "ORDER BY pub_date DESC, feed_source")
-        params = (since, until)
-    else:
-        sql = ("SELECT * FROM wechat_articles "
-               "WHERE pub_date >= ? "
-               "ORDER BY pub_date DESC, feed_source")
-        params = (since,)
+        where += " AND pub_date < ?"
+        params.append(until)
+    if unanalyzed_only:
+        where += " AND analyzed_at IS NULL"
+    sql = f"SELECT * FROM wechat_articles {where} ORDER BY pub_date DESC, feed_source"
     with _conn() as conn:
         rows = conn.execute(sql, params).fetchall()
     return [dict(r) for r in rows]
+
+
+def mark_wechat_analyzed(articles: list[dict]):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    with _conn() as conn:
+        for a in articles:
+            conn.execute(
+                "UPDATE wechat_articles SET analyzed_at = ? "
+                "WHERE feed_source = ? AND pub_date = ? AND title = ?",
+                (now, a.get("feed", ""), a.get("date", ""), a.get("title", "")),
+            )
 
 
 def save_interactions(rows: list[dict]) -> int:
