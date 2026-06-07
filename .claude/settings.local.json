@@ -251,6 +251,15 @@
             "command": "C:\\miniconda3\\python.exe -c \"import json,subprocess,sys,os; q=os.environ.get('CLAUDE_TOOL_INPUT','[]'); json.dump(json.loads(q) if isinstance(json.loads(q),list) else [json.loads(q)], open(os.environ.get('TEMP','.')+'\\\\_claude_question.json','w',encoding='utf-8')); subprocess.Popen([sys.executable, r'C:\\Users\\daixin\\myclaude\\daily_review\\_remind_pending.py', '--file', os.environ.get('TEMP','.')+'\\\\_claude_question.json'], creationflags=0x00000008, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\""
           }
         ]
+      },
+      {
+        "matcher": "TaskOutput",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\miniconda3\\python.exe -c \"import json,os,sys; inp=json.loads(os.environ.get('CLAUDE_TOOL_INPUT','{}')); sys.exit(0 if inp.get('block') else 1)\" && C:\\miniconda3\\python.exe C:\\Users\\daixin\\myclaude\\notify.py \"Claude Code 任务完成\" \"后台任务已执行完毕，请查看结果。\""
+          }
+        ]
       }
     ]
   }
