@@ -50,14 +50,14 @@ echo [%date% %time%] Step 4: track_recommendations >> "%LOG%"
 "%PY%" "%BASE%\track_recommendations.py" >> "%LOG%" 2>&1
 if errorlevel 1 echo [%date% %time%] WARNING: track_recommendations failed >> "%LOG%"
 
-rem === Step 5: morning intel — supply chain mapping + catalyst → targets ===
+rem === Step 5: morning intel (isolated subprocess) ===
 echo [%date% %time%] Step 5: morning_intel interpret >> "%LOG%"
-"%PY%" "%BASE%\..\morning_intel\run_morning.py" --phase pre --date %TODAY% >> "%LOG%" 2>&1
+start "morning_intel" /wait /min "%PY%" "%BASE%\..\morning_intel\run_morning.py" --phase pre --date %TODAY% >> "%LOG%" 2>&1
 if errorlevel 1 echo [%date% %time%] WARNING: morning_intel interpret failed >> "%LOG%"
 
-rem === Step 6: classic advice (吸收公众号分析结论 + 星球信号 + 外围映射) ===
+rem === Step 6: classic advice (isolated subprocess) ===
 echo [%date% %time%] Step 6: classic advice >> "%LOG%"
-"%PY%" "%BASE%\_run_advice.py" %TODAY% %YESTERDAY% >> "%LOG%" 2>&1
+start "run_advice" /wait /min "%PY%" "%BASE%\_run_advice.py" %TODAY% %YESTERDAY% >> "%LOG%" 2>&1
 if errorlevel 1 echo [%date% %time%] WARNING: classic advice failed >> "%LOG%"
 
 echo [%date% %time%] pipeline done >> "%LOG%"
