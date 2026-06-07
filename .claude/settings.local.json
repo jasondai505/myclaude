@@ -238,20 +238,13 @@
       "PowerShell(New-Item *)",
       "PowerShell(python -c \"import py_compile; py_compile.compile\\('daily_review/engine_market.py', doraise=True\\); print\\('engine_market OK'\\)\")",
       "PowerShell(cd C:\\\\Users\\\\daixin\\\\myclaude ; $env:PYTHONIOENCODING='utf-8'; python daily_review/analyze_wechat.py 2>&1)",
-      "PowerShell(cd C:\\\\Users\\\\daixin\\\\myclaude ; $env:PYTHONIOENCODING='utf-8'; python daily_review/daily_collect.py --source wechat 2>&1)"
+      "PowerShell(cd C:\\\\Users\\\\daixin\\\\myclaude ; $env:PYTHONIOENCODING='utf-8'; python daily_review/daily_collect.py --source wechat 2>&1)",
+      "Bash(schtasks /query /tn \"morning_advice\" /v)",
+      "PowerShell($task = Get-ScheduledTask -TaskName \"morning_advice\" -ErrorAction SilentlyContinue; if \\($task\\) { $info = Get-ScheduledTaskInfo -TaskName \"morning_advice\"; Write-Host \"State: $\\($task.State\\)\"; Write-Host \"LastRun: $\\($info.LastRunTime\\)\"; Write-Host \"LastResult: $\\($info.LastTaskResult\\)\"; Write-Host \"NextRun: $\\($info.NextRunTime\\)\" } else { Write-Host \"Task not found\" })",
+      "PowerShell(cd C:\\\\Users\\\\daixin\\\\myclaude ; $env:PYTHONIOENCODING='utf-8'; $env:HEADLESS='1'; python daily_review\\\\daily_collect.py 2>&1)",
+      "PowerShell(cd C:\\\\Users\\\\daixin\\\\myclaude ; $env:PYTHONIOENCODING='utf-8'; $env:HEADLESS='1'; python daily_review/analyze_wechat.py 2>&1; python daily_review/review_summary.py 2>&1; python daily_review/track_recommendations.py 2>&1; python daily_review/_run_advice.py 2026-06-08 2026-06-07 2>&1)",
+      "PowerShell(cd C:\\\\Users\\\\daixin\\\\myclaude ; Start-Process -NoNewWindow python -ArgumentList \"daily_review/_remind_pending.py\",\"--file\",\"$env:TEMP\\\\_claude_question_test.json\" ; \"launched\")"
     ]
   },
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "AskUserQuestion",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "C:\\miniconda3\\python.exe -c \"import json,subprocess,sys,os; q=os.environ.get('CLAUDE_TOOL_INPUT','[]'); json.dump(json.loads(q) if isinstance(json.loads(q),list) else [json.loads(q)], open(os.environ.get('TEMP','.')+'\\\\_claude_question.json','w',encoding='utf-8')); subprocess.Popen([sys.executable, r'C:\\Users\\daixin\\myclaude\\daily_review\\_remind_pending.py', '--file', os.environ.get('TEMP','.')+'\\\\_claude_question.json'], creationflags=0x00000008, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\""
-          }
-        ]
-      }
-    ]
-  }
+  "hooks": {}
 }
