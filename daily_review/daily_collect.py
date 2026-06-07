@@ -17,6 +17,7 @@ from __future__ import annotations
 import sys
 import os
 import argparse
+import threading
 import traceback
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -186,6 +187,33 @@ def _write_index():
     print(f"\n📋 索引页: {path}")
 
 
+COLLECTOR_TIMEOUTS = {
+    "zsxq": 300, "announcements": 180, "news": 180, "research": 240,
+    "interactions": 300, "earnings": 120, "surveys": 240, "lockups": 120,
+    "eps": 240, "industry": 120, "financials": 180, "wechat": 120,
+}
+DEFAULT_TIMEOUT = 180
+
+
+def _run_collector(fn, timeout_sec):
+    box = {"v": None, "err": None}
+
+    def _target():
+        try:
+            box["v"] = fn()
+        except Exception as e:
+            box["err"] = e
+
+    th = threading.Thread(target=_target, daemon=True)
+    th.start()
+    th.join(timeout_sec)
+    if th.is_alive():
+        return {"status": "timeout", "message": f"超时({timeout_sec}s)", "last_date": ""}
+    if box["err"]:
+        raise box["err"]
+    return box["v"]
+
+
 def main():
     args = _parse_args()
     if args.status:
@@ -201,13 +229,22 @@ def main():
     results = {}
     for src in sources:
         mod = ALL_SOURCES[src]
+        timeout = COLLECTOR_TIMEOUTS.get(src, DEFAULT_TIMEOUT)
+        label = SOURCE_LABELS.get(src, src)
+        print(f"\n[{label}] 开始采集，超时={timeout}s...")
         try:
-            results[src] = mod.run(since, until, universe.daily_universe)
+            results[src] = _run_collector(
+                lambda m=mod, s=since, u=until: m.run(s, u, universe.daily_universe),
+                timeout,
+            )
         except Exception as e:
-            print(f"\n  ❌ {src} 异常: {e}")
+            print(f"  ❌ {src} 异常: {e}")
             traceback.print_exc()
             store.upsert_collect_status(src, fmt_iso(until), "error", str(e)[:200], 0)
             results[src] = {"status": "error", "message": str(e)[:200]}
+        if results[src].get("status") == "timeout":
+            print(f"  ⏰ {src} 超时({timeout}s)，跳过")
+            store.upsert_collect_status(src, fmt_iso(until), "timeout", f"超时({timeout}s)", 0)
 
     # 每日刷新行业估值分位（全市场计算，独立于数据源采集）
     try:
