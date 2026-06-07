@@ -234,7 +234,11 @@
       "PowerShell($js = Invoke-WebRequest -Uri \"http://111.231.44.12:4000/dash/assets/index-DdrV8jkS.js\" -TimeoutSec 15 -UseBasicParsing | Select-Object -ExpandProperty Content; $pattern = '[\"\\\\''`]\\(/\\(?:api|trpc\\)/[^\"''`]+\\)[\"''`]'; $matches = [regex]::Matches\\($js, $pattern\\); $matches | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)",
       "PowerShell($js = Invoke-WebRequest -Uri \"http://111.231.44.12:4000/dash/assets/index-DdrV8jkS.js\" -TimeoutSec 15 -UseBasicParsing | Select-Object -ExpandProperty Content; $pattern = '\\\\/api\\\\/[a-zA-Z0-9\\\\/_.-]+'; $matches = [regex]::Matches\\($js, $pattern\\) | ForEach-Object { $_.Value } | Sort-Object -Unique; $matches | ForEach-Object { Write-Host $_ }.)",
       "PowerShell(taskkill *)",
-      "PowerShell(Start-Process -FilePath \"C:\\\\miniconda3\\\\python.exe\" -ArgumentList \"-m\", \"streamlit\", \"run\", \"dashboard/app.py\", \"--server.port\", \"8501\" -WorkingDirectory \"C:\\\\Users\\\\daixin\\\\myclaude\" -WindowStyle Hidden; Write-Host \"Dashboard starting on http://localhost:8501\")"
+      "PowerShell(Start-Process -FilePath \"C:\\\\miniconda3\\\\python.exe\" -ArgumentList \"-m\", \"streamlit\", \"run\", \"dashboard/app.py\", \"--server.port\", \"8501\" -WorkingDirectory \"C:\\\\Users\\\\daixin\\\\myclaude\" -WindowStyle Hidden; Write-Host \"Dashboard starting on http://localhost:8501\")",
+      "PowerShell(New-Item *)",
+      "PowerShell(python -c \"import py_compile; py_compile.compile\\('daily_review/engine_market.py', doraise=True\\); print\\('engine_market OK'\\)\")",
+      "PowerShell(cd C:\\\\Users\\\\daixin\\\\myclaude ; $env:PYTHONIOENCODING='utf-8'; python daily_review/analyze_wechat.py 2>&1)",
+      "PowerShell(cd C:\\\\Users\\\\daixin\\\\myclaude ; $env:PYTHONIOENCODING='utf-8'; python daily_review/daily_collect.py --source wechat 2>&1)"
     ]
   },
   "hooks": {
