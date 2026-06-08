@@ -6,7 +6,7 @@ from report_sections import (
     render_sectors, render_themes, render_northbound,
     render_global_markets, render_watchlist, render_watchlist_cross,
     render_fundamentals, render_popularity, render_zsxq, render_focus_pool,
-    render_advice, _render_strength,
+    render_advice, _render_strength, render_limit_up_analysis,
 )
 
 
@@ -36,6 +36,7 @@ def render_report(
     concept_heat: list = None,
     hot_stocks: list = None,
     focus_pool_data: list = None,
+    limit_up_data: dict = None,
 ) -> str:
     lines = []
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -71,6 +72,10 @@ def render_report(
     if strength_data:
         lines.append("## 板块强弱分析\n")
         _render_strength(lines, strength_data, focus_pool_data)
+
+    # 4.6、涨停深度分析
+    if limit_up_data and limit_up_data.get("t1"):
+        render_limit_up_analysis(lines, limit_up_data)
 
     # 五、北向资金
     render_northbound(lines, northbound)

@@ -914,7 +914,7 @@ def _save_and_report(trade_date, market_result, style_result, sector_result,
                      fev_scores, theme_stock_details, theme_groups,
                      theme_new_dirs, theme_longtail, strength_result,
                      zt_pool, concept_heat, hot_stocks, focus_pool_data,
-                     t0):
+                     limit_up_data, t0):
     md = report.render_report(
         trade_date=trade_date,
         market=market_result,
@@ -940,6 +940,7 @@ def _save_and_report(trade_date, market_result, style_result, sector_result,
         concept_heat=concept_heat,
         hot_stocks=hot_stocks,
         focus_pool_data=focus_pool_data,
+        limit_up_data=limit_up_data,
     )
 
     report_path = REPORT_DIR / f"review_{trade_date}.md"
@@ -1037,8 +1038,8 @@ def main():
     # 涨停深度分析
     theme_counts_lu = {t["theme"]: t.get("today_count", 0)
                        for t in theme_result.get("leveled", [])}
-    limit_up_analyze(trade_date, zt_pool, all_quotes_merged,
-                     code_to_themes, theme_counts_lu)
+    limit_up_data = limit_up_analyze(trade_date, zt_pool, all_quotes_merged,
+                                     code_to_themes, theme_counts_lu)
 
     # Phase 5: 基本面 + FEV
     (fundamentals_result, eps_data, shareholder_data,
@@ -1088,7 +1089,7 @@ def main():
         fev_scores, theme_stock_details, theme_groups,
         theme_new_dirs, theme_longtail, strength_result,
         zt_pool, concept_heat, hot_stocks, focus_pool_data,
-        t0)
+        limit_up_data, t0)
 
 
 if __name__ == "__main__":
