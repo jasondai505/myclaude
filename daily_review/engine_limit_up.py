@@ -93,25 +93,19 @@ def _load_api_key() -> str:
     return key
 
 
-def _run_t1_llm(t1_stocks: list, quotes: dict) -> list[dict]:
-    api_key = _load_api_key()
-    if not api_key or not t1_stocks:
-        return []
-
-    ctx = _build_t1_context(t1_stocks, quotes)
+def _call_llm_batch(stocks_batch: list, quotes: dict) -> list[dict]:
+    ctx = _build_t1_context(stocks_batch, quotes)
     try:
         from anthropic import Anthropic
     except ImportError:
-        print("  [limit_up] anthropic 未安装，跳过 T1 LLM 分析")
         return []
-
-    client = Anthropic(api_key=api_key)
+    client = Anthropic(api_key=_load_api_key())
     try:
         resp = client.messages.create(
             model=os.getenv("DR_LLM_MODEL", "claude-haiku-4-5-20251001"),
             max_tokens=2000,
             temperature=0.3,
-            system="你是A股涨停板分析师。只输出JSON，不要其他文字。",
+            system="你是A股涨停板分析师。只输出JSON数组，不要其他文字。",
             messages=[{"role": "user", "content": _PROMPT.format(stock_list=ctx)}],
             thinking={"type": "disabled"},
         )
@@ -123,8 +117,24 @@ def _run_t1_llm(t1_stocks: list, quotes: dict) -> list[dict]:
             results = [results]
         return results if isinstance(results, list) else []
     except Exception as e:
-        print(f"  [limit_up] T1 LLM 失败: {e}")
+        print(f"  [limit_up] LLM batch 失败: {e}")
         return []
+
+
+def _run_t1_llm(t1_stocks: list, quotes: dict) -> list[dict]:
+    api_key = _load_api_key()
+    if not api_key or not t1_stocks:
+        return []
+
+    BATCH_SIZE = 8
+    all_results = []
+    for i in range(0, len(t1_stocks), BATCH_SIZE):
+        batch = t1_stocks[i:i + BATCH_SIZE]
+        print(f"  [limit_up] LLM batch {i // BATCH_SIZE + 1}: "
+              f"{len(batch)} stocks ({batch[0]['code']}..{batch[-1]['code']})")
+        results = _call_llm_batch(batch, quotes)
+        all_results.extend(results)
+    return all_results
 
 
 # === T2: 结构化特征提取 ===
