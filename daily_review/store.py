@@ -81,6 +81,32 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_srl_date ON sector_rotation_log(date);
             CREATE INDEX IF NOT EXISTS idx_srl_type ON sector_rotation_log(row_type);
             CREATE INDEX IF NOT EXISTS idx_srl_sector ON sector_rotation_log(sector);
+
+            CREATE TABLE IF NOT EXISTS limit_up_analysis (
+                date         TEXT NOT NULL,
+                code         TEXT NOT NULL,
+                name         TEXT,
+                tier         INTEGER DEFAULT 2,
+                boards       INTEGER DEFAULT 1,
+                first_time   TEXT,
+                last_time    TEXT,
+                blasted      INTEGER DEFAULT 0,
+                themes       TEXT DEFAULT '[]',
+                pe           REAL,
+                pb           REAL,
+                mcap_yi      REAL,
+                turnover_pct REAL,
+                vol_ratio    REAL,
+                amplitude_pct REAL,
+                driver       TEXT,
+                quality      TEXT,
+                score        INTEGER,
+                analysis     TEXT,
+                next_day_chg REAL,
+                PRIMARY KEY (date, code)
+            );
+            CREATE INDEX IF NOT EXISTS idx_lua_code ON limit_up_analysis(code);
+            CREATE INDEX IF NOT EXISTS idx_lua_date ON limit_up_analysis(date);
         """)
 
 

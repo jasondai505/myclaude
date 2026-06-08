@@ -39,6 +39,7 @@ from engine_market_rhythm import rhythm_report
 from engine_themes import _calc_chg5, _calc_r10
 from engine_leader_backtest import top_leader_report
 from engine_similar_days import similar_days_report
+from engine_limit_up import analyze as limit_up_analyze
 
 
 def check_deps():
@@ -1032,6 +1033,12 @@ def main():
         pass
 
     all_quotes_merged.update(hot_quotes)
+
+    # 涨停深度分析
+    theme_counts_lu = {t["theme"]: t.get("today_count", 0)
+                       for t in theme_result.get("leveled", [])}
+    limit_up_analyze(trade_date, zt_pool, all_quotes_merged,
+                     code_to_themes, theme_counts_lu)
 
     # Phase 5: 基本面 + FEV
     (fundamentals_result, eps_data, shareholder_data,
