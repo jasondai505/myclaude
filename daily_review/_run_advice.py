@@ -318,33 +318,139 @@ def _validate_index_claims(output: str, us_indices_json: str) -> str:
 
 
 def _validate_code_names(output: str) -> str:
-    pairs = re.findall(r"([一-龥]+)\((\d{6})\)", output)
-    if not pairs: return output
-    codes = sorted(set(c for _, c in pairs))
+    paren_pairs = re.findall(r"([一-龥]+)\((\d{6})\)", output)
+    table_pairs = []
+    for m in re.finditer(
+        r"\|\s*\*{0,2}([一-龥]{2,8})\*{0,2}\s*\|\s*(\d{6})\s*\|", output
+    ):
+        table_pairs.append((m.group(1), m.group(2)))
+
+    all_pairs = paren_pairs + table_pairs
+    if not all_pairs:
+        return output
+
+    codes = sorted(set(c for _, c in all_pairs))
     try:
         import data
         quotes = data.fetch_stock_quotes(codes, batch_size=30)
     except Exception as e:
         print(f"  [WARN] 代码校验查询失败: {e}")
         return output
+
     name_map = {c: q.get("name", "") for c, q in quotes.items()}
     fixed = 0
-    for llm_name, code in pairs:
+
+    for llm_name, code in all_pairs:
         real_name = name_map.get(code, "")
-        if not real_name: continue
+        if not real_name:
+            print(f"  [WARN] 代码 {code} 查无数据，可能无效，LLM 标注为「{llm_name}」")
+            continue
         if llm_name != real_name:
-            old = f"{llm_name}({code})"
-            new = f"{real_name}({code})"
-            output = output.replace(old, new)
-            print(f"  [FIX] {old} → {new}")
-            fixed += 1
-    if fixed: print(f"  共修正 {fixed} 处代码-名称不匹配")
+            for template in [
+                f"{llm_name}({code})",
+                f"| {llm_name} | {code}",
+                f"| **{llm_name}** | {code}",
+                f"|{llm_name} | {code}",
+                f"| **{llm_name}**| {code}",
+            ]:
+                if template in output:
+                    new_template = template.replace(llm_name, real_name)
+                    output = output.replace(template, new_template)
+                    print(f"  [FIX] {template.strip()} → {new_template.strip()}")
+                    fixed += 1
+
+    code_names: dict[str, set[str]] = {}
+    for nm, cd in all_pairs:
+        code_names.setdefault(cd, set()).add(nm)
+    for cd, names in code_names.items():
+        real_name = name_map.get(cd, "")
+        if len(names) > 1:
+            print(f"  [WARN] 代码 {cd} 出现多个名称: {names}，API 名称为「{real_name}」")
+            for nm in names:
+                if nm != real_name:
+                    for tmpl in [
+                        f"{nm}({cd})",
+                        f"| {nm} | {cd}",
+                        f"| **{nm}** | {cd}",
+                    ]:
+                        if tmpl in output:
+                            new_tmpl = tmpl.replace(nm, real_name)
+                            output = output.replace(tmpl, new_tmpl)
+                            print(f"  [FIX] ambiguous: {tmpl.strip()} → {new_tmpl.strip()}")
+                            fixed += 1
+
+    if fixed:
+        print(f"  共修正 {fixed} 处代码-名称不匹配")
+    return output
+
+
+DOW_CN = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+DOW_FULL = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
+DOW_ALL = DOW_CN + DOW_FULL
+
+
+def _validate_dow_claims(output: str, yesterday: str) -> str:
+    """校验「黑色星期一」模板错误 — LLM 常将任何暴跌 pattern-match 为黑色星期一。
+
+    仅针对「黑色星期一」/「黑色周一」，不碰其他星期（它们不太可能是模板错误）。
+    """
+    real_dow = None
+    try:
+        real_dow = DOW_CN[date.fromisoformat(yesterday).weekday()]
+    except ValueError:
+        pass
+
+    year = date.today().year
+    date_dow: dict[str, str] = {}
+    for m in re.finditer(r"(\d{1,2})\s*月\s*(\d{1,2})\s*日", output):
+        try:
+            mm, dd = int(m.group(1)), int(m.group(2))
+            d = date(year, mm, dd)
+            date_dow[m.group(0)] = DOW_CN[d.weekday()]
+        except ValueError:
+            continue
+
+    # 只匹配黑色星期一/黑色周一（最常见的模板惯性错误）
+    pattern = r"([""「『']?)黑色(星期一|周一)([""」』']?)"
+    fixed = 0
+    for m in re.finditer(pattern, output):
+        full = m.group(0)
+        prefix = m.group(1)
+        suffix = m.group(3)
+
+        pos = m.start()
+        ctx_before = output[max(0, pos - 80):pos]
+        ctx_after = output[pos:pos + 80]
+        correct = real_dow
+        for d_str, d_dow in date_dow.items():
+            if d_str in ctx_before or d_str in ctx_after:
+                correct = d_dow
+                break
+
+        if not correct or correct in ("周一", "星期一"):
+            continue
+
+        # 保持原文格式：原文用「星期一」则用全称，原文用「周一」则简称
+        if "星期一" in full:
+            correct = DOW_FULL[DOW_CN.index(correct)] if correct in DOW_CN else correct
+        elif "周一" in full:
+            correct = DOW_CN[DOW_FULL.index(correct)] if correct in DOW_FULL else correct
+
+        corrected = f"{prefix}黑色{correct}{suffix}"
+        output = output.replace(full, corrected)
+        print(f"  [FIX] {full} → {corrected}")
+        fixed += 1
+
+    if fixed:
+        print(f"  共修正 {fixed} 处日期星期表述")
     return output
 
 
 def main():
     today = sys.argv[1] if len(sys.argv) > 1 else date.today().isoformat()
     yesterday = sys.argv[2] if len(sys.argv) > 2 else (date.today() - timedelta(days=1)).isoformat()
+    today_dow = DOW_CN[date.fromisoformat(today).weekday()]
+    yesterday_dow = DOW_CN[date.fromisoformat(yesterday).weekday()]
 
     tpl = (BASE / "claude_prompt.txt").read_text(encoding="utf-8")
     us_movers, us_indices, kr_jp, ov_map = _fetch_market_data()
@@ -358,7 +464,9 @@ def main():
 
     prompt = (tpl
         .replace("%%TODAY%%", today)
+        .replace("%%TODAY_DOW%%", today_dow)
         .replace("%%YESTERDAY%%", yesterday)
+        .replace("%%YESTERDAY_DOW%%", yesterday_dow)
         .replace("%%US_MOVERS%%", us_movers)
         .replace("%%US_INDICES%%", us_indices)
         .replace("%%KR_JP_MARKETS%%", kr_jp)
@@ -395,6 +503,7 @@ def main():
 
     output = _validate_index_claims(output, us_indices)
     output = _validate_code_names(output)
+    output = _validate_dow_claims(output, yesterday)
 
     print(output)
 

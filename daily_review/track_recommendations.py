@@ -74,15 +74,32 @@ def _get_performance(stocks: list[dict], trade_date: str) -> list[dict]:
 
     results = []
     for s in stocks:
-        q = quotes.get(s["code"])
+        code = s["code"]
+        llm_name = s["name"].strip("*")
+        q = quotes.get(code)
         if not q:
             results.append({**s, "chg": None, "hit_limit": None, "volume_yi": None, "note": "无数据"})
             continue
+        real_name = q.get("name", "")
         chg = q.get("change_pct", 0)
         limit_up = q.get("limit_up", 9999)
         price = q.get("price", 0)
+        amount_wan = q.get("amount_wan", 0) or 0
+        amount_yi = amount_wan / 10000
+
+        is_zombie = (chg == 0 and amount_wan == 0)
+        if is_zombie:
+            results.append({**s, "chg": None, "hit_limit": None, "volume_yi": None,
+                            "note": "数据异常(可能停牌/退市/代码无效)"})
+            print(f"  [WARN] {llm_name}({code}) 行情异常(chg=0,amount=0)，可能代码无效")
+            continue
+
+        if real_name and llm_name != real_name:
+            print(f"  [FIX] recap 代码-名称修正: {llm_name}({code}) → {real_name}({code})")
+            s["name"] = real_name
+            llm_name = real_name
+
         hit_lu = abs(price - limit_up) / limit_up < 0.005 if limit_up else False
-        amount_yi = q.get("amount_wan", 0) / 10000 if q.get("amount_wan") else 0
 
         results.append({
             **s,
