@@ -1,4 +1,4 @@
-"""每日涨停深度分析 — T1 LLM深度 / T2 结构化特征 / T3 基础统计"""
+"""每日涨停深度分析 — T1+T2 LLM深度 / T3 基础统计"""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def _tier_stocks(
     return t1, t2, t3
 
 
-# === T1: LLM 深度分析 ===
+# === LLM 深度分析 ===
 
 _PROMPT = """你是A股涨停板深度分析师。基于以下数据，对今日涨停票做简明分析（每支 3-5 行）：
 
@@ -58,9 +58,9 @@ _PROMPT = """你是A股涨停板深度分析师。基于以下数据，对今日
 只输出 JSON，不要其他文字。"""
 
 
-def _build_t1_context(t1_stocks: list, quotes: dict) -> str:
+def _build_llm_context(stocks: list, quotes: dict) -> str:
     lines = []
-    for i, s in enumerate(t1_stocks, 1):
+    for i, s in enumerate(stocks, 1):
         code = s["code"]
         q = quotes.get(code, {})
         pe = q.get("pe_ttm", 0) or 0
@@ -94,7 +94,7 @@ def _load_api_key() -> str:
 
 
 def _call_llm_batch(stocks_batch: list, quotes: dict) -> list[dict]:
-    ctx = _build_t1_context(stocks_batch, quotes)
+    ctx = _build_llm_context(stocks_batch, quotes)
     try:
         from anthropic import Anthropic
     except ImportError:
@@ -121,43 +121,43 @@ def _call_llm_batch(stocks_batch: list, quotes: dict) -> list[dict]:
         return []
 
 
-def _run_t1_llm(t1_stocks: list, quotes: dict) -> list[dict]:
+def _run_llm_analysis(stocks: list, quotes: dict, label: str = "") -> list[dict]:
     api_key = _load_api_key()
-    if not api_key or not t1_stocks:
+    if not api_key or not stocks:
         return []
 
     BATCH_SIZE = 8
     all_results = []
-    for i in range(0, len(t1_stocks), BATCH_SIZE):
-        batch = t1_stocks[i:i + BATCH_SIZE]
-        print(f"  [limit_up] LLM batch {i // BATCH_SIZE + 1}: "
+    for i in range(0, len(stocks), BATCH_SIZE):
+        batch = stocks[i:i + BATCH_SIZE]
+        prefix = f"  [limit_up] {label} " if label else "  [limit_up] "
+        print(f"{prefix}LLM batch {i // BATCH_SIZE + 1}: "
               f"{len(batch)} stocks ({batch[0]['code']}..{batch[-1]['code']})")
         results = _call_llm_batch(batch, quotes)
         all_results.extend(results)
     return all_results
 
 
-# === T2: 结构化特征提取 ===
+# === 数据富化 ===
 
-def _extract_t2(t2_stocks: list, quotes: dict) -> list[dict]:
+def _enrich(stocks: list, quotes: dict, llm_map: dict = None) -> list[dict]:
+    llm_map = llm_map or {}
     results = []
-    for s in t2_stocks:
+    for s in stocks:
         code = s["code"]
         q = quotes.get(code, {})
+        llm = llm_map.get(code, {})
         results.append({
-            "code": code,
-            "name": s["name"],
-            "boards": s["boards"],
-            "first_time": s["first_time"],
-            "last_time": s["last_time"],
-            "blasted": s["blasted"],
-            "themes": s["themes"],
-            "pe": q.get("pe_ttm"),
-            "pb": q.get("pb"),
+            **s,
+            "pe": q.get("pe_ttm"), "pb": q.get("pb"),
             "mcap_yi": q.get("mcap_yi"),
             "turnover_pct": q.get("turnover_pct"),
             "vol_ratio": q.get("vol_ratio"),
             "amplitude_pct": q.get("amplitude_pct"),
+            "analysis": llm.get("analysis", ""),
+            "driver": llm.get("driver", ""),
+            "quality": llm.get("quality", ""),
+            "score": llm.get("score"),
         })
     return results
 
@@ -174,27 +174,16 @@ def analyze(date: str, zt_pool: dict, quotes: dict,
 
     print(f"  [limit_up] 涨停 {len(zt_pool)} 支 → T1:{len(t1)} T2:{len(t2)} T3:{len(t3)}")
 
-    t1_results = []
-    if t1:
-        t1_data = _run_t1_llm(t1, quotes)
-        code_analysis = {r["code"]: r for r in t1_data}
-        for s in t1:
-            q = quotes.get(s["code"], {})
-            llm = code_analysis.get(s["code"], {})
-            t1_results.append({
-                **s,
-                "pe": q.get("pe_ttm"), "pb": q.get("pb"),
-                "mcap_yi": q.get("mcap_yi"),
-                "turnover_pct": q.get("turnover_pct"),
-                "vol_ratio": q.get("vol_ratio"),
-                "amplitude_pct": q.get("amplitude_pct"),
-                "analysis": llm.get("analysis", ""),
-                "driver": llm.get("driver", ""),
-                "quality": llm.get("quality", ""),
-                "score": llm.get("score"),
-            })
+    # T1: LLM
+    t1_llm = _run_llm_analysis(t1, quotes, label="T1") if t1 else []
+    t1_map = {r["code"]: r for r in t1_llm}
+    t1_results = _enrich(t1, quotes, t1_map)
 
-    t2_results = _extract_t2(t2, quotes) if t2 else []
+    # T2: LLM
+    t2_llm = _run_llm_analysis(t2, quotes, label="T2") if t2 else []
+    t2_map = {r["code"]: r for r in t2_llm}
+    t2_results = _enrich(t2, quotes, t2_map)
+
     t3_results = [{"code": s["code"], "name": s["name"],
                     "boards": s["boards"], "first_time": s["first_time"],
                     "themes": s["themes"]} for s in t3]

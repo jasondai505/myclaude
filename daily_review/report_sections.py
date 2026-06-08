@@ -807,22 +807,13 @@ def _render_strength(lines: list, sd: dict, focus_pool_data: list = None):
         lines.append("")
 
 
-def render_limit_up_analysis(lines: list[str], lu: dict):
-    t1 = lu.get("t1", [])
-    t2 = lu.get("t2", [])
-    t3 = lu.get("t3", [])
-
-    lines.append("## 涨停深度分析\n")
-    lines.append(f"> T1 龙头 {len(t1)} 支 | T2 有题材 {len(t2)} 支 | T3 跟风 {len(t3)} 支\n")
-
-    if not t1:
-        lines.append("*今日无 T1 龙头标的*\n")
+def _fmt_limit_up_rows(lines: list[str], stocks: list, tier_label: str):
+    if not stocks:
         return
-
-    lines.append("### T1 龙头深度分析\n")
+    lines.append(f"### {tier_label}\n")
     lines.append("| 代码 | 名称 | 连板 | 封板 | 市值(亿) | PE | 题材 | 驱动 | 封板质量 | 评分 | 分析 |")
     lines.append("|------|------|:----:|:----:|--------:|----:|------|------|:--------:|:----:|------|")
-    for s in t1:
+    for s in stocks:
         themes = s.get("themes", [])
         if isinstance(themes, str):
             try:
@@ -843,12 +834,28 @@ def render_limit_up_analysis(lines: list[str], lu: dict):
         )
     lines.append("")
 
-    t1_with_score = [s for s in t1 if s.get("score")]
-    if t1_with_score:
-        top = sorted(t1_with_score, key=lambda x: x.get("score", 0), reverse=True)[:3]
+
+def render_limit_up_analysis(lines: list[str], lu: dict):
+    t1 = lu.get("t1", [])
+    t2 = lu.get("t2", [])
+    t3 = lu.get("t3", [])
+
+    lines.append("## 涨停深度分析\n")
+    lines.append(f"> T1 龙头 {len(t1)} 支 | T2 题材 {len(t2)} 支 | T3 跟风 {len(t3)} 支\n")
+
+    if not t1 and not t2:
+        lines.append("*今日无涨停标的*\n")
+        return
+
+    _fmt_limit_up_rows(lines, t1, "T1 龙头")
+    _fmt_limit_up_rows(lines, t2, "T2 题材")
+
+    all_scored = [s for s in t1 + t2 if s.get("score")]
+    if all_scored:
+        top = sorted(all_scored, key=lambda x: x.get("score", 0), reverse=True)[:3]
         lines.append("**🏆 今日最强**: " + " > ".join(
             f"{s['name']}({s['code']}) #{s['score']}" for s in top
         ))
         lines.append("")
 
-    lines.append("> 数据来源: Claude Haiku 深度分析，仅供参考。T2/T3 标的详见数据库 `limit_up_analysis` 表。\n")
+    lines.append("> 数据来源: Claude Haiku 深度分析，仅供参考。\n")
