@@ -13,18 +13,26 @@ def _log(msg: str):
 
 def main():
     _log("hook called")
-    raw = os.environ.get("CLAUDE_TOOL_INPUT", "")
-    if not raw:
-        _log("no CLAUDE_TOOL_INPUT")
-        return
-    _log(f"input length={len(raw)}")
+    questions = None
+    # PreToolUse/PostToolUse 通过 stdin JSON 传递 tool_input
     try:
-        questions = json.loads(raw)
-    except json.JSONDecodeError as e:
-        _log(f"json error: {e}")
-        return
+        stdin_data = json.loads(sys.stdin.read())
+        questions = stdin_data.get("tool_input", {}).get("questions")
+        _log(f"stdin: {len(questions)} questions" if questions else "stdin: no questions in tool_input")
+    except Exception as e:
+        _log(f"stdin read error: {e}")
+    # fallback: env var (旧版兼容)
     if not questions:
-        _log("empty questions")
+        raw = os.environ.get("CLAUDE_TOOL_INPUT", "")
+        if raw:
+            _log(f"env fallback, len={len(raw)}")
+            try:
+                questions = json.loads(raw)
+            except json.JSONDecodeError as e:
+                _log(f"env json error: {e}")
+                return
+    if not questions:
+        _log("no questions found")
         return
     _log(f"launching remind for {len(questions)} questions")
     subprocess.Popen(
