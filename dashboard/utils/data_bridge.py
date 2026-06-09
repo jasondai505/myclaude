@@ -798,3 +798,70 @@ def get_serenity_full_report(chain_name: str) -> str | None:
         return None
     except Exception:
         return None
+
+
+# ============================================================
+# 公共 API — 知识星球
+# ============================================================
+
+def get_zsxq_posts(days: int = 14, sort_by: str = "time",
+                   stock_filter: str = "", limit: int = 200) -> list[dict[str, Any]]:
+    """获取知识星球帖子列表"""
+    import sqlite3
+    db = PROJECT_ROOT / "daily_review/data/review.db"
+    if not db.exists():
+        return []
+    try:
+        conn = sqlite3.connect(str(db))
+        conn.row_factory = sqlite3.Row
+        cutoff = (date.today() - timedelta(days=days)).isoformat()
+        where = "WHERE create_time >= ?"
+        params = [cutoff]
+        if stock_filter:
+            where += " AND stock_codes LIKE ?"
+            params.append(f"%{stock_filter}%")
+        order = "ORDER BY create_time DESC" if sort_by == "time" else \
+                "ORDER BY (readers_count + likes_count * 2 + comments_count * 3) DESC"
+        sql = f"SELECT * FROM zsxq_topics {where} {order} LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def get_zsxq_stats() -> dict[str, Any]:
+    """知识星球统计摘要"""
+    import sqlite3
+    db = PROJECT_ROOT / "daily_review/data/review.db"
+    if not db.exists():
+        return {"error": "数据库不可用"}
+    try:
+        conn = sqlite3.connect(str(db))
+        conn.row_factory = sqlite3.Row
+        today = date.today().isoformat()
+        total = conn.execute("SELECT COUNT(*) as c FROM zsxq_topics").fetchone()["c"]
+        today_count = conn.execute(
+            "SELECT COUNT(*) as c FROM zsxq_topics WHERE create_time >= ?", (today,)
+        ).fetchone()["c"]
+        last_fetch = conn.execute(
+            "SELECT MAX(fetched_at) as m FROM zsxq_topics"
+        ).fetchone()["m"] or ""
+        authors = conn.execute(
+            "SELECT author, COUNT(*) as c FROM zsxq_topics GROUP BY author ORDER BY c DESC LIMIT 10"
+        ).fetchall()
+        week_ago = (date.today() - timedelta(days=7)).isoformat()
+        week_count = conn.execute(
+            "SELECT COUNT(*) as c FROM zsxq_topics WHERE create_time >= ?", (week_ago,)
+        ).fetchone()["c"]
+        conn.close()
+        return {
+            "total": total,
+            "today": today_count,
+            "week_avg": round(week_count / 7, 1),
+            "last_fetch": last_fetch[:16] if last_fetch else "无",
+            "top_authors": [{"name": r["author"], "count": r["c"]} for r in authors],
+        }
+    except Exception as e:
+        return {"error": str(e)}
