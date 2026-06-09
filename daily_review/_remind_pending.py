@@ -8,6 +8,7 @@ import json
 import sys
 import time
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 
 
 def _push(title: str, content: str):
@@ -29,11 +30,23 @@ def _push(title: str, content: str):
         return False
 
 
+def _log(msg: str):
+    try:
+        import os
+        log_path = os.path.join(os.path.dirname(__file__), "_hook_debug.log")
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now().strftime('%H:%M:%S')} [remind] {msg}\n")
+    except Exception:
+        pass
+
+
 def main():
+    data = None
     if len(sys.argv) >= 3 and sys.argv[1] == "--file":
         try:
-            data = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
-        except Exception:
+            data = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8-sig"))
+        except Exception as e:
+            _log(f"file read error: {e}")
             return
     else:
         raw = sys.argv[1] if len(sys.argv) > 1 else ""
