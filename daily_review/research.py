@@ -33,7 +33,8 @@ def fetch_research_reports(code: str, days: int = 30) -> list[dict]:
     """拉取个股研报列表（最近N天）"""
     try:
         import akshare as ak
-        df = ak.stock_research_report_em(symbol=code)
+        from daily_review.data import _run_with_timeout
+        df = _run_with_timeout(lambda: ak.stock_research_report_em(symbol=code), 30, default=None)
         if df is None or df.empty:
             return []
 

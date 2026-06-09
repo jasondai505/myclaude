@@ -44,7 +44,8 @@ def _load_trade_cal() -> set[str]:
         return _TRADE_CAL_CACHE
     try:
         import akshare as ak
-        df = ak.tool_trade_date_hist_sina()
+        from daily_review.data import _run_with_timeout
+        df = _run_with_timeout(lambda: ak.tool_trade_date_hist_sina(), 30, default=None)
         if df is None or df.empty:
             _TRADE_CAL_CACHE = set()
         else:

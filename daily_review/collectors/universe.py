@@ -18,7 +18,8 @@ def _watchlist() -> set[str]:
 @with_retry(retries=1, delay=0.5, on_fail=set())
 def _fetch_top_gainers(top_n: int = TOP_GAINERS_N) -> set[str]:
     import akshare as ak
-    df = ak.stock_zh_a_spot_em()
+    from daily_review.data import _run_with_timeout
+    df = _run_with_timeout(lambda: ak.stock_zh_a_spot_em(), 30, default=None)
     if df is None or df.empty:
         return set()
     if "涨跌幅" not in df.columns or "代码" not in df.columns:
