@@ -8,6 +8,9 @@ from __future__ import annotations
 import json
 import os
 import random
+import sys
+
+sys.stdout.reconfigure(encoding="utf-8")
 import re
 import sys
 import time
