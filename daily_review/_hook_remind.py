@@ -1,4 +1,4 @@
-"""Hook 入口 — 由 Elicitation 事件触发，后台启动 _remind_pending.py"""
+"""Hook 入口 — PreToolUse 匹配 AskUserQuestion，后台启动 _remind_pending.py"""
 import json, os, subprocess, sys, threading
 from datetime import datetime
 
@@ -32,54 +32,40 @@ def _read_stdin(timeout=0.5):
 
 
 def _extract_questions(data):
-    """Try multiple paths to extract questions from hook input JSON."""
-    if isinstance(data, list) and data and isinstance(data[0], dict) and "question" in data[0]:
-        return data
-    if not isinstance(data, dict):
+    if not isinstance(data, (dict, list)):
+        return None
+    if isinstance(data, list):
+        if data and isinstance(data[0], dict) and "question" in data[0]:
+            return data
         return None
     ti = data.get("tool_input", {})
-    if isinstance(ti, dict):
-        qs = ti.get("questions")
-        if qs:
-            return qs
-    for key in ("questions", "elicitation"):
-        qs = data.get(key)
-        if isinstance(qs, list) and qs:
-            return qs
+    if isinstance(ti, dict) and ti.get("questions"):
+        return ti["questions"]
+    qs = data.get("questions")
+    if isinstance(qs, list) and qs:
+        return qs
     return None
 
 
 def main():
     _log("hook called")
 
-    # diagnostic: log relevant env keys
-    for key in sorted(os.environ):
-        if "CLAUDE" in key.upper() or "HOOK" in key.upper() or "TOOL" in key.upper():
-            _log(f"env: {key}={os.environ[key][:200]}")
+    stdin_raw = _read_stdin(timeout=1.0)
+    if not stdin_raw or not stdin_raw.strip():
+        _log("stdin EMPTY, exiting")
+        return
 
+    _log(f"stdin len={len(stdin_raw)}")
     questions = None
-
-    raw = os.environ.get("CLAUDE_TOOL_INPUT", "")
-    if raw:
-        _log(f"CLAUDE_TOOL_INPUT present, len={len(raw)}")
-        try:
-            questions = _extract_questions(json.loads(raw))
-        except json.JSONDecodeError as e:
-            _log(f"env json error: {e}")
-
-    if not questions:
-        stdin_raw = _read_stdin(timeout=0.5)
-        _log(f"stdin read: {'data' if stdin_raw else 'EMPTY'}, len={len(stdin_raw) if stdin_raw else 0}")
-        if stdin_raw and stdin_raw.strip():
-            try:
-                data = json.loads(stdin_raw)
-                questions = _extract_questions(data)
-                _log(f"stdin: {len(questions)} questions" if questions else "stdin: no questions found in data")
-            except Exception as e:
-                _log(f"stdin parse error: {e}")
+    try:
+        data = json.loads(stdin_raw)
+        questions = _extract_questions(data)
+        _log(f"extracted: {len(questions)} questions" if questions else "extracted: 0 questions")
+    except Exception as e:
+        _log(f"parse error: {e}")
+        return
 
     if not questions:
-        _log("no questions found, exiting")
         return
 
     _log(f"launching remind for {len(questions)} questions")
