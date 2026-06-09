@@ -50,15 +50,28 @@ def _extract_questions(data):
 def main():
     _log("hook called")
 
+    raw = None
+    source = None
+
     stdin_raw = _read_stdin(timeout=1.0)
-    if not stdin_raw or not stdin_raw.strip():
-        _log("stdin EMPTY, exiting")
+    if stdin_raw and stdin_raw.strip():
+        raw = stdin_raw
+        source = "stdin"
+
+    if not raw:
+        env_raw = os.environ.get("CLAUDE_TOOL_INPUT", "")
+        if env_raw and env_raw.strip():
+            raw = env_raw
+            source = "env"
+
+    if not raw:
+        _log("no input from stdin or env, exiting")
         return
 
-    _log(f"stdin len={len(stdin_raw)}")
+    _log(f"input from {source}, len={len(raw)}")
     questions = None
     try:
-        data = json.loads(stdin_raw)
+        data = json.loads(raw)
         questions = _extract_questions(data)
         _log(f"extracted: {len(questions)} questions" if questions else "extracted: 0 questions")
     except Exception as e:

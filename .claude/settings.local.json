@@ -308,32 +308,39 @@
       "PowerShell($d = Get-Content \"$env:USERPROFILE\\\\.claude\\\\settings.json\" -Raw -Encoding UTF8 | ConvertFrom-Json; $hooks = $d.hooks; if \\($hooks\\) { $hooks.PSObject.Properties | ForEach-Object { Write-Output \"$\\($_.Name\\): $\\($_.Value.Count\\) entries\" } } else { Write-Output \"EMPTY\" })",
       "PowerShell($d = Get-Content \"C:\\\\Users\\\\daixin\\\\myclaude\\\\.claude\\\\settings.local.json\" -Raw -Encoding UTF8 | ConvertFrom-Json; $hooks = $d.hooks; if \\($hooks\\) { $hooks.PSObject.Properties | ForEach-Object { Write-Output \"$\\($_.Name\\): $\\($_.Value.Count\\) entries\" } } else { Write-Output \"EMPTY\" })",
       "PowerShell($d = Get-Content \"$env:USERPROFILE\\\\.claude\\\\plugins\\\\marketplaces\\\\ecc\\\\hooks\\\\hooks.json\" -Raw -Encoding UTF8 | ConvertFrom-Json; $e = $d.hooks.Elicitation; Write-Output \\($e | ConvertTo-Json -Depth 3\\))",
-      "PowerShell(C:\\\\miniconda3\\\\python.exe C:\\\\Users\\\\daixin\\\\myclaude\\\\_update_hooks.py)"
+      "PowerShell(C:\\\\miniconda3\\\\python.exe C:\\\\Users\\\\daixin\\\\myclaude\\\\_update_hooks.py)",
+      "PowerShell(python -c \"import requests; r = requests.post\\('https://www.pushplus.plus/send', json={'token':'9cdb736206654981a8b230bee39ee56d','title':'微信提醒测试','content':'如果你收到这条消息，说明 PushPlus API 通道正常。<br><br>测试时间: 2026-06-09','topic':'morning_intel'}, timeout=10\\); print\\(r.json\\(\\)\\)\")",
+      "PowerShell(python -c \"import json; d=json.load\\(open\\(r'C:\\\\Users\\\\daixin\\\\myclaude\\\\.claude\\\\settings.local.json', encoding='utf-8'\\)\\); hooks=d.get\\('hooks',{}\\); print\\('=== local hooks ==='\\); [print\\(k, len\\(v\\), 'entries'\\) for k,v in hooks.items\\(\\)]; print\\(\\); d2=json.load\\(open\\(r'C:\\\\Users\\\\daixin\\\\.claude\\\\settings.json', encoding='utf-8'\\)\\); hooks2=d2.get\\('hooks',{}\\); print\\('=== global hooks ==='\\); print\\('EMPTY' if not hooks2 else str\\({k:len\\(v\\) for k,v in hooks2.items\\(\\)}\\)\\)\")",
+      "PowerShell(cd C:\\\\Users\\\\daixin\\\\myclaude; if \\(Test-Path daily_review\\\\_hook_debug.log\\) { Write-Output \"=== Debug log ===\"; Get-Content daily_review\\\\_hook_debug.log } else { Write-Output \"No debug log\" }; Write-Output \"=== PID file ===\"; if \\(Test-Path daily_review\\\\_remind_pid.txt\\) { Write-Output \"PID: $\\(Get-Content daily_review\\\\_remind_pid.txt\\)\" } else { Write-Output \"Not found \\(clean\\)\" })",
+      "PowerShell(python -c \"import json; d=json.load\\(open\\(r'C:\\\\Users\\\\daixin\\\\.claude\\\\plugins\\\\marketplaces\\\\ecc\\\\hooks\\\\hooks.json', encoding='utf-8'\\)\\); hooks=d['hooks']; e= hooks.get\\('Elicitation',[]\\); er=hooks.get\\('ElicitationResult',[]\\); print\\('ECC Elicitation:', len\\(e\\), 'entries'\\); print\\('ECC ElicitationResult:', len\\(er\\), 'entries'\\); print\\('All hook types:', list\\(hooks.keys\\(\\)\\)\\)\")",
+      "PowerShell(python -c \"import json; d=json.load\\(open\\(r'C:\\\\Users\\\\daixin\\\\.claude\\\\plugins\\\\marketplaces\\\\ecc\\\\hooks\\\\hooks.json', encoding='utf-8'\\)\\); hooks=d['hooks']; [print\\(k, len\\(v\\), 'entries'\\) for k,v in hooks.items\\(\\)]\")",
+      "PowerShell(cd C:\\\\Users\\\\daixin\\\\myclaude; if \\(Test-Path daily_review\\\\_hook_debug.log\\) { Write-Output \"=== Debug log ===\"; Get-Content daily_review\\\\_hook_debug.log } else { Write-Output \"No debug log\" }; Write-Output \"=== PID file ===\"; if \\(Test-Path daily_review\\\\_remind_pid.txt\\) { Write-Output \"PID: $\\(Get-Content daily_review\\\\_remind_pid.txt\\)\" } else { Write-Output \"Not found\" })",
+      "PowerShell(python -c \"import json; d=json.load\\(open\\(r'C:\\\\Users\\\\daixin\\\\.claude\\\\settings.json',encoding='utf-8'\\)\\); d['hooks']={'PreToolUse':[{'matcher':'','hooks':[{'type':'command','command':r'C:\\\\miniconda3\\\\python.exe C:\\\\Users\\\\daixin\\\\myclaude\\\\_hook_test.py'}]}],'PostToolUse':[{'matcher':'','hooks':[{'type':'command','command':r'C:\\\\miniconda3\\\\python.exe C:\\\\Users\\\\daixin\\\\myclaude\\\\_hook_test.py'}]}]}; json.dump\\(d,open\\(r'C:\\\\Users\\\\daixin\\\\.claude\\\\settings.json','w',encoding='utf-8'\\),indent=2,ensure_ascii=False\\); print\\('OK'\\)\")",
+      "PowerShell(python -c \"import json; d=json.load\\(open\\(r'C:\\\\Users\\\\daixin\\\\.claude\\\\plugins\\\\marketplaces\\\\ecc\\\\hooks\\\\hooks.json',encoding='utf-8'\\)\\); hooks=d['hooks']; pt=hooks.get\\('PreToolUse',[]\\); print\\(f'PreToolUse entries: {len\\(pt\\)}'\\); [print\\(json.dumps\\(e,indent=2,ensure_ascii=False\\)[:400]\\) for e in pt[:3]]\")",
+      "PowerShell(Add-Member *)",
+      "PowerShell(python -c \"import json; d=json.load\\(open\\(r'C:\\\\Users\\\\daixin\\\\myclaude\\\\.claude\\\\settings.local.json',encoding='utf-8'\\)\\); print\\('PreToolUse' in d, 'PostToolUse' in d, 'hooks' in d\\); print\\('PreToolUse entries:', len\\(d.get\\('PreToolUse',[]\\)\\)\\); print\\('PostToolUse entries:', len\\(d.get\\('PostToolUse',[]\\)\\)\\)\")"
     ]
   },
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "AskUserQuestion",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "C:\\miniconda3\\python.exe C:\\Users\\daixin\\myclaude\\daily_review\\_hook_remind.py",
-            "async": true
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "AskUserQuestion",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "C:\\miniconda3\\python.exe C:\\Users\\daixin\\myclaude\\daily_review\\_hook_cancel_remind.py"
-          }
-        ]
-      }
-    ]
-  }
+  "PreToolUse": [
+    {
+      "matcher": "AskUserQuestion",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "C:\\miniconda3\\python.exe C:\\Users\\daixin\\myclaude\\daily_review\\_hook_remind.py"
+        }
+      ]
+    }
+  ],
+  "PostToolUse": [
+    {
+      "matcher": "AskUserQuestion",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "C:\\miniconda3\\python.exe C:\\Users\\daixin\\myclaude\\daily_review\\_hook_cancel_remind.py"
+        }
+      ]
+    }
+  ]
 }
