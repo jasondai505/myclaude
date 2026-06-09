@@ -113,6 +113,9 @@ def render_report(
     # 十一、BOM 产业链交叉视角
     render_bom_cross_ref(lines, sectors)
 
+    # 十二、产业链卡脖子分析（Serenity）
+    render_serenity_chain(lines, sectors)
+
     lines.append("---")
     lines.append("*本报告由每日复盘系统自动生成，仅供参考，不构成投资建议。*")
 
@@ -281,4 +284,66 @@ def render_bom_cross_ref(lines: list[str], sectors: dict | None):
         lines.append(f"> BOM 覆盖 {len(matched)} 个赛道，其中 {strong_count} 个为今日强势行业。")
     else:
         lines.append("> 暂无交叉覆盖")
+    lines.append("")
+
+
+def render_serenity_chain(lines: list[str], sectors: dict | None):
+    """Serenity 产业链卡脖子分析 — 全球视角 → A股映射。"""
+    lines.append("## 十二、产业链卡脖子分析（Serenity）")
+    lines.append("")
+    try:
+        import sys
+        from pathlib import Path
+        parent = str(Path(__file__).resolve().parent.parent)
+        if parent not in sys.path:
+            sys.path.insert(0, parent)
+        from bom_analyzer import chain_db
+        chain_db.init_db()
+        industries = chain_db.list_industries()
+    except Exception:
+        lines.append("> BOM 知识库暂不可用")
+        lines.append("")
+        return
+
+    if not industries:
+        lines.append("> BOM 知识库暂无数据")
+        lines.append("")
+        return
+
+    # 找当日最强行业 × BOM 覆盖赛道
+    strong_names: set[str] = set()
+    if sectors and sectors.get("all"):
+        for r in sectors["all"][:10]:
+            strong_names.add(r["name"])
+
+    target = None
+    for ind in industries:
+        if ind in strong_names:
+            target = ind
+            break
+    if not target:
+        target = industries[0]  # fallback 到最近更新的赛道
+
+    try:
+        from engine_serenity import analyze_global_chain, map_to_a_shares
+        chain_name = target.split("】")[-1].split("（")[0].strip() if "】" in target else target
+        lines.append(f"### 当日最强赛道：{target}")
+        lines.append("")
+
+        # 跑第一层+第二层（第三层太重，复盘报告只到映射层）
+        layer1 = analyze_global_chain(chain_name)
+        if layer1:
+            # 提取核心结论（取前 15 行关键内容）
+            key_lines = [l for l in layer1.split("\n") if l.strip() and not l.startswith("#")]
+            summary = "\n".join(key_lines[:25])
+            lines.append(summary)
+            lines.append("")
+        else:
+            lines.append("> 分析暂不可用（API 调用失败或暂无数据）")
+            lines.append("")
+
+        lines.append("*Serenity 供应链卡脖子分析，基于全球视角 → A股映射。"
+                      "不构成投资建议。*")
+    except Exception as e:
+        lines.append(f"> 分析模块暂不可用: {e}")
     lines.append("")

@@ -714,3 +714,87 @@ def get_cached_scan() -> dict[str, Any] | None:
         if age < 120:
             return _LIVE_SCAN_CACHE
     return None
+
+
+# ============================================================
+# 公共 API — Serenity 产业链知识库
+# ============================================================
+
+def get_serenity_chain_summary() -> list[dict[str, Any]]:
+    try:
+        from daily_review import serenity_kb
+        serenity_kb.init_db()
+        return serenity_kb.get_all_chain_summary()
+    except Exception:
+        return []
+
+
+def get_serenity_stock_ranking(chain_name: str = "") -> list[dict[str, Any]]:
+    try:
+        from daily_review import serenity_kb
+        serenity_kb.init_db()
+        return serenity_kb.get_stock_scores(chain_name=chain_name)
+    except Exception:
+        return []
+
+
+def get_serenity_chain_detail(chain_name: str) -> dict[str, Any] | None:
+    try:
+        from daily_review import serenity_kb
+        serenity_kb.init_db()
+        return {
+            "chain_name": chain_name,
+            "segments": serenity_kb.get_chain_snapshot(chain_name),
+            "stocks": serenity_kb.get_stock_scores(chain_name=chain_name),
+            "analysis": serenity_kb.get_latest_analysis(chain_name),
+        }
+    except Exception:
+        return None
+
+
+def get_serenity_recent_logs(days: int = 7) -> list[dict[str, Any]]:
+    try:
+        from daily_review import serenity_kb
+        serenity_kb.init_db()
+        return serenity_kb.get_recent_analyses(days=days)
+    except Exception:
+        return []
+
+
+def get_bom_chain_list() -> list[str]:
+    try:
+        from bom_analyzer import chain_db
+        chain_db.init_db()
+        return chain_db.list_industries()
+    except Exception:
+        return []
+
+
+def trigger_serenity_analysis(chain_name: str, force_full: bool = False) -> dict[str, Any]:
+    try:
+        from daily_review import serenity_kb
+        serenity_kb.init_db()
+        serenity_kb.update_chain_kb(chain_name, force_full=force_full)
+        analysis = serenity_kb.get_latest_analysis(chain_name)
+        return {
+            "ok": True,
+            "msg": f"「{chain_name}」分析完成",
+            "report": analysis.get("full_report_path", "") if analysis else "",
+        }
+    except Exception as e:
+        return {"ok": False, "msg": str(e)}
+
+
+def get_serenity_full_report(chain_name: str) -> str | None:
+    """读取某产业链的完整 Markdown 报告内容"""
+    try:
+        from daily_review import serenity_kb
+        serenity_kb.init_db()
+        analysis = serenity_kb.get_latest_analysis(chain_name)
+        if analysis and analysis.get("full_report_path"):
+            path = Path(analysis["full_report_path"])
+            if path.exists():
+                return path.read_text(encoding="utf-8")
+        return None
+    except Exception:
+        return None

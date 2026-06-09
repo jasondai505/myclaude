@@ -32,6 +32,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
             {"id": "health", "name": "系统健康检查", "cmd": "python daily_review/health_check.py"},
             {"id": "collect", "name": "数据采集", "cmd": "python daily_review/daily_collect.py"},
             {"id": "review", "name": "收盘复盘", "cmd": "python daily_review/run.py"},
+            {"id": "serenity", "name": "产业链卡脖子更新", "cmd": "python daily_review/serenity_kb.py --update-all"},
             {"id": "brief", "name": "日报简报", "cmd": "python morning_intel/daily_brief.py"},
         ],
     },
@@ -47,6 +48,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
             {"id": "track", "name": "推荐追踪", "cmd": "python daily_review/track_recommendations.py"},
             {"id": "interpret", "name": "盘前解读", "cmd": "python morning_intel/run_morning.py --phase pre"},
             {"id": "advice", "name": "生成建议", "cmd": "python daily_review/_run_advice.py"},
+            {"id": "serenity_stocks", "name": "标的FEV评分更新", "cmd": "python daily_review/serenity_kb.py --update-stocks"},
         ],
     },
     "bom": {
