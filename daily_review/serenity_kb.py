@@ -405,18 +405,28 @@ def _parse_layer1_scores(text: str) -> list[dict]:
     import re
     segments = []
     in_table = False
+    score_col = -1
     for line in text.split("\n"):
         line = line.strip()
-        if "卡脖子评分" in line or "全球供应商" in line:
+        if ("卡脖子评分" in line or "卡脖子风险" in line) and line.startswith("|"):
+            header_parts = [p.strip() for p in line.split("|")]
+            header_parts = [p for p in header_parts if p]
+            for i, h in enumerate(header_parts):
+                if "评分" in h or "卡脖子" in h:
+                    score_col = i
+                    break
             in_table = True
             continue
         if in_table and line.startswith("|") and not line.startswith("|-"):
             parts = [p.strip() for p in line.split("|")]
             parts = [p for p in parts if p]
-            if len(parts) >= 5:
-                score_str = parts[-1]
+            if len(parts) >= 4:
+                idx = score_col if 0 <= score_col < len(parts) else max(0, len(parts) - 2)
+                score_str = parts[idx]
                 score_match = re.search(r"(\d+)", score_str)
                 score = int(score_match.group(1)) if score_match else 0
+                if score > 10:
+                    score = min(10, score // 10)
                 segments.append({
                     "tier": parts[0],
                     "segment": parts[1] if len(parts) >= 5 else parts[0],
@@ -429,41 +439,119 @@ def _parse_layer1_scores(text: str) -> list[dict]:
 
 
 def _parse_layer3_scores(text: str, chain_name: str) -> list[dict]:
+    """从 LLM 叙事输出中提取 FEV 评分。
+
+    LLM 输出格式（非表格）：
+        #### 1. 天岳先进 (688234)
+        - **FEV 总分**：F(6/10) + E(8/10) + V(3/10) = **17/30**
+
+    也兜底处理 LLM 回显的 Markdown 表格。
+    """
     import re
     stocks = []
-    in_table = False
-    for line in text.split("\n"):
-        line = line.strip()
-        if "FEV" in line and ("F（" in line or "总分" in line):
-            in_table = True
+    # 按“数字. 名称 (代码)”分割各标的段落
+    sections = re.split(r"\n(?=(?:#{1,4}\s+)?\d{1,2}\.\s*\S.*?\(?\d{6}\)?)", text)
+    for sec in sections:
+        code_match = re.search(r"(\d{6})", sec)
+        if not code_match:
             continue
-        if in_table and line.startswith("|") and not line.startswith("|-"):
-            parts = [p.strip() for p in line.split("|")]
-            parts = [p for p in parts if p]
-            if len(parts) >= 6:
-                code_match = None
-                for p in parts:
-                    m = re.search(r"(\d{6})", p)
-                    if m:
-                        code_match = m.group(1)
-                        break
-                if code_match:
-                    try:
+        code = code_match.group(1)
+        name_match = re.search(rf"(\S+).*?{code}", sec)
+        name = name_match.group(1).strip("# *") if name_match else code
+
+        f_score = e_score = v_score = fev_total = 0
+        # 优先匹配 "FEV 总分：F(6/10) + E(8/10) + V(3/10) = 17/30"
+        fev_line_match = re.search(
+            r"FEV\s*总分.*?[：:]\s*F\s*\(?\s*(\d+)\s*/\s*10.*?E\s*\(?\s*(\d+)\s*/\s*10.*?V\s*\(?\s*(\d+)\s*/\s*10.*?[=＝]\s*\*{0,2}(\d+)",
+            sec
+        )
+        if fev_line_match:
+            f_score = int(fev_line_match.group(1))
+            e_score = int(fev_line_match.group(2))
+            v_score = int(fev_line_match.group(3))
+            fev_total = int(fev_line_match.group(4))
+        else:
+            # fallback: 找独立的 **F(X/10)** / **E(Y/10)** / **V(Z/10)** 行
+            fm = re.search(r"\bF\s*[（(]\s*(\d+)\s*/\s*10", sec)
+            em = re.search(r"\bE\s*[（(]\s*(\d+)\s*/\s*10", sec)
+            vm = re.search(r"\bV\s*[（(]\s*(\d+)\s*/\s*10", sec)
+            if fm and em and vm:
+                f_score = int(fm.group(1))
+                e_score = int(em.group(1))
+                v_score = int(vm.group(1))
+                # 试试从文本里找 total
+                tm = re.search(r"[=＝]\s*\*{0,2}(\d+)\s*/\s*30", sec)
+                fev_total = int(tm.group(1)) if tm else f_score + e_score + v_score
+
+        if f_score == 0 and e_score == 0 and v_score == 0:
+            continue
+
+        stocks.append({
+            "code": code,
+            "name": name,
+            "chain_name": chain_name,
+            "chokepoint_score": 0,
+            "f_score": f_score,
+            "e_score": e_score,
+            "v_score": v_score,
+            "fev_total": fev_total,
+            "scene": "",
+        })
+
+    # 兜底：如果叙事解析没结果，尝试解析 LLM 回显的注入表格
+    if not stocks:
+        in_table = False
+        f_col = e_col = v_col = fev_col = -1
+        for line in text.split("\n"):
+            line = line.strip()
+            if "FEV" in line and ("F（" in line or "总分" in line or ("|" in line and "F" in line)):
+                header_parts = [p.strip() for p in line.split("|")]
+                header_parts = [p for p in header_parts if p]
+                for i, h in enumerate(header_parts):
+                    hl = h.lower()
+                    if re.search(r"\bf\b", hl) and "fe" not in hl:
+                        f_col = i
+                    elif re.search(r"\be\b", hl) and "fe" not in hl:
+                        e_col = i
+                    elif re.search(r"\bv\b", hl) and "fe" not in hl:
+                        v_col = i
+                    elif "总分" in h or "fe" in hl.lower():
+                        fev_col = i
+                in_table = True
+                continue
+            if in_table and line.startswith("|") and not line.startswith("|-"):
+                parts = [p.strip() for p in line.split("|")]
+                parts = [p for p in parts if p]
+                if len(parts) >= 5:
+                    code_m = re.search(r"(\d{6})", line)
+                    if code_m:
+                        def _col(idx, max_val=10):
+                            if 0 <= idx < len(parts):
+                                v = _try_int(parts[idx])
+                                return v if v <= max_val else 0
+                            return 0
+                        f_s = _col(f_col) if f_col >= 0 else _try_int(parts[-4])
+                        e_s = _col(e_col) if e_col >= 0 else _try_int(parts[-3])
+                        v_s = _col(v_col) if v_col >= 0 else _try_int(parts[-2])
+                        fev_t = _col(fev_col, 30) if fev_col >= 0 else _try_int(parts[-1].split("/")[0] if "/" in parts[-1] else parts[-1])
+                        if fev_t == 0 and f_s > 0:
+                            fev_t = f_s + e_s + v_s
+                        if f_s == 0 and e_s == 0 and v_s == 0:
+                            continue
                         stocks.append({
-                            "code": code_match,
-                            "name": parts[0].replace(code_match, "").strip(" *"),
+                            "code": code_m.group(1),
+                            "name": parts[0].replace(code_m.group(1), "").strip(" *"),
                             "chain_name": chain_name,
                             "chokepoint_score": 0,
-                            "f_score": _try_int(parts[-5]),
-                            "e_score": _try_int(parts[-4]),
-                            "v_score": _try_int(parts[-3]),
-                            "fev_total": _try_int(parts[-1].split("/")[0] if "/" in parts[-1] else parts[-1]),
+                            "f_score": f_s,
+                            "e_score": e_s,
+                            "v_score": v_s,
+                            "fev_total": fev_t,
                             "scene": "",
                         })
-                    except (ValueError, IndexError):
-                        pass
-        elif in_table and not line.startswith("|"):
-            in_table = False
+            elif in_table and not line.startswith("|"):
+                in_table = False
+
     return stocks
 
 

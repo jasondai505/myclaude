@@ -254,6 +254,46 @@ def _inject_bom_context() -> str:
         return f"（BOM 数据获取失败: {e}）"
 
 
+def _inject_serenity_context() -> str:
+    """注入 Serenity 产业链卡脖子分析 — 卡脖子排行 + FEV 高分标的。"""
+    try:
+        import sys
+        parent = str(BASE.parent)
+        if parent not in sys.path:
+            sys.path.insert(0, parent)
+        from daily_review.serenity_kb import (
+            init_db, get_all_chain_summary, get_stock_scores,
+        )
+        init_db()
+        chains = get_all_chain_summary()
+        stocks = get_stock_scores()
+        if not chains:
+            return "（Serenity 暂无分析数据）"
+
+        lines = ["## 产业链卡脖子排行（全球供应链反推 → A股映射）", ""]
+        lines.append("| 产业链 | 卡脖子分 | 环节数 |")
+        lines.append("|--------|:------:|:-----:|")
+        for c in chains[:14]:
+            lines.append(f"| {c['chain_name']} | {c['max_score']} | {c['segment_count']} |")
+        lines.append("")
+
+        if stocks:
+            top = sorted(stocks, key=lambda s: s.get("fev_total", 0), reverse=True)[:15]
+            lines.append("### FEV 高分标的（卡脖子产业链内）")
+            lines.append("")
+            lines.append("| 代码 | 名称 | 产业链 | F | E | V | FEV |")
+            lines.append("|------|------|--------|---|---|---|-----|")
+            for s in top:
+                lines.append(
+                    f"| {s['code']} | {s['name']} | {s['chain_name']} | "
+                    f"{s['f_score']} | {s['e_score']} | {s['v_score']} | {s['fev_total']} |"
+                )
+            lines.append("")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"（Serenity 数据获取失败: {e}）"
+
+
 def _inject_supply_chain_intel(today: str) -> str:
     """注入 morning_intel interpret.py 的供应链映射分析结果。"""
     path = BASE.parent / "morning_intel" / "reports" / f"morning_{today}.md"
@@ -461,6 +501,7 @@ def main():
     stock_ctx = _inject_stock_context(codes)
     bom_ctx = _inject_bom_context()
     supply_chain = _inject_supply_chain_intel(today)
+    serenity_ctx = _inject_serenity_context()
 
     prompt = (tpl
         .replace("%%TODAY%%", today)
@@ -475,6 +516,7 @@ def main():
         .replace("%%WECHAT_ANALYSIS%%", wechat_analysis)
         .replace("%%BOM_CONTEXT%%", bom_ctx)
         .replace("%%SUPPLY_CHAIN_INTEL%%", supply_chain)
+        .replace("%%SERENITY_TOP%%", serenity_ctx)
     )
     for key, val in feeds.items():
         prompt = prompt.replace(key, val)

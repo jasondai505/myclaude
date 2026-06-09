@@ -288,7 +288,7 @@ def render_bom_cross_ref(lines: list[str], sectors: dict | None):
 
 
 def render_serenity_chain(lines: list[str], sectors: dict | None):
-    """Serenity 产业链卡脖子分析 — 全球视角 → A股映射。"""
+    """Serenity 产业链卡脖子分析 — 从 SQLite 读取预分析结果。"""
     lines.append("## 十二、产业链卡脖子分析（Serenity）")
     lines.append("")
     try:
@@ -297,53 +297,56 @@ def render_serenity_chain(lines: list[str], sectors: dict | None):
         parent = str(Path(__file__).resolve().parent.parent)
         if parent not in sys.path:
             sys.path.insert(0, parent)
-        from bom_analyzer import chain_db
-        chain_db.init_db()
-        industries = chain_db.list_industries()
-    except Exception:
-        lines.append("> BOM 知识库暂不可用")
-        lines.append("")
-        return
-
-    if not industries:
-        lines.append("> BOM 知识库暂无数据")
-        lines.append("")
-        return
-
-    # 找当日最强行业 × BOM 覆盖赛道
-    strong_names: set[str] = set()
-    if sectors and sectors.get("all"):
-        for r in sectors["all"][:10]:
-            strong_names.add(r["name"])
-
-    target = None
-    for ind in industries:
-        if ind in strong_names:
-            target = ind
-            break
-    if not target:
-        target = industries[0]  # fallback 到最近更新的赛道
-
-    try:
-        from engine_serenity import analyze_global_chain, map_to_a_shares
-        chain_name = target.split("】")[-1].split("（")[0].strip() if "】" in target else target
-        lines.append(f"### 当日最强赛道：{target}")
-        lines.append("")
-
-        # 跑第一层+第二层（第三层太重，复盘报告只到映射层）
-        layer1 = analyze_global_chain(chain_name)
-        if layer1:
-            # 提取核心结论（取前 15 行关键内容）
-            key_lines = [l for l in layer1.split("\n") if l.strip() and not l.startswith("#")]
-            summary = "\n".join(key_lines[:25])
-            lines.append(summary)
-            lines.append("")
-        else:
-            lines.append("> 分析暂不可用（API 调用失败或暂无数据）")
-            lines.append("")
-
-        lines.append("*Serenity 供应链卡脖子分析，基于全球视角 → A股映射。"
-                      "不构成投资建议。*")
+        from daily_review.serenity_kb import (
+            init_db, get_all_chain_summary, get_stock_scores, get_recent_analyses,
+        )
+        init_db()
+        chains = get_all_chain_summary()
+        stocks = get_stock_scores()
+        logs = get_recent_analyses(7)
     except Exception as e:
-        lines.append(f"> 分析模块暂不可用: {e}")
+        lines.append(f"> Serenity 知识库暂不可用: {e}")
+        lines.append("")
+        return
+
+    if not chains:
+        lines.append("> 暂无 Serenity 分析数据。运行 `python daily_review/serenity_kb.py --update-all` 初始化。")
+        lines.append("")
+        return
+
+    lines.append(f"**已覆盖 {len(chains)} 条产业链**（近7天分析 {len(logs)} 次）")
+    lines.append("")
+    lines.append("### 卡脖子排行（全球供应链反推）")
+    lines.append("")
+    lines.append("| 产业链 | 卡脖子 | 环节 | 最近更新 |")
+    lines.append("|--------|:-----:|:---:|---------|")
+    for c in chains[:14]:
+        flag = "🔴" if c["max_score"] >= 9 else ("🟡" if c["max_score"] >= 7 else "🟢")
+        lines.append(
+            f"| {flag} {c['chain_name']} | **{c['max_score']}** | "
+            f"{c['segment_count']} | {c['last_updated']} |"
+        )
+    lines.append("")
+
+    if stocks:
+        lines.append("### FEV 评分 TOP 10（产业链卡脖子标的）")
+        lines.append("")
+        lines.append("| 代码 | 名称 | 产业链 | F | E | V | FEV |")
+        lines.append("|------|------|--------|---|---|---|-----|")
+        top = sorted(stocks, key=lambda s: s.get("fev_total", 0), reverse=True)[:10]
+        for s in top:
+            lines.append(
+                f"| {s['code']} | {s['name']} | {s['chain_name']} | "
+                f"{s['f_score']} | {s['e_score']} | {s['v_score']} | **{s['fev_total']}** |"
+            )
+        lines.append("")
+        if sectors and sectors.get("all"):
+            strong = {r["name"] for r in sectors["all"][:10]}
+            chain_names = {s["chain_name"] for s in top}
+            matched = strong & chain_names
+            if matched:
+                lines.append(f"> 🔥 今日强势产业链: {'、'.join(sorted(matched))}")
+                lines.append("")
+
+    lines.append("*Serenity 供应链卡脖子分析，基于全球视角 → A股映射 → FE验证。不构成投资建议。*")
     lines.append("")
