@@ -215,6 +215,8 @@ def _verify_and_fix(data: dict) -> tuple[dict, list[str]]:
             _fix_one(s, f"[{ev.get('name','?')}]")
 
         for node in ev.get("supply_chain", []):
+            if not isinstance(node, dict):
+                continue
             for item in node.get("stocks", []):
                 _fix_one(item, f"[供应链 {ev.get('name','?')}]")
 
@@ -223,6 +225,8 @@ def _verify_and_fix(data: dict) -> tuple[dict, list[str]]:
         ev["target_stocks"] = [s for s in ev.get("target_stocks", [])
                                 if not s.get("_invalid")]
         for node in ev.get("supply_chain", []):
+            if not isinstance(node, dict):
+                continue
             node["stocks"] = [s for s in node.get("stocks", [])
                              if not s.get("_invalid")]
 
