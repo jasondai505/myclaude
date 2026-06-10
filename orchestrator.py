@@ -116,10 +116,17 @@ def run_step(step: dict, log_file) -> bool:
         for line in proc.stdout:
             log_file.write(line)
             log_file.flush()
-        proc.wait()
-        rc = proc.returncode
+        try:
+            proc.wait(timeout=1200)  # 20min timeout, prevent akshare hang
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            log_file.write(f"\n!!! step timeout (20min), killed: {step['name']}\n")
+            log_file.flush()
+            rc = 1
+        else:
+            rc = proc.returncode
     except Exception as e:
-        log_file.write(f"\n异常: {e}\n")
+        log_file.write(f"\nexception: {e}\n")
         log_file.flush()
         rc = 1
 
