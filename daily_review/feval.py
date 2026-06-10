@@ -447,7 +447,7 @@ def score_delta_from_feeds(date_str: str = "") -> list[dict]:
     # 获取行情（用于获取名称）
     try:
         import data
-        codes_list = sorted(codes_found)[:120]  # 限制120只
+        codes_list = sorted(codes_found)[:200]  # 扩大到200只，减少遗漏
         quotes = data.fetch_stock_quotes(codes_list, batch_size=30)
     except Exception:
         print("  delta: 行情获取失败")
@@ -462,7 +462,7 @@ def score_delta_from_feeds(date_str: str = "") -> list[dict]:
     client = Anthropic(api_key=api_key, base_url="https://api.deepseek.com/anthropic")
 
     combined_feeds = "\n".join(feed_texts)
-    prompt = DELTA_PROMPT.format(feed_text=combined_feeds[:12000])
+    prompt = DELTA_PROMPT.format(feed_text=combined_feeds[:20000])
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:

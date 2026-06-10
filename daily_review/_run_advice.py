@@ -229,13 +229,12 @@ def _inject_stock_context(codes: set[str]) -> str:
     try:
         from daily_review.feval import get_scores as feval_get_scores
         for code, fs in feval_get_scores().items():
-            fv = feval_get_scores().get(code, {})
-            fev_val = fv.get("fev_total", 0) if isinstance(fv, dict) else 0
+            fev_val = fs.get("fev_total", 0) or 0
             if code not in fev_map or fev_map[code].get("fev", 0) == 0:
                 if fev_val > 0 or code not in fev_map:
                     fev_map[code] = {
-                        "f": fv.get("f_score", 0), "e": fv.get("e_score", 0),
-                        "v": fv.get("v_score", 0), "fev": fev_val,
+                        "f": fs.get("f_score", 0), "e": fs.get("e_score", 0),
+                        "v": fs.get("v_score", 0), "fev": fev_val,
                         "chain": fev_map.get(code, {}).get("chain", ""), "source": "feval",
                     }
     except Exception:
@@ -424,19 +423,6 @@ def _inject_fev_table() -> str:
             f"{fev} | {sign}{ds} | {fev+ds} | {r['source']} |"
         )
     return "\n".join(lines)
-    """注入五维信号预处理结果。暂为占位，后续由 _preprocess_intel.py 产出。"""
-    path = BASE / "reports" / "feeds" / f"intel_dimensions_{today}.md"
-    if not path.exists():
-        return ("（五维信号预处理模块待上线。请从 %%ZSXQ%% / %%NEWS%% / %%INDUSTRY%% / "
-                "%%ANNOUNCEMENTS%% 中自行按五维框架提取：①边际变化与催化 ②供需缺口与价格弹性 "
-                "③核心预期差 ④业绩兑现时间窗 ⑤风险排雷）")
-    try:
-        content = path.read_text(encoding="utf-8")
-        if len(content) > MAX_DIRECT_CHARS * 3:
-            content = content[:MAX_DIRECT_CHARS * 3] + "\n...(truncated)"
-        return content
-    except Exception as e:
-        return f"（五维信号读取失败: {e}）"
 
 
 def _validate_index_claims(output: str, us_indices_json: str) -> str:
@@ -734,13 +720,12 @@ def _build_selection(output: str) -> str:
     try:
         from daily_review.feval import get_scores as feval_get_scores
         for code, fs in feval_get_scores().items():
-            fv = feval_get_scores().get(code, {})
-            fev_val = fv.get("fev_total", 0) if isinstance(fv, dict) else 0
+            fev_val = fs.get("fev_total", 0) or 0
             if code not in fev_map or fev_map[code].get("fev", 0) == 0:
                 if fev_val > 0 or code not in fev_map:
                     fev_map[code] = {
-                        "f": fv.get("f_score", 0), "e": fv.get("e_score", 0),
-                        "v": fv.get("v_score", 0), "fev": fev_val,
+                        "f": fs.get("f_score", 0), "e": fs.get("e_score", 0),
+                        "v": fs.get("v_score", 0), "fev": fev_val,
                         "chain": fev_map.get(code, {}).get("chain", ""), "source": "feval",
                     }
     except Exception:
@@ -753,6 +738,47 @@ def _build_selection(output: str) -> str:
         delta_map = feval_get_delta()
     except Exception:
         pass
+
+    # 候选标的缺 FEV 时实时打分补齐
+    missing_fev = [c for c in candidates if c["code"] not in fev_map or fev_map[c["code"]].get("fev", 0) == 0]
+    if missing_fev:
+        print(f"  [SELECTION] {len(missing_fev)}/{len(candidates)} 只缺FEV，实时打分...")
+        try:
+            import data
+            codes = [c["code"] for c in missing_fev]
+            quotes = data.fetch_stock_quotes(codes, batch_size=30)
+            stocks = []
+            for c in missing_fev:
+                q = quotes.get(c["code"], {})
+                stocks.append({
+                    "code": c["code"],
+                    "name": q.get("name", c["name"]),
+                    "mcap_yi": round(q.get("mcap_yi", 0) or 0),
+                    "pe_ttm": round(q.get("pe_ttm", 0) or 0, 1),
+                    "chg_pct": round(q.get("change_pct", 0) or 0, 2),
+                })
+            from daily_review.feval import score_batch, save_scores
+            new_scores = score_batch(stocks)
+            if new_scores:
+                save_scores(new_scores)
+                for s in new_scores:
+                    fev_val = s.get("fev_total", 0)
+                    fev_map[s["code"]] = {
+                        "f": s.get("f_score", 0), "e": s.get("e_score", 0),
+                        "v": s.get("v_score", 0), "fev": fev_val,
+                        "chain": "", "source": "feval(onthefly)",
+                    }
+                print(f"  [SELECTION] 实时打分完成: {len(new_scores)} 只")
+            else:
+                print(f"  [SELECTION] 实时打分失败，{len(missing_fev)} 只FEV=0")
+        except Exception as e:
+            print(f"  [SELECTION] 实时打分异常: {e}")
+
+    # 候选标的缺 Δ 时告警
+    missing_delta = [c for c in candidates if c["code"] not in delta_map]
+    if missing_delta:
+        codes_str = ",".join(c["code"] for c in missing_delta[:8])
+        print(f"  [SELECTION] WARNING {len(missing_delta)}/{len(candidates)} 只缺Δ ({codes_str}...)，Δ=0，盘前应跑 Δ 评分")
 
     # 计算 FEVΔ，排序
     for c in candidates:
@@ -853,6 +879,20 @@ def main():
     supply_chain = _inject_supply_chain_intel(today)
     serenity_ctx = _inject_serenity_context()
     intel_dims = _inject_intel_dimensions(today)
+
+    # 盘前先跑 FEV + Δ 评分，确保候选池有数据可查
+    print("  [PRE] 盘前 FEV/Δ 评分...")
+    try:
+        from daily_review.feval import score_from_feeds, score_delta_from_feeds
+        score_from_feeds(today)
+    except Exception as e:
+        print(f"  [PRE] FEV 评分失败: {e}")
+    try:
+        from daily_review.feval import score_delta_from_feeds
+        score_delta_from_feeds(today)
+    except Exception as e:
+        print(f"  [PRE] Δ 评分失败: {e}")
+
     fev_table = _inject_fev_table()
 
     prompt = (tpl

@@ -1,6 +1,7 @@
 """全系统健康检查 — 每个流水线第一步运行，异常即微信告警"""
 from __future__ import annotations
 import json
+import re
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -80,6 +81,80 @@ def check_reports():
                 ISSUES.append(f"报告: {label} 最近2天均未生成")
 
 
+def check_fev_delta():
+    """FEV/Δ 表自检 — 日期对齐 / 交叉覆盖 / 分布合理性"""
+    import sqlite3
+    db = PROJECT / "daily_review" / "data" / "serenity.db"
+    if not db.exists():
+        ISSUES.append("FEV/Δ: serenity.db 不存在")
+        return
+
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    today = date.today().isoformat()
+
+    for tbl, label in [("feval_scores", "FEV"), ("stock_delta", "Δ")]:
+        row = conn.execute(f"SELECT MAX(date) as latest FROM {tbl}").fetchone()
+        latest = row["latest"] if row and row["latest"] else ""
+        if not latest:
+            ISSUES.append(f"{label}: 表为空")
+        elif latest != today:
+            days_behind = (date.today() - date.fromisoformat(latest)).days
+            ISSUES.append(f"{label}: 最新日期={latest}(落后{days_behind}天)")
+
+    fev_codes = {r[0] for r in conn.execute("SELECT DISTINCT code FROM feval_scores").fetchall()}
+    delta_codes = {r[0] for r in conn.execute("SELECT DISTINCT code FROM stock_delta").fetchall()}
+    if fev_codes and delta_codes:
+        intersection = fev_codes & delta_codes
+        ratio = len(intersection) / max(len(fev_codes), len(delta_codes)) * 100
+        print(f"  [FEV/Δ] 覆盖: FEV={len(fev_codes)} Δ={len(delta_codes)} 交集={len(intersection)}({ratio:.0f}%)")
+        if ratio < 20:
+            ISSUES.append(f"FEV/Δ: 交集率仅{ratio:.0f}%，硬排名Δ因子几乎无效")
+        if len(delta_codes) < len(fev_codes) * 0.3:
+            ISSUES.append(f"Δ覆盖严重不足: {len(delta_codes)} vs FEV {len(fev_codes)}")
+    elif not fev_codes:
+        ISSUES.append("FEV: 无评分数据")
+    elif not delta_codes:
+        ISSUES.append("Δ: 无评分数据")
+
+    for tbl, label, lo, hi in [("feval_scores", "FEV", 0, 30), ("stock_delta", "Δ", -10, 10)]:
+        col = "fev_total" if "fev" in tbl else "delta_score"
+        out_of_range = conn.execute(
+            f"SELECT COUNT(*) FROM {tbl} WHERE {col} NOT BETWEEN {lo} AND {hi}"
+        ).fetchone()[0]
+        if out_of_range:
+            ISSUES.append(f"{label}: {out_of_range}条超出范围[{lo},{hi}]")
+
+        all_zero = conn.execute(
+            f"SELECT COUNT(*) FROM {tbl} WHERE {col} = 0"
+        ).fetchone()[0]
+        total = conn.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
+        if total > 0 and all_zero == total:
+            ISSUES.append(f"{label}: {total}条全为0，LLM打分可能失败")
+
+    conn.close()
+
+
+def check_placeholder_leaks():
+    """检查 reports 目录是否有未被替换的占位符残留"""
+    reports_dir = PROJECT / "daily_review" / "reports"
+    if not reports_dir.exists():
+        return
+    today = date.today().isoformat()
+    for pattern in [f"advice_{today}.md", f"wechat_analysis_{today}.md"]:
+        path = reports_dir / pattern
+        if not path.exists():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+            leaks = re.findall(r"%%[A-Z_]+%%", text)
+            if leaks:
+                unique = sorted(set(leaks))
+                ISSUES.append(f"占位符残留({path.name}): {', '.join(unique)}")
+        except Exception:
+            pass
+
+
 def check_pipeline_logs():
     log_dir = PROJECT / "dashboard" / "logs"
     if not log_dir.exists():
@@ -101,6 +176,8 @@ def main():
     check_rss()
     check_db_articles()
     check_reports()
+    check_fev_delta()
+    check_placeholder_leaks()
     check_pipeline_logs()
 
     if ISSUES:
