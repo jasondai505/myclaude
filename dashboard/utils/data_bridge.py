@@ -517,17 +517,17 @@ def get_stock_overview(code: str) -> dict[str, Any]:
         if not quotes:
             return {"error": f"未获取到 {code} 行情数据"}
 
-        q = quotes[0]
+        q = quotes.get(code, {})
         return {
-            "code": q.get("code", code),
+            "code": code,
             "name": q.get("name", ""),
             "price": q.get("price", 0),
             "change_pct": q.get("change_pct", 0),
-            "pe": q.get("pe", 0),
-            "pb": q.get("pb", 0),
-            "market_cap": q.get("market_cap", 0),
-            "turnover_rate": q.get("turnover_rate", 0),
-            "volume": q.get("volume", 0),
+            "pe": q.get("pe_ttm", 0) or q.get("pe_static", 0) or 0,
+            "pb": q.get("pb", 0) or 0,
+            "market_cap": q.get("mcap_yi", 0) or 0,
+            "turnover_rate": q.get("turnover_pct", 0),
+            "volume": q.get("amount_wan", 0),
             "high": q.get("high", 0),
             "low": q.get("low", 0),
         }
@@ -600,14 +600,14 @@ def get_watchlist_status() -> list[dict[str, Any]]:
             return [{"code": c, "error": "行情获取失败"} for c in codes]
 
         results = []
-        for q in quotes:
+        for code, q in quotes.items():
             results.append({
-                "code": q.get("code", ""),
+                "code": code,
                 "name": q.get("name", ""),
                 "price": q.get("price", 0),
                 "change_pct": q.get("change_pct", 0),
-                "pe": q.get("pe", 0),
-                "market_cap": q.get("market_cap", 0),
+                "pe": q.get("pe_ttm", 0) or q.get("pe_static", 0) or 0,
+                "market_cap": q.get("mcap_yi", 0) or 0,
             })
         return results
     except Exception as e:
@@ -759,6 +759,55 @@ def get_serenity_recent_logs(days: int = 7) -> list[dict[str, Any]]:
         return serenity_kb.get_recent_analyses(days=days)
     except Exception:
         return []
+
+
+def get_stock_fev_history(code: str, days: int = 30) -> list[dict[str, Any]]:
+    """获取个股 FEV 历史趋势"""
+    try:
+        from daily_review import serenity_kb
+        serenity_kb.init_db()
+        return serenity_kb.get_stock_history(code, days)
+    except Exception:
+        return []
+
+
+def get_stocks_quotes_batch(codes: list[str]) -> dict[str, dict[str, Any]]:
+    """批量获取个股实时行情，返回 {code: {price, change_pct, pe, pb, market_cap, name}}"""
+    if not codes:
+        return {}
+    try:
+        data_mod = _safe_import("daily_review.data")
+        if data_mod is None:
+            return {}
+        raw = data_mod.fetch_stock_quotes(codes)
+        result = {}
+        for code, q in raw.items():
+            result[code] = {
+                "name": q.get("name", ""),
+                "price": q.get("price", 0),
+                "change_pct": q.get("change_pct", 0),
+                "pe": q.get("pe_ttm", 0) or q.get("pe_static", 0) or 0,
+                "pb": q.get("pb", 0) or 0,
+                "market_cap": q.get("mcap_yi", 0) or 0,
+            }
+        return result
+    except Exception:
+        return {}
+
+
+def get_segment_cross_chains() -> dict[str, list[str]]:
+    """计算所有产业链的跨链环节: {segment_name: [chain_names]}"""
+    all_segments: dict[str, list[str]] = defaultdict(list)
+    chains = get_bom_chain_list()
+    for c in chains:
+        d = get_serenity_chain_detail(c)
+        if not d:
+            continue
+        for seg in (d.get("segments") or []):
+            name = seg.get("segment", "").strip()
+            if name and len(name) >= 2:
+                all_segments[name].append(c)
+    return {k: v for k, v in all_segments.items() if len(v) >= 2}
 
 
 def get_bom_chain_list() -> list[str]:

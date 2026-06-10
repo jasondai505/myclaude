@@ -14,4 +14,7 @@ from dashboard.utils.data_bridge import (
     get_market_index_snapshot,
     run_live_scan,
     get_cached_scan,
+    get_stock_fev_history,
+    get_stocks_quotes_batch,
+    get_segment_cross_chains,
 )
