@@ -609,7 +609,7 @@ def _validate_advice_coverage(output: str) -> str:
         return output
 
     # 1. 统计精选标的数量（匹配 ### 名称 (6位代码) 格式）
-    stock_blocks = re.findall(r"###\s+\S+\s*\(\d{6}\)", output)
+    stock_blocks = re.findall(r"###\s+.+?\s*\((\d{6})\)", output)
     count = len(stock_blocks)
     codes_found = re.findall(r"###\s+\S+\s*\((\d{6})\)", output)
 
@@ -669,29 +669,28 @@ def _build_selection(output: str) -> str:
     pool_end = pool_start + 5 + next_section.start() if next_section else len(output)
     pool_text = output[pool_start:pool_end]
 
-    # 解析候选标的: 支持两种格式
+    # 解析候选标的: 支持三种格式
     # 格式A: ### 名称 (6位代码)
     # 格式B: - **名称** (6位代码)  或  - **名称(6位代码)**
+    # 格式C: ### 6位代码 名称 (代码在前，无括号)
     candidates = []
     # 格式A
-    for m in re.finditer(r"(?:^|\n)###\s*(\S+)\s*\((\d{6})\)", pool_text):
+    for m in re.finditer(r"(?:^|\n)###\s*(.+?)\s*\((\d{6})\)", pool_text):
         name, code = m.group(1), m.group(2)
-        # 提取该标的后续的 W1-W5 分析（到下一个 ### 或 --- 为止）
         rest = pool_text[m.end():]
         next_section = re.search(r"\n(?:###\s|\n##|\n---)", rest)
         block = rest[:next_section.start()] if next_section else rest[:300]
         candidates.append({"code": code, "name": name, "block": block.strip()})
     # 格式B: - **名称** (6位代码) — 提取该行及后续缩进行
-    for m in re.finditer(r"-\s*\*{1,2}(\S+)\*{1,2}\s*\((\d{6})\)", pool_text):
+    for m in re.finditer(r"-\s*\*{2}([^*]+?)\s*\((\d{6})\)", pool_text):
         name, code = m.group(1), m.group(2)
         line_start = pool_text.rfind("\n", 0, m.start()) + 1
-        # 找到下一个非缩进行（同级或更高级的列表项/标题）
         rest = pool_text[line_start:]
         lines = rest.split("\n")
         block_lines = [lines[0]]
         for ln in lines[1:]:
             if ln.strip().startswith("- ") and not ln.startswith("    "):
-                break  # 同级新条目
+                break
             if ln.strip().startswith("### "):
                 break
             if ln.strip().startswith("## "):
@@ -699,6 +698,13 @@ def _build_selection(output: str) -> str:
             block_lines.append(ln)
         block = "\n".join(block_lines)
         candidates.append({"code": code, "name": name, "block": block})
+    # 格式C: ### 6位代码 名称 (代码在前，无括号)
+    for m in re.finditer(r"(?:^|\n)###\s*(\d{6})\s+(\S+)", pool_text):
+        code, name = m.group(1), m.group(2)
+        rest = pool_text[m.end():]
+        next_section = re.search(r"\n(?:###\s|\n##|\n---)", rest)
+        block = rest[:next_section.start()] if next_section else rest[:300]
+        candidates.append({"code": code, "name": name, "block": block.strip()})
 
     if len(candidates) < 5:
         print(f"  [SELECTION] 候选池仅 {len(candidates)} 只，跳过硬排名")
