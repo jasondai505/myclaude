@@ -47,6 +47,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
             {"id": "summary", "name": "复盘摘要", "cmd": "python daily_review/review_summary.py"},
             {"id": "track", "name": "推荐追踪", "cmd": "python daily_review/track_recommendations.py"},
             {"id": "interpret", "name": "盘前解读", "cmd": "python morning_intel/run_morning.py --phase pre"},
+            {"id": "feval", "name": "独立FEV评分", "cmd": "python daily_review/feval.py --from-feeds"},
             {"id": "advice", "name": "生成建议", "cmd": "python daily_review/_run_advice.py"},
             {"id": "serenity_stocks", "name": "标的FEV评分更新", "cmd": "python daily_review/serenity_kb.py --update-stocks"},
         ],

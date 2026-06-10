@@ -93,6 +93,12 @@
 > 每个标的含: name / mcap_yi(亿) / pe_ttm / chg_pct / fev / f_score / e_score / v_score / serenity_chain。
 > FEV 数据来自 Serenity 产业链卡脖子知识库，FEV=0 表示该标的不在已分析的卡脖子产业链中。
 
+**FEV 评分查询表（所有已评分标的 — 推荐标的必须从此表查 FEV，不得写「待定」或编造）**
+```
+%%FEV_TABLE%%
+```
+> 此表覆盖 Serenity + feval 两个来源的所有标的。如果标的不在此表中，标注 `FEV=未评分`。
+
 **Serenity 产业链卡脖子地图（全球供应链反推 → A股映射 — 哪些环节是主战场）**
 ```
 %%SERENITY_TOP%%

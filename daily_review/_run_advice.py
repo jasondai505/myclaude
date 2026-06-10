@@ -209,6 +209,7 @@ def _inject_stock_context(codes: set[str]) -> str:
     except Exception:
         return json.dumps({"error": "行情获取失败"}, ensure_ascii=False)
 
+    # 从 serenity_kb 取 FEV（产业链关联标的）
     fev_map = {}
     try:
         from daily_review.serenity_kb import init_db, get_stock_scores
@@ -219,7 +220,20 @@ def _inject_stock_context(codes: set[str]) -> str:
                 fev_map[code] = {
                     "f": s.get("f_score", 0), "e": s.get("e_score", 0),
                     "v": s.get("v_score", 0), "fev": s.get("fev_total", 0),
-                    "chain": s.get("chain_name", ""),
+                    "chain": s.get("chain_name", ""), "source": "serenity",
+                }
+    except Exception:
+        pass
+
+    # 从 feval 取 FEV（独立评分器，覆盖 serenity 未覆盖的标的）
+    try:
+        from daily_review.feval import get_scores as feval_get_scores
+        for code, fs in feval_get_scores().items():
+            if code not in fev_map:
+                fev_map[code] = {
+                    "f": fs.get("f_score", 0), "e": fs.get("e_score", 0),
+                    "v": fs.get("v_score", 0), "fev": fs.get("fev_total", 0),
+                    "chain": "", "source": "feval",
                 }
     except Exception:
         pass
@@ -237,6 +251,7 @@ def _inject_stock_context(codes: set[str]) -> str:
             "f_score": fv.get("f", 0), "e_score": fv.get("e", 0),
             "v_score": fv.get("v", 0),
             "serenity_chain": fv.get("chain", ""),
+            "fev_source": fv.get("source", ""),
         }
     return json.dumps(ctx, ensure_ascii=False, indent=2)
 
@@ -329,6 +344,61 @@ def _inject_supply_chain_intel(today: str) -> str:
 
 
 def _inject_intel_dimensions(today: str) -> str:
+    """注入五维信号预处理结果。暂为占位，后续由 _preprocess_intel.py 产出。"""
+    path = BASE / "reports" / "feeds" / f"intel_dimensions_{today}.md"
+    if not path.exists():
+        return ("（五维信号预处理模块待上线。请从 %%ZSXQ%% / %%NEWS%% / %%INDUSTRY%% / "
+                "%%ANNOUNCEMENTS%% 中自行按五维框架提取：①边际变化与催化 ②供需缺口与价格弹性 "
+                "③核心预期差 ④业绩兑现时间窗 ⑤风险排雷）")
+    try:
+        content = path.read_text(encoding="utf-8")
+        if len(content) > MAX_DIRECT_CHARS * 3:
+            content = content[:MAX_DIRECT_CHARS * 3] + "\n...(truncated)"
+        return content
+    except Exception as e:
+        return f"（五维信号读取失败: {e}）"
+
+
+def _inject_fev_table() -> str:
+    """注入所有已评分标的的 FEV 查询表（serenity + feval 合并）。"""
+    fev_rows: dict[str, dict] = {}
+    try:
+        from daily_review.serenity_kb import init_db, get_stock_scores
+        init_db()
+        for s in get_stock_scores():
+            code = s.get("code", "")
+            if code:
+                fev_rows[code] = {
+                    "f": s.get("f_score", 0), "e": s.get("e_score", 0),
+                    "v": s.get("v_score", 0), "fev": s.get("fev_total", 0),
+                    "name": s.get("name", ""), "source": "serenity",
+                }
+    except Exception:
+        pass
+    try:
+        from daily_review.feval import get_scores as feval_get_scores
+        for code, fs in feval_get_scores().items():
+            if code not in fev_rows:
+                fev_rows[code] = {
+                    "f": fs.get("f_score", 0), "e": fs.get("e_score", 0),
+                    "v": fs.get("v_score", 0), "fev": fs.get("fev_total", 0),
+                    "name": fs.get("name", ""), "source": "feval",
+                }
+    except Exception:
+        pass
+
+    if not fev_rows:
+        return "（FEV 评分数据暂未生成）"
+
+    lines = ["| 代码 | 名称 | F | E | V | FEV | 来源 |",
+             "|------|------|---|---|---|-----|------|"]
+    for code, r in sorted(fev_rows.items(),
+                          key=lambda x: -x[1]["fev"]):
+        lines.append(
+            f"| {code} | {r['name']} | {r['f']} | {r['e']} | {r['v']} | "
+            f"{r['fev']} | {r['source']} |"
+        )
+    return "\n".join(lines)
     """注入五维信号预处理结果。暂为占位，后续由 _preprocess_intel.py 产出。"""
     path = BASE / "reports" / "feeds" / f"intel_dimensions_{today}.md"
     if not path.exists():
@@ -539,6 +609,7 @@ def main():
     supply_chain = _inject_supply_chain_intel(today)
     serenity_ctx = _inject_serenity_context()
     intel_dims = _inject_intel_dimensions(today)
+    fev_table = _inject_fev_table()
 
     prompt = (tpl
         .replace("%%TODAY%%", today)
@@ -555,6 +626,7 @@ def main():
         .replace("%%SUPPLY_CHAIN_INTEL%%", supply_chain)
         .replace("%%SERENITY_TOP%%", serenity_ctx)
         .replace("%%INTEL_DIMENSIONS%%", intel_dims)
+        .replace("%%FEV_TABLE%%", fev_table)
     )
     for key, val in feeds.items():
         prompt = prompt.replace(key, val)
