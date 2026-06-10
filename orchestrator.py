@@ -38,7 +38,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
     },
     "pre": {
         "name": "盘前流水线",
-        "desc": "监控 → 采集(含韭研+微博) → 公众号 → 摘要 → 追踪 → 四源验证 → 解读 → FEVΔ → 建议",
+        "desc": "健康 → 采集 → 公众号 → 摘要 → 追踪 → 四源 → 解读 → FEVΔ → 边际变化 → 建议 → Serenity",
         "trigger": "05:00 盘前",
         "steps": [
             {"id": "health", "name": "系统健康检查", "cmd": "python daily_review/health_check.py"},
