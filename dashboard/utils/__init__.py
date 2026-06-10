@@ -17,4 +17,5 @@ from dashboard.utils.data_bridge import (
     get_stock_fev_history,
     get_stocks_quotes_batch,
     get_segment_cross_chains,
+    get_marginal_summary,
 )

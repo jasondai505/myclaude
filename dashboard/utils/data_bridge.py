@@ -67,6 +67,7 @@ def _find_reports(report_type: str, limit: int = 30) -> list[ReportInfo]:
         "wechat": "daily_review/reports/wechat_analysis_????-??-??.md",
         "bom": "bom_analyzer/reports/bom_*.md",
         "deep": "stock_deep/reports/deep_*.md",
+        "marginal": "daily_review/reports/marginal_????-??-??.md",
     }
     glob_pat = patterns.get(report_type)
     if not glob_pat:
@@ -175,6 +176,8 @@ def get_report_content(report_type: str, date_str: str = "") -> dict[str, Any]:
             path = PROJECT_ROOT / f"daily_review/reports/wechat_analysis_{date_str}.md"
         elif report_type == "bom":
             return _get_bom_content(date_str)
+        elif report_type == "marginal":
+            path = PROJECT_ROOT / f"daily_review/reports/marginal_{date_str}.md"
         else:
             return {"error": f"未知报告类型: {report_type}", "content": ""}
     else:
@@ -230,6 +233,58 @@ def _get_bom_content(date_str: str) -> dict[str, Any]:
         "type": "bom",
         "industry_count": len(files),
     }
+
+
+def get_marginal_summary(date_str: str = "") -> dict[str, Any]:
+    """获取边际变化日报摘要：方向计数 + 重点变化条目"""
+    if not date_str:
+        date_str = _today_str()
+    path = PROJECT_ROOT / f"daily_review/reports/marginal_{date_str}.md"
+    if not path.exists():
+        return {"error": f"边际变化日报 {date_str} 尚未生成", "exists": False}
+
+    try:
+        content = path.read_text(encoding="utf-8")
+    except Exception as e:
+        return {"error": f"读取失败: {e}", "exists": False}
+
+    result: dict[str, Any] = {
+        "exists": True, "date": date_str, "path": str(path),
+        "up_count": 0, "down_count": 0, "first_count": 0, "flat_count": 0,
+        "up_changes": [], "down_changes": [],
+    }
+
+    # 解析摘要行: > 边际向好 **158** · 边际下滑 **91** · ...
+    m = re.search(r"边际向好\s*\*?\*?(\d+)\*?\*?", content)
+    if m: result["up_count"] = int(m.group(1))
+    m = re.search(r"边际下滑\s*\*?\*?(\d+)\*?\*?", content)
+    if m: result["down_count"] = int(m.group(1))
+    m = re.search(r"首次记录\s*\*?\*?(\d+)\*?\*?", content)
+    if m: result["first_count"] = int(m.group(1))
+    m = re.search(r"符合预期\s*\*?\*?(\d+)\*?\*?", content)
+    if m: result["flat_count"] = int(m.group(1))
+
+    # 提取表格行，按所在章节归类
+    current_section = ""
+    for line in content.split("\n"):
+        if line.startswith("## 边际向好"):
+            current_section = "up"
+        elif line.startswith("## 边际下滑"):
+            current_section = "down"
+        elif line.startswith("## ") and current_section:
+            current_section = ""
+        elif line.startswith("|") and current_section in ("up", "down") and "代码" not in line:
+            parts = [p.strip() for p in line.split("|") if p.strip()]
+            if len(parts) >= 5:
+                entry = {"code": parts[0], "name": parts[1], "theme": parts[2], "desc": parts[3][:80]}
+                if current_section == "up":
+                    result["up_changes"].append(entry)
+                else:
+                    result["down_changes"].append(entry)
+        if len(result["up_changes"]) >= 8 and len(result["down_changes"]) >= 5:
+            break
+
+    return result
 
 
 def get_latest_market_snapshot() -> dict[str, Any]:

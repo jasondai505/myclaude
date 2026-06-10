@@ -7,6 +7,7 @@ from datetime import datetime
 from dashboard.utils.data_bridge import (
     get_latest_advice_summary, get_latest_bom_summary,
     get_pipeline_status, get_market_index_snapshot, _today_str,
+    get_marginal_summary,
 )
 
 st.set_page_config(page_title="A股仪表盘", page_icon="📊", layout="wide",
@@ -33,7 +34,7 @@ if "error" not in idx_data and idx_data.get("indices"):
 st.divider()
 
 # === Tab 切换 ===
-tab1, tab2, tab3 = st.tabs(["建议", "BOM", "流水线"])
+tab1, tab2, tab3, tab4 = st.tabs(["建议", "BOM", "边际变化", "流水线"])
 
 with tab1:
     a = get_latest_advice_summary()
@@ -52,6 +53,28 @@ with tab2:
         st.caption("暂无")
 
 with tab3:
+    mg = get_marginal_summary()
+    if mg.get("exists"):
+        up_n, down_n = mg.get("up_count", 0), mg.get("down_count", 0)
+        c1, c2, c3 = st.columns(3)
+        with c1: st.metric("边际向好", up_n, border=True)
+        with c2: st.metric("边际下滑", down_n, delta=-down_n if down_n else 0, delta_color="inverse", border=True)
+        with c3: st.metric("首次记录", mg.get("first_count", 0), border=True)
+
+        if mg.get("up_changes"):
+            st.caption("**Top 向好**")
+            for c in mg["up_changes"][:5]:
+                st.markdown(f"- **{c['name']}**({c['code']}): {c['desc'][:80]}")
+        if mg.get("down_changes"):
+            st.caption("**Top 下滑**")
+            for c in mg["down_changes"][:3]:
+                st.markdown(f"- {c['name']}({c['code']}): {c['desc'][:80]}")
+
+        st.caption(f"[打开完整报告]({mg.get('path','')})")
+    else:
+        st.caption(mg.get("error", "暂无"))
+
+with tab4:
     ps_list = get_pipeline_status()
     if ps_list:
         cols = st.columns(len(ps_list))
