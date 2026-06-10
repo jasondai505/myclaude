@@ -415,6 +415,30 @@ def _inject_primary_synthesis(today: str) -> str:
         return f"（四源交叉验证读取失败: {e}）"
 
 
+def _inject_marginal(today: str) -> str:
+    """读取当日边际变化日报，注入 prompt 供 LLM 识别拐点信号。"""
+    path = BASE / "reports" / f"marginal_{today}.md"
+    if not path.exists():
+        return "（边际变化日报暂未生成。请从其他 feed 中自行判断边际变化信号。）"
+    try:
+        content = path.read_text(encoding="utf-8")
+        if len(content) > 4000:
+            lines = content.split("\n")
+            out = []
+            stop = False
+            for ln in lines:
+                if ln.startswith("## 符合预期") or ln.startswith("## 首次记录"):
+                    stop = True
+                if not stop:
+                    out.append(ln)
+                elif len(out) < len(lines) * 0.5:
+                    out.append(ln)
+            content = "\n".join(out)
+        return content
+    except Exception as e:
+        return f"（边际变化日报读取失败: {e}）"
+
+
 def _inject_must_consider() -> str:
     """ChokeMap 高 FEV 标的强制入池，防 LLM 遗漏。"""
     try:
@@ -1013,6 +1037,7 @@ def main():
     jiuyang = _inject_jiuyang(today)
     weibo = _inject_weibo(today)
     primary_synthesis = _inject_primary_synthesis(today)
+    marginal = _inject_marginal(today)
     must_consider = _inject_must_consider()
     yesterday_logic = _inject_yesterday_logic(yesterday)
     feeds["%%JIUYANG%%"] = jiuyang
@@ -1054,6 +1079,7 @@ def main():
         .replace("%%JIUYANG%%", jiuyang)
         .replace("%%WEIBO%%", weibo)
         .replace("%%PRIMARY_SYNTHESIS%%", primary_synthesis)
+        .replace("%%MARGINAL_CHANGES%%", marginal)
         .replace("%%MUST_CONSIDER%%", must_consider)
         .replace("%%YESTERDAY_LOGIC%%", yesterday_logic)
         .replace("%%FEV_TABLE%%", fev_table)
