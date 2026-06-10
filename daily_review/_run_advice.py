@@ -229,12 +229,15 @@ def _inject_stock_context(codes: set[str]) -> str:
     try:
         from daily_review.feval import get_scores as feval_get_scores
         for code, fs in feval_get_scores().items():
-            if code not in fev_map:
-                fev_map[code] = {
-                    "f": fs.get("f_score", 0), "e": fs.get("e_score", 0),
-                    "v": fs.get("v_score", 0), "fev": fs.get("fev_total", 0),
-                    "chain": "", "source": "feval",
-                }
+            fv = feval_get_scores().get(code, {})
+            fev_val = fv.get("fev_total", 0) if isinstance(fv, dict) else 0
+            if code not in fev_map or fev_map[code].get("fev", 0) == 0:
+                if fev_val > 0 or code not in fev_map:
+                    fev_map[code] = {
+                        "f": fv.get("f_score", 0), "e": fv.get("e_score", 0),
+                        "v": fv.get("v_score", 0), "fev": fev_val,
+                        "chain": fev_map.get(code, {}).get("chain", ""), "source": "feval",
+                    }
     except Exception:
         pass
 
@@ -663,6 +666,176 @@ def _validate_advice_coverage(output: str) -> str:
     return output
 
 
+def _build_selection(output: str) -> str:
+    """解析 LLM 候选池 → 查 FEVΔ → 硬排名取前10 → 替换候选池为精选标的。"""
+    # 找到候选池段落
+    pool_start = output.find("## 🎯 候选池")
+    if pool_start == -1:
+        pool_start = output.find("## 🎯 第三层")
+    if pool_start == -1:
+        pool_start = output.find("候选池")
+    if pool_start == -1:
+        return output
+
+    # 找到候选池结束位置（下一个 ## 或 📊 模块贡献摘要）
+    rest = output[pool_start:]
+    next_section = re.search(r"\n## (?!\#)", rest[5:])  # skip the first ##
+    pool_end = pool_start + 5 + next_section.start() if next_section else len(output)
+    pool_text = output[pool_start:pool_end]
+
+    # 解析候选标的: 支持两种格式
+    # 格式A: ### 名称 (6位代码)
+    # 格式B: - **名称** (6位代码)  或  - **名称(6位代码)**
+    candidates = []
+    # 格式A
+    for m in re.finditer(r"(?:^|\n)###\s*(\S+)\s*\((\d{6})\)", pool_text):
+        name, code = m.group(1), m.group(2)
+        # 提取该标的后续的 W1-W5 分析（到下一个 ### 或 --- 为止）
+        rest = pool_text[m.end():]
+        next_section = re.search(r"\n(?:###\s|\n##|\n---)", rest)
+        block = rest[:next_section.start()] if next_section else rest[:300]
+        candidates.append({"code": code, "name": name, "block": block.strip()})
+    # 格式B: - **名称** (6位代码) — 提取该行及后续缩进行
+    for m in re.finditer(r"-\s*\*{1,2}(\S+)\*{1,2}\s*\((\d{6})\)", pool_text):
+        name, code = m.group(1), m.group(2)
+        line_start = pool_text.rfind("\n", 0, m.start()) + 1
+        # 找到下一个非缩进行（同级或更高级的列表项/标题）
+        rest = pool_text[line_start:]
+        lines = rest.split("\n")
+        block_lines = [lines[0]]
+        for ln in lines[1:]:
+            if ln.strip().startswith("- ") and not ln.startswith("    "):
+                break  # 同级新条目
+            if ln.strip().startswith("### "):
+                break
+            if ln.strip().startswith("## "):
+                break
+            block_lines.append(ln)
+        block = "\n".join(block_lines)
+        candidates.append({"code": code, "name": name, "block": block})
+
+    if len(candidates) < 5:
+        print(f"  [SELECTION] 候选池仅 {len(candidates)} 只，跳过硬排名")
+        return output
+
+    # 查 FEV（serenity + feval）
+    fev_map = {}
+    try:
+        from daily_review.serenity_kb import init_db, get_stock_scores
+        init_db()
+        for s in get_stock_scores():
+            fev_map[s["code"]] = {
+                "f": s.get("f_score", 0), "e": s.get("e_score", 0),
+                "v": s.get("v_score", 0), "fev": s.get("fev_total", 0),
+                "chain": s.get("chain_name", ""), "source": "ChokeMap",
+            }
+    except Exception:
+        pass
+    try:
+        from daily_review.feval import get_scores as feval_get_scores
+        for code, fs in feval_get_scores().items():
+            fv = feval_get_scores().get(code, {})
+            fev_val = fv.get("fev_total", 0) if isinstance(fv, dict) else 0
+            if code not in fev_map or fev_map[code].get("fev", 0) == 0:
+                if fev_val > 0 or code not in fev_map:
+                    fev_map[code] = {
+                        "f": fv.get("f_score", 0), "e": fv.get("e_score", 0),
+                        "v": fv.get("v_score", 0), "fev": fev_val,
+                        "chain": fev_map.get(code, {}).get("chain", ""), "source": "feval",
+                    }
+    except Exception:
+        pass
+
+    # 查 Δ
+    delta_map = {}
+    try:
+        from daily_review.feval import get_delta_scores as feval_get_delta
+        delta_map = feval_get_delta()
+    except Exception:
+        pass
+
+    # 计算 FEVΔ，排序
+    for c in candidates:
+        fv = fev_map.get(c["code"], {})
+        d = delta_map.get(c["code"], {})
+        c["fev"] = fv.get("fev", 0)
+        c["f_score"] = fv.get("f", 0)
+        c["e_score"] = fv.get("e", 0)
+        c["v_score"] = fv.get("v", 0)
+        c["fev_source"] = fv.get("source", "")
+        c["serenity_chain"] = fv.get("chain", "")
+        c["delta"] = d.get("delta_score", 0) if d else 0
+        c["delta_signal"] = d.get("signal", "") if d else ""
+        c["fevd"] = c["fev"] + c["delta"]
+
+    candidates.sort(key=lambda x: -x["fevd"])
+
+    # 取前10
+    top10 = candidates[:10]
+    rank_emoji = ["🥇", "🥈", "🥉"] + ["4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+
+    lines = ["", "## 🎯 精选标的 — 用谁打", "",
+             "> 由 Python 后端按 **FEVΔ = FEV + Δ** 硬排名，消除 LLM 随机性。", "",
+             "| # | 标的 | FEV | Δ | FEVΔ | 来源 |",
+             "|:--|------|:---:|:--:|:-----:|------|"]
+    for i, c in enumerate(top10):
+        sign = "+" if c["delta"] >= 0 else ""
+        ds_str = f"{sign}{c['delta']}" if c["delta"] != 0 else "0"
+        lines.append(
+            f"| {rank_emoji[i]} | **{c['name']}({c['code']})** | "
+            f"{c['fev']} | {ds_str} | **{c['fevd']}** | {c['fev_source']} |"
+        )
+    lines.append("")
+    lines.append(f"> 候选池共 {len(candidates)} 只，FEVΔ 范围 {top10[0]['fevd']}~{top10[-1]['fevd']}，"
+                 f"未入选 {len(candidates)-10} 只见文末备选。")
+    lines.append("")
+
+    # 逐只展开
+    for i, c in enumerate(top10):
+        lines.append(f"### {rank_emoji[i]} {c['name']} ({c['code']})")
+        lines.append("")
+        lines.append(f"| 指标 | 值 |")
+        lines.append(f"|------|-----|")
+        chain_str = f"{c['serenity_chain']}" if c['serenity_chain'] else "未覆盖"
+        lines.append(f"| FEV | {c['fev']} (F={c['f_score']} E={c['e_score']} V={c['v_score']}) · {c['fev_source']} |")
+        sign = "+" if c['delta'] >= 0 else ""
+        lines.append(f"| Δ | {sign}{c['delta']} · {c['delta_signal'][:60]} |")
+        lines.append(f"| FEVΔ | **{c['fevd']}/40** |")
+        lines.append(f"| ChokeMap | {chain_str} |")
+        lines.append("")
+        # 附上 LLM 写的 W1-W5 分析（从 block 中提取）
+        for w_tag in ["W1", "W3", "W4", "W5"]:
+            m = re.search(rf"-\s*\*\*{w_tag}\*\*\s*(.+)", c["block"])
+            if m:
+                lines.append(f"- **{w_tag}** {m.group(1).strip()}")
+        lines.append("")
+
+    # 备选标的
+    if len(candidates) > 10:
+        rest = candidates[10:]
+        lines.append("<details><summary>📋 备选标的（未进前10，点击展开）</summary>")
+        lines.append("")
+        lines.append("| 标的 | FEVΔ | 未入选原因推测 |")
+        lines.append("|------|:----:|---------------|")
+        for c in rest:
+            reason = "Δ=0无新增信号" if c["delta"] == 0 else f"FEV={c['fev']}偏低"
+            lines.append(f"| {c['name']}({c['code']}) | {c['fevd']} | {reason} |")
+        lines.append("")
+        lines.append("</details>")
+        lines.append("")
+
+    # 替换候选池段落
+    before = output[:pool_start]
+    after = output[pool_end:]
+    # 移除候选池标题后的空行
+    after = after.lstrip("\n")
+    new_output = before.rstrip("\n") + "\n" + "\n".join(lines) + "\n" + after
+
+    print(f"  [SELECTION] 候选 {len(candidates)} → 精选 {len(top10)}，"
+          f"FEVΔ {top10[0]['fevd']}~{top10[-1]['fevd']}")
+    return new_output
+
+
 def main():
     today = sys.argv[1] if len(sys.argv) > 1 else date.today().isoformat()
     yesterday = sys.argv[2] if len(sys.argv) > 2 else (date.today() - timedelta(days=1)).isoformat()
@@ -727,6 +900,7 @@ def main():
     output = _validate_index_claims(output, us_indices)
     output = _validate_code_names(output)
     output = _validate_dow_claims(output, yesterday)
+    output = _build_selection(output)
     output = _validate_advice_coverage(output)
 
     print(output)
