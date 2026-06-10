@@ -107,7 +107,99 @@ def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_lua_code ON limit_up_analysis(code);
             CREATE INDEX IF NOT EXISTS idx_lua_date ON limit_up_analysis(date);
+
+            CREATE TABLE IF NOT EXISTS marginal_changes (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                date               TEXT NOT NULL,
+                code               TEXT NOT NULL,
+                name               TEXT NOT NULL,
+                theme              TEXT NOT NULL,
+                direction          TEXT NOT NULL,
+                content            TEXT NOT NULL,
+                previous_value     TEXT,
+                current_value      TEXT,
+                source             TEXT NOT NULL,
+                source_detail      TEXT,
+                previous_record_id INTEGER,
+                created_at         TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_mc_code ON marginal_changes(code);
+            CREATE INDEX IF NOT EXISTS idx_mc_date ON marginal_changes(date);
+            CREATE INDEX IF NOT EXISTS idx_mc_theme ON marginal_changes(theme);
         """)
+
+
+# ---- 边际变化跟踪 ----
+
+def save_marginal_change(
+    date: str, code: str, name: str, theme: str,
+    direction: str, content: str,
+    previous_value: str | None = None,
+    current_value: str | None = None,
+    source: str = "",
+    source_detail: str | None = None,
+    previous_record_id: int | None = None,
+) -> int:
+    with _conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO marginal_changes "
+            "(date, code, name, theme, direction, content, "
+            " previous_value, current_value, source, source_detail, previous_record_id, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (date, code, name, theme, direction, content,
+             previous_value, current_value, source, source_detail, previous_record_id,
+             datetime.now().strftime("%Y-%m-%d %H:%M")),
+        )
+        return cur.lastrowid
+
+
+def get_latest_marginal(code: str, theme: str) -> dict | None:
+    """获取某标的某主题的最新一条边际变化记录，用于构建对比链。"""
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM marginal_changes "
+            "WHERE code = ? AND theme = ? "
+            "ORDER BY date DESC, id DESC LIMIT 1",
+            (code, theme),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def query_marginal_changes(
+    code: str | None = None,
+    theme: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int = 50,
+) -> list[dict]:
+    conditions = []
+    params: list = []
+    if code:
+        conditions.append("code = ?"); params.append(code)
+    if theme:
+        conditions.append("theme = ?"); params.append(theme)
+    if date_from:
+        conditions.append("date >= ?"); params.append(date_from)
+    if date_to:
+        conditions.append("date <= ?"); params.append(date_to)
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    with _conn() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM marginal_changes {where} ORDER BY date DESC, id DESC LIMIT ?",
+            params + [limit],
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_marginal_summary(date: str) -> list[dict]:
+    """某日所有边际变化汇总，按方向分组。"""
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM marginal_changes WHERE date = ? ORDER BY "
+            "CASE direction WHEN '边际下滑' THEN 1 WHEN '边际向好' THEN 2 ELSE 3 END, code",
+            (date,),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 # ---- 题材持久化 ----
