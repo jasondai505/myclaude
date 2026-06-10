@@ -415,6 +415,90 @@ def _inject_primary_synthesis(today: str) -> str:
         return f"（四源交叉验证读取失败: {e}）"
 
 
+def _inject_must_consider() -> str:
+    """ChokeMap 高 FEV 标的强制入池，防 LLM 遗漏。"""
+    try:
+        from daily_review.serenity_kb import init_db, get_stock_scores
+        init_db()
+        stocks = get_stock_scores()
+        if not stocks:
+            return "（ChokeMap 暂无评分数据）"
+        top = sorted(stocks, key=lambda s: s.get("fev_total", 0), reverse=True)[:15]
+        # 补名称（serenity_kb 可能未存 name）
+        try:
+            import data
+            codes = [s["code"] for s in top if not s.get("name")]
+            if codes:
+                quotes = data.fetch_stock_quotes(codes, batch_size=30)
+                for s in top:
+                    if not s.get("name") and s["code"] in quotes:
+                        s["name"] = quotes[s["code"]].get("name", "")
+        except Exception:
+            pass
+        lines = [
+            "以下标的在 ChokeMap 中 FEV 评分靠前，候选池必须覆盖（除非今日有明确反向信号）：",
+            "",
+            "| 代码 | 名称 | FEV | 产业链 | 反向信号检查 |",
+            "|------|------|:---:|--------|-------------|",
+        ]
+        for s in top:
+            if s.get("fev_total", 0) >= 20:
+                lines.append(
+                    f"| {s['code']} | {s['name']} | {s['fev_total']} | "
+                    f"{s.get('chain_name', '')} | □ 无 / □ 有（请填写） |"
+                )
+        return "\n".join(lines) if len(lines) > 4 else "（无 FEV≥20 标的）"
+    except Exception as e:
+        return f"（ChokeMap 读取失败: {e}）"
+
+
+def _inject_yesterday_logic(yesterday: str) -> str:
+    """提取昨日 advice 中候选池的 W1-W5 逻辑，供 LLM 判断是否延续。"""
+    path = BASE / "reports" / f"advice_{yesterday}.md"
+    if not path.exists():
+        return f"（{yesterday} advice 不存在）"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except Exception as e:
+        return f"（昨日 advice 读取失败: {e}）"
+
+    import re
+    stocks = []
+    for m in re.finditer(r"###\s+(?:[^\s]+)?\s*(.+?)\s*\((\d{6})\)", text):
+        name, code = m.group(1).strip(), m.group(2)
+        name = re.sub(r'^[🥇🥈🥉4-9️⃣🔟]\s*', '', name).strip()
+        rest = text[m.end():m.end() + 600]
+        w1 = re.search(r"-\s*\*\*W1\*\*\s*(.+)", rest)
+        w3 = re.search(r"-\s*\*\*W3\*\*\s*(.+)", rest)
+        w4 = re.search(r"-\s*\*\*W4\*\*\s*(.+)", rest)
+        w5 = re.search(r"-\s*\*\*W5\*\*\s*(.+)", rest)
+        fevd_m = re.search(r"FEVΔ\s*\|\s*\*{0,2}(\d+)/40", rest)
+        stocks.append({
+            "name": name, "code": code,
+            "fevd": fevd_m.group(1) if fevd_m else "?",
+            "w1": w1.group(1).strip() if w1 else "",
+            "w3": w3.group(1).strip() if w3 else "",
+            "w4": w4.group(1).strip() if w4 else "",
+            "w5": w5.group(1).strip() if w5 else "",
+        })
+
+    if not stocks:
+        return f"（{yesterday} advice 中无精选标的）"
+
+    lines = [
+        f"昨日（{yesterday}）精选标的及其催化逻辑。请逐只判断：催化是否仍成立？应继续持有/入选还是剔除？",
+        "",
+        "| 代码 | 名称 | 昨日FEVΔ | W1边际信号 | W3预期差 | W4时间窗 | W5风险 | 今日判断 |",
+        "|------|------|:--------:|-----------|---------|---------|--------|---------|",
+    ]
+    for s in stocks[:10]:
+        lines.append(
+            f"| {s['code']} | {s['name']} | {s['fevd']} | "
+            f"{s['w1'][:40]} | {s['w3'][:30]} | {s['w4'][:25]} | {s['w5'][:25]} | □继续 / □剔除 |"
+        )
+    return "\n".join(lines)
+
+
 def _inject_fev_table() -> str:
     """注入所有已评分标的的 FEV 查询表（serenity + feval 合并）。"""
     fev_rows: dict[str, dict] = {}
@@ -929,6 +1013,8 @@ def main():
     jiuyang = _inject_jiuyang(today)
     weibo = _inject_weibo(today)
     primary_synthesis = _inject_primary_synthesis(today)
+    must_consider = _inject_must_consider()
+    yesterday_logic = _inject_yesterday_logic(yesterday)
     feeds["%%JIUYANG%%"] = jiuyang
     feeds["%%WEIBO%%"] = weibo
     feeds["%%PRIMARY_SYNTHESIS%%"] = primary_synthesis
@@ -968,6 +1054,8 @@ def main():
         .replace("%%JIUYANG%%", jiuyang)
         .replace("%%WEIBO%%", weibo)
         .replace("%%PRIMARY_SYNTHESIS%%", primary_synthesis)
+        .replace("%%MUST_CONSIDER%%", must_consider)
+        .replace("%%YESTERDAY_LOGIC%%", yesterday_logic)
         .replace("%%FEV_TABLE%%", fev_table)
     )
     for key, val in feeds.items():
