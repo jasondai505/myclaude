@@ -773,6 +773,30 @@ def init_feeds_tables():
             );
             CREATE INDEX IF NOT EXISTS idx_finind_code ON financial_indicators(code);
             CREATE INDEX IF NOT EXISTS idx_finind_date ON financial_indicators(report_date);
+
+            CREATE TABLE IF NOT EXISTS jiuyang_reports (
+                id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                pub_date TEXT NOT NULL,
+                title    TEXT NOT NULL,
+                pdf_url  TEXT,
+                content  TEXT,
+                themes   TEXT DEFAULT '[]',
+                stocks   TEXT DEFAULT '[]',
+                fetched_at TEXT DEFAULT (datetime('now','localtime')),
+                UNIQUE(pub_date)
+            );
+            CREATE INDEX IF NOT EXISTS idx_jiuyang_date ON jiuyang_reports(pub_date);
+
+            CREATE TABLE IF NOT EXISTS weibo_posts (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                post_id     TEXT NOT NULL UNIQUE,
+                created_at  TEXT,
+                text        TEXT,
+                reposts_count INTEGER DEFAULT 0,
+                verdict     TEXT,
+                fetched_at  TEXT DEFAULT (datetime('now','localtime'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_weibo_date ON weibo_posts(created_at);
         """)
         try:
             conn.execute("ALTER TABLE wechat_articles ADD COLUMN analyzed_at TEXT")
