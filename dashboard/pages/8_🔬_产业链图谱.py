@@ -7,6 +7,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import streamlit as st
 import pandas as pd
 
+_ECHARTS_JS = (Path(__file__).parent.parent / "echarts.min.js").read_text(encoding="utf-8")
+
 from dashboard.utils.data_bridge import (
     get_bom_chain_list, get_serenity_chain_detail, get_serenity_chain_summary,
     get_stock_fev_history, get_stocks_quotes_batch, get_segment_cross_chains,
@@ -248,7 +250,7 @@ cross_graph_json = json.dumps(cross_graph, ensure_ascii=False) if cross_graph el
 
 html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8">
-<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<script>{_ECHARTS_JS}</script>
 <style>
   body{{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;}}
   #chart{{width:100%;height:650px;}}
