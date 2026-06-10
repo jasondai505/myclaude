@@ -184,10 +184,24 @@ def run(since: date, until: date,
             by_date[d] = []
         by_date[d].append(post)
 
+    # 跳过今天已有 feed 文件的（避免重复下载）
+    today_feed = feed_md_path(SOURCE_NAME, until)
+    if today_feed.exists() and today_feed.stat().st_size > 500:
+        progress(f"今日 feed 已存在 ({today_feed.stat().st_size} bytes)，跳过")
+        store.upsert_collect_status(SOURCE_NAME, fmt_iso(until), "ok",
+                                    f"已缓存 ({len(posts)} 帖子)", 0)
+        return {"last_date": fmt_iso(until), "added": 0, "status": "ok",
+                "message": "feed already exists"}
+
     seen_urls = set()
     all_contents: list[dict] = []
 
     for d_str, day_posts in sorted(by_date.items()):
+        # 跳过已有 feed 的日期
+        day_feed = feed_md_path(SOURCE_NAME, date.fromisoformat(d_str))
+        if day_feed.exists() and day_feed.stat().st_size > 500:
+            progress(f"  {d_str} feed 已存在，跳过")
+            continue
         for post in day_posts:
             for pdf in post["pdfs"]:
                 url = pdf["url"]
