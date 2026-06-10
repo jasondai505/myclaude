@@ -308,6 +308,22 @@ def _inject_supply_chain_intel(today: str) -> str:
         return f"（晨间情报读取失败: {e}）"
 
 
+def _inject_intel_dimensions(today: str) -> str:
+    """注入五维信号预处理结果。暂为占位，后续由 _preprocess_intel.py 产出。"""
+    path = BASE / "reports" / "feeds" / f"intel_dimensions_{today}.md"
+    if not path.exists():
+        return ("（五维信号预处理模块待上线。请从 %%ZSXQ%% / %%NEWS%% / %%INDUSTRY%% / "
+                "%%ANNOUNCEMENTS%% 中自行按五维框架提取：①边际变化与催化 ②供需缺口与价格弹性 "
+                "③核心预期差 ④业绩兑现时间窗 ⑤风险排雷）")
+    try:
+        content = path.read_text(encoding="utf-8")
+        if len(content) > MAX_DIRECT_CHARS * 3:
+            content = content[:MAX_DIRECT_CHARS * 3] + "\n...(truncated)"
+        return content
+    except Exception as e:
+        return f"（五维信号读取失败: {e}）"
+
+
 def _validate_index_claims(output: str, us_indices_json: str) -> str:
     """校验 LLM 输出中的指数涨跌幅声明，与注入的真实数据比对，不匹配时自动修正。"""
     try:
@@ -502,6 +518,7 @@ def main():
     bom_ctx = _inject_bom_context()
     supply_chain = _inject_supply_chain_intel(today)
     serenity_ctx = _inject_serenity_context()
+    intel_dims = _inject_intel_dimensions(today)
 
     prompt = (tpl
         .replace("%%TODAY%%", today)
@@ -517,6 +534,7 @@ def main():
         .replace("%%BOM_CONTEXT%%", bom_ctx)
         .replace("%%SUPPLY_CHAIN_INTEL%%", supply_chain)
         .replace("%%SERENITY_TOP%%", serenity_ctx)
+        .replace("%%INTEL_DIMENSIONS%%", intel_dims)
     )
     for key, val in feeds.items():
         prompt = prompt.replace(key, val)
