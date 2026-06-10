@@ -47,6 +47,8 @@ _COLLECTOR_IMPORTS = {
     "industry": "industry_research",
     "financials": "financials",
     "wechat": "wechat",
+    "jiuyang": "jiuyang",
+    "weibo": "weibo",
 }
 
 ALL_SOURCES = {}
@@ -70,6 +72,8 @@ SOURCE_LABELS = {
     "industry": "行业研报",
     "financials": "财务指标",
     "wechat": "微信公众号",
+    "jiuyang": "韭研脱水研报",
+    "weibo": "唐史主任微博",
 }
 
 SOURCE_TABLE = {
@@ -85,6 +89,8 @@ SOURCE_TABLE = {
     "industry": ("industry_research", "publish_date"),
     "financials": ("financial_indicators", "fetched_at"),
     "wechat": ("wechat_articles", "pub_date"),
+    "jiuyang": ("jiuyang_reports", "pub_date"),
+    "weibo": ("weibo_posts", "created_at"),
 }
 
 
@@ -191,6 +197,7 @@ COLLECTOR_TIMEOUTS = {
     "zsxq": 300, "announcements": 180, "news": 180, "research": 240,
     "interactions": 300, "earnings": 120, "surveys": 240, "lockups": 120,
     "eps": 240, "industry": 120, "financials": 180, "wechat": 120,
+    "jiuyang": 600, "weibo": 180,
 }
 DEFAULT_TIMEOUT = 180
 

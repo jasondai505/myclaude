@@ -38,7 +38,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
     },
     "pre": {
         "name": "盘前流水线",
-        "desc": "监控 → 采集 → 公众号 → 摘要 → 追踪 → 解读 → 建议",
+        "desc": "监控 → 采集(含韭研+微博) → 公众号 → 摘要 → 追踪 → 四源验证 → 解读 → FEVΔ → 建议",
         "trigger": "05:00 盘前",
         "steps": [
             {"id": "health", "name": "系统健康检查", "cmd": "python daily_review/health_check.py"},
@@ -46,6 +46,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
             {"id": "wechat", "name": "公众号分析", "cmd": "python daily_review/analyze_wechat.py"},
             {"id": "summary", "name": "复盘摘要", "cmd": "python daily_review/review_summary.py"},
             {"id": "track", "name": "推荐追踪", "cmd": "python daily_review/track_recommendations.py"},
+            {"id": "synthesis", "name": "四源交叉验证", "cmd": "python daily_review/primary_synthesis.py"},
             {"id": "interpret", "name": "盘前解读", "cmd": "python morning_intel/run_morning.py --phase pre"},
             {"id": "feval", "name": "独立FEV评分", "cmd": "python daily_review/feval.py --from-feeds"},
             {"id": "delta", "name": "Δ 边际变化评分", "cmd": "python daily_review/feval.py --update-delta"},

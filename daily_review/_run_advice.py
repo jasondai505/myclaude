@@ -188,7 +188,8 @@ def _extract_codes_from_feeds(feeds: dict[str, str]) -> set[str]:
     codes = set()
     for key in ("%%RECAP%%", "%%REVIEW_SUMMARY%%", "%%ZSXQ%%",
                 "%%WECHAT_ANALYSIS%%", "%%NEWS%%", "%%INDUSTRY%%",
-                "%%SUPPLY_CHAIN_INTEL%%"):
+                "%%SUPPLY_CHAIN_INTEL%%", "%%JIUYANG%%", "%%WEIBO%%",
+                "%%PRIMARY_SYNTHESIS%%"):
         text = feeds.get(key, "")
         codes.update(re.findall(r"\b(\d{6})\b", text))
     return codes
@@ -370,6 +371,48 @@ def _inject_intel_dimensions(today: str) -> str:
         return content
     except Exception as e:
         return f"（五维信号读取失败: {e}）"
+
+
+def _inject_jiuyang(today: str) -> str:
+    """注入韭研公社脱水研报。"""
+    path = BASE / "reports" / "feeds" / f"jiuyang_{today}.md"
+    if not path.exists():
+        return ("（韭研脱水研报暂未生成，请关注 wayzhang007 主页 "
+                "https://www.jiuyangongshe.com/u/42ba01f7cc33451ea0ee10c83b4941eb ）")
+    try:
+        content = path.read_text(encoding="utf-8")
+        if len(content) > MAX_DIRECT_CHARS * 3:
+            content = content[:MAX_DIRECT_CHARS * 3] + "\n...(truncated)"
+        return content
+    except Exception as e:
+        return f"（韭研脱水研报读取失败: {e}）"
+
+
+def _inject_weibo(today: str) -> str:
+    """注入唐史主任司马迁微博分析。"""
+    path = BASE / "reports" / "feeds" / f"weibo_{today}.md"
+    if not path.exists():
+        return "（唐史微博暂未更新，今日无新帖或采集未运行）"
+    try:
+        content = path.read_text(encoding="utf-8")
+        if len(content) > MAX_DIRECT_CHARS:
+            content = content[:MAX_DIRECT_CHARS] + "\n...(truncated)"
+        return content
+    except Exception as e:
+        return f"（唐史微博读取失败: {e}）"
+
+
+def _inject_primary_synthesis(today: str) -> str:
+    """注入四源交叉验证结果。"""
+    path = BASE / "reports" / "feeds" / f"primary_synthesis_{today}.md"
+    if not path.exists():
+        return ("（四源交叉验证暂未生成。请从 %%ZSXQ%% / %%WECHAT_ANALYSIS%% / %%JIUYANG%% / %%WEIBO%% "
+                "中自行交叉参考，找多源共识主题和分歧点）")
+    try:
+        content = path.read_text(encoding="utf-8")
+        return content
+    except Exception as e:
+        return f"（四源交叉验证读取失败: {e}）"
 
 
 def _inject_fev_table() -> str:
@@ -879,12 +922,18 @@ def main():
     feeds = _inject_feeds(today, yesterday)
     wechat_analysis = _inject_wechat_analysis(today)
     feeds["%%WECHAT_ANALYSIS%%"] = wechat_analysis
-    codes = _extract_codes_from_feeds(feeds)
-    stock_ctx = _inject_stock_context(codes)
     bom_ctx = _inject_bom_context()
     supply_chain = _inject_supply_chain_intel(today)
     serenity_ctx = _inject_serenity_context()
     intel_dims = _inject_intel_dimensions(today)
+    jiuyang = _inject_jiuyang(today)
+    weibo = _inject_weibo(today)
+    primary_synthesis = _inject_primary_synthesis(today)
+    feeds["%%JIUYANG%%"] = jiuyang
+    feeds["%%WEIBO%%"] = weibo
+    feeds["%%PRIMARY_SYNTHESIS%%"] = primary_synthesis
+    codes = _extract_codes_from_feeds(feeds)
+    stock_ctx = _inject_stock_context(codes)
 
     # 盘前先跑 FEV + Δ 评分，确保候选池有数据可查
     print("  [PRE] 盘前 FEV/Δ 评分...")
@@ -916,6 +965,9 @@ def main():
         .replace("%%SUPPLY_CHAIN_INTEL%%", supply_chain)
         .replace("%%SERENITY_TOP%%", serenity_ctx)
         .replace("%%INTEL_DIMENSIONS%%", intel_dims)
+        .replace("%%JIUYANG%%", jiuyang)
+        .replace("%%WEIBO%%", weibo)
+        .replace("%%PRIMARY_SYNTHESIS%%", primary_synthesis)
         .replace("%%FEV_TABLE%%", fev_table)
     )
     for key, val in feeds.items():

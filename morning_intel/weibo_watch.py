@@ -94,7 +94,7 @@ def run() -> dict:
 
     posts = _fetch_posts(page=1)
     if not posts:
-        return {"status": "error", "message": "no posts"}
+        return {"status": "error", "message": "no posts", "posts_data": []}
 
     # 首次运行只设基线
     last_post_id = state.get("last_post_id")
@@ -107,7 +107,7 @@ def run() -> dict:
         state["last_check"] = now.isoformat()
         _save_state(state)
         print(f"[weibo] baseline set, {len(posts)} posts, last_id: {latest_id}")
-        return {"status": "ok", "new_posts": 0, "pushed": False}
+        return {"status": "ok", "new_posts": 0, "pushed": False, "posts_data": []}
 
     # Diff by post ID (reliable, no timezone issues)
     new_posts = [p for p in posts if int(p.get("id", 0)) > last_post_id]
@@ -118,7 +118,7 @@ def run() -> dict:
     _save_state(state)
 
     if not new_posts:
-        return {"status": "ok", "new_posts": 0, "pushed": False}
+        return {"status": "ok", "new_posts": 0, "pushed": False, "posts_data": []}
 
     print(f"[weibo] {len(new_posts)} new posts")
     posts_text = "\n---\n".join(_format_post(p) for p in new_posts)
@@ -128,11 +128,27 @@ def run() -> dict:
     pushed = False
     if verdict:
         content = f"**唐史主任司马迁** {len(new_posts)}条新帖\n\n> {verdict[:300]}"
-        pushed = push(f"🐦 微博情报", content)
+        pushed = push(f"微博情报", content)
         if pushed:
             print(f"[weibo] pushed: {verdict[:80]}")
 
-    return {"status": "ok", "new_posts": len(new_posts), "pushed": pushed}
+    posts_data = [
+        {
+            "created_at": p.get("created_at", ""),
+            "text": _clean_html(p.get("text_raw", p.get("text", ""))),
+            "reposts_count": p.get("reposts_count", 0),
+            "id": p.get("id", ""),
+        }
+        for p in new_posts
+    ]
+
+    return {
+        "status": "ok",
+        "new_posts": len(new_posts),
+        "pushed": pushed,
+        "verdict": verdict,
+        "posts_data": posts_data,
+    }
 
 
 if __name__ == "__main__":
