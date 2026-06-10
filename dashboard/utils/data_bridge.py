@@ -275,14 +275,12 @@ def get_marginal_summary(date_str: str = "") -> dict[str, Any]:
             current_section = ""
         elif line.startswith("|") and current_section in ("up", "down") and "代码" not in line:
             parts = [p.strip() for p in line.split("|") if p.strip()]
-            if len(parts) >= 5:
+            if len(parts) >= 5 and not parts[0].startswith("-"):
                 entry = {"code": parts[0], "name": parts[1], "theme": parts[2], "desc": parts[3][:80]}
-                if current_section == "up":
+                if current_section == "up" and len(result["up_changes"]) < 8:
                     result["up_changes"].append(entry)
-                else:
+                elif current_section == "down" and len(result["down_changes"]) < 5:
                     result["down_changes"].append(entry)
-        if len(result["up_changes"]) >= 8 and len(result["down_changes"]) >= 5:
-            break
 
     return result
 
