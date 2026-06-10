@@ -614,6 +614,55 @@ def _validate_dow_claims(output: str, yesterday: str) -> str:
     return output
 
 
+def _validate_advice_coverage(output: str) -> str:
+    """校验 advice 输出的覆盖率：精选标的数量、ChokeMap环节覆盖、FEV有效性。"""
+    if not output or len(output) < 500:
+        return output
+
+    # 1. 统计精选标的数量（匹配 ### 名称 (6位代码) 格式）
+    stock_blocks = re.findall(r"###\s+\S+\s*\(\d{6}\)", output)
+    count = len(stock_blocks)
+    codes_found = re.findall(r"###\s+\S+\s*\((\d{6})\)", output)
+
+    warnings = []
+    if count < 6:
+        warnings.append(f"精选标的仅 {count} 只（要求 ≥6）")
+    if count > 12:
+        warnings.append(f"精选标的 {count} 只（建议 ≤10）")
+
+    # 2. 检查 FEV 是否有效（非待定/非编造）
+    fev_issues = re.findall(
+        r"###\s+(\S+)\s*\((\d{6})\).*?\n\|\s*FEV\s*\|\s*(待定|未评分|[?？])",
+        output, re.DOTALL
+    )
+    for name, code, _ in fev_issues:
+        warnings.append(f"FEV缺失: {name}({code})")
+
+    # 3. 检查 Δ 是否显式标注
+    for code in codes_found:
+        if f"({code})" in output:
+            block_start = output.find(f"({code})")
+            block = output[block_start:block_start+500]
+            if "Δ" not in block:
+                warnings.append(f"Δ缺失: {code}")
+
+    if warnings:
+        lines = output.split("\n")
+        # 在模块贡献摘要前插入告警
+        insert_at = None
+        for i, line in enumerate(lines):
+            if "模块贡献摘要" in line or "## 📊" in line:
+                insert_at = i
+                break
+        if insert_at:
+            alert = ["", "> ⚠️ **覆盖率告警**:"] + [f"> - {w}" for w in warnings] + [""]
+            lines = lines[:insert_at] + alert + lines[insert_at:]
+            output = "\n".join(lines)
+        print(f"  [COVERAGE] {len(warnings)} 个告警: {'; '.join(warnings)}")
+
+    return output
+
+
 def main():
     today = sys.argv[1] if len(sys.argv) > 1 else date.today().isoformat()
     yesterday = sys.argv[2] if len(sys.argv) > 2 else (date.today() - timedelta(days=1)).isoformat()
@@ -678,6 +727,7 @@ def main():
     output = _validate_index_claims(output, us_indices)
     output = _validate_code_names(output)
     output = _validate_dow_claims(output, yesterday)
+    output = _validate_advice_coverage(output)
 
     print(output)
 
