@@ -195,7 +195,7 @@ def _extract_codes_from_feeds(feeds: dict[str, str]) -> set[str]:
 
 
 def _inject_stock_context(codes: set[str]) -> str:
-    """获取个股关键数据（市值/PE/板块），构建防幻觉上下文。"""
+    """获取个股关键数据（市值/PE/FEV），构建防幻觉上下文。"""
     if not codes:
         return "{}"
 
@@ -209,14 +209,34 @@ def _inject_stock_context(codes: set[str]) -> str:
     except Exception:
         return json.dumps({"error": "行情获取失败"}, ensure_ascii=False)
 
+    fev_map = {}
+    try:
+        from daily_review.serenity_kb import init_db, get_stock_scores
+        init_db()
+        for s in get_stock_scores():
+            code = s.get("code", "")
+            if code:
+                fev_map[code] = {
+                    "f": s.get("f_score", 0), "e": s.get("e_score", 0),
+                    "v": s.get("v_score", 0), "fev": s.get("fev_total", 0),
+                    "chain": s.get("chain_name", ""),
+                }
+    except Exception:
+        pass
+
     ctx = {}
     for code, q in quotes.items():
+        fv = fev_map.get(code, {})
         ctx[code] = {
             "name": q.get("name", ""),
             "mcap_yi": round(q.get("mcap_yi", 0) or 0),
             "pe_ttm": round(q.get("pe_ttm", 0) or 0, 1),
             "chg_pct": round(q.get("change_pct", 0) or 0, 2),
             "amount_yi": round((q.get("amount_wan", 0) or 0) / 10000, 1),
+            "fev": fv.get("fev", 0),
+            "f_score": fv.get("f", 0), "e_score": fv.get("e", 0),
+            "v_score": fv.get("v", 0),
+            "serenity_chain": fv.get("chain", ""),
         }
     return json.dumps(ctx, ensure_ascii=False, indent=2)
 

@@ -86,10 +86,12 @@
 %%OVERSEAS_MAP%%
 ```
 
-**个股关键数据（REAL DATA — API 实时拉取，用于大小盘/估值判断，勿修改）**
+**个股关键数据（REAL DATA — API 实时拉取，含 FEV 评分，勿修改）**
 ```json
 %%STOCK_CONTEXT%%
 ```
+> 每个标的含: name / mcap_yi(亿) / pe_ttm / chg_pct / fev / f_score / e_score / v_score / serenity_chain。
+> FEV 数据来自 Serenity 产业链卡脖子知识库，FEV=0 表示该标的不在已分析的卡脖子产业链中。
 
 **Serenity 产业链卡脖子地图（全球供应链反推 → A股映射 — 哪些环节是主战场）**
 ```
