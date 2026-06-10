@@ -107,7 +107,16 @@ def run() -> dict:
         state["last_check"] = now.isoformat()
         _save_state(state)
         print(f"[weibo] baseline set, {len(posts)} posts, last_id: {latest_id}")
-        return {"status": "ok", "new_posts": 0, "pushed": False, "posts_data": []}
+        posts_data = [
+            {
+                "created_at": p.get("created_at", ""),
+                "text": _clean_html(p.get("text_raw", p.get("text", ""))),
+                "reposts_count": p.get("reposts_count", 0),
+                "id": p.get("id", ""),
+            }
+            for p in posts
+        ]
+        return {"status": "ok", "new_posts": len(posts), "pushed": False, "posts_data": posts_data}
 
     # Diff by post ID (reliable, no timezone issues)
     new_posts = [p for p in posts if int(p.get("id", 0)) > last_post_id]
