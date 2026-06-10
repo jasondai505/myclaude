@@ -370,6 +370,17 @@ def save_delta_scores(scores: list[dict]):
 def get_delta_scores(codes: list[str] | None = None, date_str: str = "") -> dict[str, dict]:
     d = date_str or _today()
     with _conn() as conn:
+        # 如果指定日期没有数据，回退到最新可用日期
+        exists = conn.execute(
+            "SELECT COUNT(*) FROM stock_delta WHERE date=?", (d,)
+        ).fetchone()[0]
+        if not exists and not date_str:
+            latest = conn.execute(
+                "SELECT MAX(date) FROM stock_delta"
+            ).fetchone()[0]
+            if latest:
+                d = latest
+
         if codes:
             placeholders = ",".join("?" * len(codes))
             rows = conn.execute(
@@ -436,7 +447,7 @@ def score_delta_from_feeds(date_str: str = "") -> list[dict]:
     # 获取行情（用于获取名称）
     try:
         import data
-        codes_list = sorted(codes_found)[:80]  # 限制80只，避免token过多
+        codes_list = sorted(codes_found)[:120]  # 限制120只
         quotes = data.fetch_stock_quotes(codes_list, batch_size=30)
     except Exception:
         print("  delta: 行情获取失败")
@@ -453,22 +464,26 @@ def score_delta_from_feeds(date_str: str = "") -> list[dict]:
     combined_feeds = "\n".join(feed_texts)
     prompt = DELTA_PROMPT.format(feed_text=combined_feeds[:12000])
 
-    try:
-        resp = client.messages.create(
-            model=MODEL,
-            max_tokens=4000,
-            messages=[{"role": "user", "content": prompt}],
-            thinking={"type": "disabled"},
-            timeout=120,
-        )
-        parts = []
-        for block in resp.content:
-            if hasattr(block, "text") and block.text:
-                parts.append(block.text)
-        text = "\n".join(parts)
-    except Exception as e:
-        print(f"  delta: API error: {e}")
-        return []
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            resp = client.messages.create(
+                model=MODEL,
+                max_tokens=4000,
+                messages=[{"role": "user", "content": prompt}],
+                thinking={"type": "disabled"},
+                timeout=120,
+            )
+            parts = []
+            for block in resp.content:
+                if hasattr(block, "text") and block.text:
+                    parts.append(block.text)
+            text = "\n".join(parts)
+            break
+        except Exception as e:
+            print(f"  delta: API error (attempt {attempt}/{MAX_RETRIES}): {e}")
+            if attempt < MAX_RETRIES:
+                continue
+            return []
 
     # 解析
     json_match = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", text, re.DOTALL)
