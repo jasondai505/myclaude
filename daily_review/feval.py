@@ -80,6 +80,19 @@ def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_feval_code ON feval_scores(code);
             CREATE INDEX IF NOT EXISTS idx_feval_date ON feval_scores(date);
+
+            CREATE TABLE IF NOT EXISTS stock_delta (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                code      TEXT NOT NULL,
+                name      TEXT NOT NULL,
+                date      TEXT NOT NULL,
+                delta_score INTEGER DEFAULT 0,
+                signal    TEXT DEFAULT '',
+                source    TEXT DEFAULT '',
+                UNIQUE(code, date)
+            );
+            CREATE INDEX IF NOT EXISTS idx_delta_code ON stock_delta(code);
+            CREATE INDEX IF NOT EXISTS idx_delta_date ON stock_delta(date);
         """)
 
 
@@ -313,6 +326,191 @@ def score_from_feeds(date_str: str = "") -> list[dict]:
 
 
 # ============================================================
+# Delta scoring (边际变化评分)
+# ============================================================
+
+DELTA_PROMPT = """你是A股事件驱动分析师。从以下今日信息源中，**找出每一个被提及且有任何边际信号的标的**，标注其边际变化方向和烈度。
+
+Δ 评分标准 (-10 ~ +10):
+  +8~10: 产业级利好 (国家级政策、百亿级订单、技术路线确立、IPO过会、龙头企业涨价函、海外巨头锁货)
+  +5~7:  个股级重大利好 (签订大额合同、涨价落地、突破量产、大客户导入、机构大幅上调盈利预测、实控人增持)
+  +3~4:  明确利好 (产能释放、新品发布、行业数据向好、子公司业绩爆发)
+  +1~2:  边际改善 (调研密度上升、机构首次覆盖、行业情绪回暖、Q2展望积极)
+  0:     被提及但无实质增量信号（默认值，不输出）
+  -1~2:  边际走弱 (股东减持(非为扩产)、需求弱于预期、竞争加剧)
+  -3~4:  明确利空 (业绩miss、客户流失、价格战、核心人员离职)
+  -5~7:  重大利空 (大客户砍单、技术路线被替代、业绩大幅下调、监管处罚)
+  -8~10: 逻辑证伪 (政策转向、核心专利丧失、财务造假、退市风险)
+
+**重要**: 只要信息源中提到了某标的且伴随任何利多/利空信息，就应该输出。不要只挑最重磅的——所有有信号的标的都要输出。涨价、签单、扩产、突破、增持、政策受益都算信号。
+
+信息源:
+{feed_text}
+
+输出格式 (JSON):
+```json
+[{{"code":"xxxxxx","name":"xxx","delta":±X,"signal":"一句话总结边际变化","source":"星球/公告/研报/公众号"}}]
+```
+delta 必须是整数 -10~10。至少输出 5 个标的，尽可能覆盖所有有信号的标的。
+"""
+
+
+def save_delta_scores(scores: list[dict]):
+    with _conn() as conn:
+        for s in scores:
+            conn.execute(
+                """INSERT OR REPLACE INTO stock_delta
+                   (code, name, date, delta_score, signal, source)
+                   VALUES (?,?,?,?,?,?)""",
+                (s["code"], s["name"], s.get("date", _today()),
+                 s.get("delta_score", 0), s.get("signal", ""), s.get("source", "")),
+            )
+
+
+def get_delta_scores(codes: list[str] | None = None, date_str: str = "") -> dict[str, dict]:
+    d = date_str or _today()
+    with _conn() as conn:
+        if codes:
+            placeholders = ",".join("?" * len(codes))
+            rows = conn.execute(
+                f"SELECT * FROM stock_delta WHERE code IN ({placeholders}) AND date=?",
+                codes + [d],
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM stock_delta WHERE date=?", (d,)
+            ).fetchall()
+        return {r["code"]: dict(r) for r in rows}
+
+
+def score_delta_from_feeds(date_str: str = "") -> list[dict]:
+    """从当天 feeds 提取所有代码的 Δ 评分。"""
+    d = date_str or _today()
+    feeds_dir = BASE / "reports" / "feeds"
+
+    # 收集 feeds
+    feed_texts = []
+    codes_found: set[str] = set()
+    for pattern in ["zsxq_*.md", "news_*.md", "announcements_*.md", "industry_*.md"]:
+        for f in sorted(feeds_dir.glob(pattern)):
+            if d in f.name:
+                try:
+                    text = f.read_text(encoding="utf-8")
+                    feed_texts.append(f"## {f.stem}\n{text[:3000]}")
+                    codes_found.update(re.findall(r"\b(\d{6})\b", text))
+                except Exception:
+                    pass
+
+    # 也加入 wechat_analysis 和 recap
+    for stem, label in [("recap", "昨日回顾"), ("review_summary", "复盘摘要")]:
+        path = feeds_dir / f"{stem}_{d}.md"
+        if path.exists():
+            try:
+                text = path.read_text(encoding="utf-8")
+                feed_texts.append(f"## {label}\n{text[:2000]}")
+                codes_found.update(re.findall(r"\b(\d{6})\b", text))
+            except Exception:
+                pass
+
+    wechat_path = BASE / "reports" / f"wechat_analysis_{d}.md"
+    if wechat_path.exists():
+        try:
+            text = wechat_path.read_text(encoding="utf-8")
+            feed_texts.append(f"## 公众号分析\n{text[:3000]}")
+            codes_found.update(re.findall(r"\b(\d{6})\b", text))
+        except Exception:
+            pass
+
+    if not codes_found:
+        print("  delta: 未从 feeds 中提取到代码")
+        return []
+
+    # 跳过今日已有评分的
+    existing = set(get_delta_scores(date_str=d).keys())
+    if codes_found.issubset(existing):
+        print(f"  delta: {len(codes_found)} 个代码均已评分，跳过")
+        return []
+
+    print(f"  delta: feeds 共 {len(codes_found)} 个代码，{len(codes_found - existing)} 个待评分")
+
+    # 获取行情（用于获取名称）
+    try:
+        import data
+        codes_list = sorted(codes_found)[:80]  # 限制80只，避免token过多
+        quotes = data.fetch_stock_quotes(codes_list, batch_size=30)
+    except Exception:
+        print("  delta: 行情获取失败")
+        return []
+
+    api_key = _load_api_key()
+    if not api_key:
+        print("  [WARN] delta: 无 API key，跳过")
+        return []
+
+    from anthropic import Anthropic
+    client = Anthropic(api_key=api_key, base_url="https://api.deepseek.com/anthropic")
+
+    combined_feeds = "\n".join(feed_texts)
+    prompt = DELTA_PROMPT.format(feed_text=combined_feeds[:12000])
+
+    try:
+        resp = client.messages.create(
+            model=MODEL,
+            max_tokens=4000,
+            messages=[{"role": "user", "content": prompt}],
+            thinking={"type": "disabled"},
+            timeout=120,
+        )
+        parts = []
+        for block in resp.content:
+            if hasattr(block, "text") and block.text:
+                parts.append(block.text)
+        text = "\n".join(parts)
+    except Exception as e:
+        print(f"  delta: API error: {e}")
+        return []
+
+    # 解析
+    json_match = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", text, re.DOTALL)
+    if not json_match:
+        json_match = re.search(r"(\[.*?\])", text, re.DOTALL)
+    if not json_match:
+        print(f"  delta: 无法解析 JSON，原文前200字: {text[:200]}")
+        return []
+
+    try:
+        raw = json.loads(json_match.group(1))
+    except json.JSONDecodeError as e:
+        print(f"  delta: JSON 解析失败: {e}")
+        return []
+
+    name_map = {code: q.get("name", "") for code, q in quotes.items()}
+    results = []
+    for item in raw:
+        code = str(item.get("code", "")).strip()
+        if code not in name_map:
+            continue
+        ds = max(-10, min(10, int(item.get("delta", 0) or 0)))
+        results.append({
+            "code": code,
+            "name": name_map[code],
+            "date": d,
+            "delta_score": ds,
+            "signal": str(item.get("signal", "") or "")[:120],
+            "source": str(item.get("source", "") or "feeds")[:40],
+        })
+
+    if results:
+        save_delta_scores(results)
+        for r in sorted(results, key=lambda x: -abs(x["delta_score"]))[:10]:
+            sign = "+" if r["delta_score"] >= 0 else ""
+            print(f"  Δ {sign}{r['delta_score']:d} {r['code']} {r['name']}: {r['signal'][:50]}")
+        print(f"  delta: 已保存 {len(results)} 个评分")
+
+    return results
+
+
+# ============================================================
 # CLI
 # ============================================================
 
@@ -325,6 +523,8 @@ def _main():
                    help="从当天 feeds 提取代码并评分 (日期可选)")
     p.add_argument("--list", type=str, nargs="?", const=_today(),
                    help="列出评分 (日期可选)")
+    p.add_argument("--update-delta", type=str, nargs="?", const=_today(),
+                   help="更新今日 Δ 边际变化评分 (日期可选)")
     args = p.parse_args()
 
     if args.init:
@@ -361,6 +561,9 @@ def _main():
 
     elif args.from_feeds:
         score_from_feeds(args.from_feeds)
+
+    elif args.update_delta:
+        score_delta_from_feeds(args.update_delta)
 
     elif args.list:
         scores = list_scores(args.list)

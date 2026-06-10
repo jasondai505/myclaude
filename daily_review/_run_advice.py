@@ -238,9 +238,18 @@ def _inject_stock_context(codes: set[str]) -> str:
     except Exception:
         pass
 
+    # 从 feval 取 Δ（边际变化评分）
+    delta_map = {}
+    try:
+        from daily_review.feval import get_delta_scores as feval_get_delta
+        delta_map = feval_get_delta()
+    except Exception:
+        pass
+
     ctx = {}
     for code, q in quotes.items():
         fv = fev_map.get(code, {})
+        d = delta_map.get(code, {})
         ctx[code] = {
             "name": q.get("name", ""),
             "mcap_yi": round(q.get("mcap_yi", 0) or 0),
@@ -250,6 +259,8 @@ def _inject_stock_context(codes: set[str]) -> str:
             "fev": fv.get("fev", 0),
             "f_score": fv.get("f", 0), "e_score": fv.get("e", 0),
             "v_score": fv.get("v", 0),
+            "delta": d.get("delta_score", 0) if d else 0,
+            "delta_signal": d.get("signal", "") if d else "",
             "serenity_chain": fv.get("chain", ""),
             "fev_source": fv.get("source", ""),
         }
@@ -387,16 +398,27 @@ def _inject_fev_table() -> str:
     except Exception:
         pass
 
-    if not fev_rows:
-        return "（FEV 评分数据暂未生成）"
+    delta_map = {}
+    try:
+        from daily_review.feval import get_delta_scores as feval_get_delta
+        delta_map = feval_get_delta()
+    except Exception:
+        pass
 
-    lines = ["| 代码 | 名称 | F | E | V | FEV | 来源 |",
-             "|------|------|---|---|---|-----|------|"]
+    if not fev_rows and not delta_map:
+        return "（FEV 和 Δ 评分数据暂未生成）"
+
+    lines = ["| 代码 | 名称 | F | E | V | FEV | Δ | FEVΔ | 来源 |",
+             "|------|------|---|---|---|-----|----|------|------|"]
     for code, r in sorted(fev_rows.items(),
                           key=lambda x: -x[1]["fev"]):
+        d = delta_map.get(code, {})
+        ds = d.get("delta_score", 0) if d else 0
+        sign = "+" if ds >= 0 else ""
+        fev = r["fev"]
         lines.append(
             f"| {code} | {r['name']} | {r['f']} | {r['e']} | {r['v']} | "
-            f"{r['fev']} | {r['source']} |"
+            f"{fev} | {sign}{ds} | {fev+ds} | {r['source']} |"
         )
     return "\n".join(lines)
     """注入五维信号预处理结果。暂为占位，后续由 _preprocess_intel.py 产出。"""
