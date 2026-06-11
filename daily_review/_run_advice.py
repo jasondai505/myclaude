@@ -5,7 +5,7 @@ import json
 import os
 import re
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from anthropic import Anthropic
@@ -1118,6 +1118,8 @@ def main():
     print(output)
 
     if output.strip() and len(output) > 500:
+        now_ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+        output = f"# 盘前建议 {today} {datetime.now().strftime('%H:%M')}\n\n> 生成时间: {now_ts}\n\n{output}"
         advice_path.write_text(output, encoding="utf-8")
         print("[INFO] advice saved from stdout")
     elif output.strip():

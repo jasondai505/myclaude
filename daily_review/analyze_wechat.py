@@ -14,7 +14,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 import re
 import sys
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -336,12 +336,27 @@ def _write_report(data: dict, single_results: list[dict],
     nm = _build_name_map(single_results, data)
     path = REPORT_DIR / f"wechat_analysis_{today}.md"
     n_feeds = len(set(a.get("feed", "") for a in single_results if a))
+    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M")
     buf = [
-        f"# 公众号深度分析 {today}", "",
-        f"> {len(single_results)} 篇 | {n_feeds} 个号 | {fetched} 篇有正文",
+        f"# 公众号深度分析 {today} {datetime.now().strftime('%H:%M')}", "",
+        f"> {len(single_results)} 篇 | {n_feeds} 个来源 | {fetched} 篇有正文 | 生成于 {now_ts}",
     ]
     if failed:
         buf[-1] += f" | {failed} 篇无正文"
+    buf.append("")
+
+    # 来源概览
+    feed_counts: dict[str, int] = {}
+    for a in single_results:
+        if a:
+            f = a.get("feed", "?")
+            feed_counts[f] = feed_counts.get(f, 0) + 1
+    buf.append("## 来源概览")
+    buf.append("")
+    buf.append("| 来源 | 篇数 |")
+    buf.append("|------|------|")
+    for f, c in sorted(feed_counts.items(), key=lambda x: -x[1]):
+        buf.append(f"| {f} | {c} |")
     buf.append("")
 
     n = data.get("market_narrative", "")
@@ -448,41 +463,52 @@ def _write_report(data: dict, single_results: list[dict],
     if s:
         buf.extend(["## 整体摘要", "", s, ""])
 
-    # 逐篇拆解详情
+    # 逐篇拆解详情（按来源分组）
     buf.append("## 逐篇拆解")
     buf.append("")
-    for i, sr in enumerate(single_results, 1):
-        if not sr:
-            continue
-        feed = sr.get("feed", "?")
-        title = sr.get("title", "?")
-        thesis = sr.get("thesis", "")
-        facts = sr.get("key_facts", [])
-        tickers = sr.get("tickers", [])
-        cat = sr.get("category", "?")
-        score = sr.get("relevance_score", 0)
-        oneliner = sr.get("one_liner", "")
+    feed_order = []
+    for sr in single_results:
+        if sr:
+            f = sr.get("feed", "?")
+            if f not in feed_order:
+                feed_order.append(f)
 
-        buf.append(f"### #{i} [{feed}] {title}")
+    global_idx = 0
+    for feed in feed_order:
+        feed_articles = [(i, a) for i, a in enumerate(single_results) if a and a.get("feed", "?") == feed]
+        buf.append(f"### {feed} ({len(feed_articles)} 篇)")
         buf.append("")
-        buf.append(f"**{cat}** | {'★' * score}{'☆' * (5 - score)}")
-        buf.append("")
-        if thesis:
-            buf.append(f"**论点**: {thesis}")
+        for orig_i, sr in feed_articles:
+            global_idx += 1
+            i = orig_i + 1  # 1-based index matching Sonnet article_indices
+            title = sr.get("title", "?")
+            thesis = sr.get("thesis", "")
+            facts = sr.get("key_facts", [])
+            tickers = sr.get("tickers", [])
+            cat = sr.get("category", "?")
+            score = sr.get("relevance_score", 0)
+            oneliner = sr.get("one_liner", "")
+
+            buf.append(f"### #{i} [{feed}] {title}")
             buf.append("")
-        if facts:
-            for f in facts:
-                buf.append(f"- {f}")
+            buf.append(f"**{cat}** | {'★' * score}{'☆' * (5 - score)}")
             buf.append("")
-        if tickers:
-            buf.append("| 标的 | 关联逻辑 |")
-            buf.append("|------|---------|")
-            for tk in tickers:
-                buf.append(f"| {_fmt_code(tk.get('code',''), nm)} | {tk.get('relevance','')} |")
-            buf.append("")
-        if oneliner:
-            buf.append(f"> {oneliner}")
-            buf.append("")
+            if thesis:
+                buf.append(f"**论点**: {thesis}")
+                buf.append("")
+            if facts:
+                for f in facts:
+                    buf.append(f"- {f}")
+                buf.append("")
+            if tickers:
+                buf.append("| 标的 | 关联逻辑 |")
+                buf.append("|------|---------|")
+                for tk in tickers:
+                    buf.append(f"| {_fmt_code(tk.get('code',''), nm)} | {tk.get('relevance','')} |")
+                buf.append("")
+            if oneliner:
+                buf.append(f"> {oneliner}")
+                buf.append("")
 
     path.write_text("\n".join(buf), encoding="utf-8")
     print(f"\n  报告: {path}")
@@ -495,7 +521,7 @@ def _write_report(data: dict, single_results: list[dict],
 
 def main():
     today = date.today().isoformat()
-    since = (date.today() - timedelta(days=3)).isoformat()
+    since = (date.today() - timedelta(days=14)).isoformat()
 
     print(f"公众号深度分析（两阶段）| {since} ~ {today}")
 
@@ -538,6 +564,8 @@ def main():
         if url.startswith("https://mp.weixin.qq.com"):
             time.sleep(random.uniform(FETCH_DELAY_MIN, FETCH_DELAY_MAX))
             body = _scrape_article(url)
+        else:
+            body = (r.get("description") or "").strip()
         articles_with_body.append({
             "feed": r.get("feed_source", "").strip() or "未分类",
             "date": (r.get("pub_date") or "")[:10],

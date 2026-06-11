@@ -218,6 +218,20 @@ def run(since: date, until: date,
                 })
                 time.sleep(FETCH_DELAY)
 
+    # 写入 wechat_articles 表，统一两阶段 AI 分析
+    if all_contents:
+        article_rows = []
+        for pc in all_contents:
+            article_rows.append({
+                "feed_source": "韭研脱水研报",
+                "title": pc["title"],
+                "url": pc["url"],
+                "pub_date": pc["date"],
+                "description": pc["content"],
+            })
+        db_added = store.save_wechat_articles(article_rows)
+        progress(f"DB 写入 {db_added} 篇（共 {len(article_rows)} 篇）")
+
     # 按日写 feed 文件
     last_ok = None
     for d_str in sorted(set(pc["date"] for pc in all_contents)):

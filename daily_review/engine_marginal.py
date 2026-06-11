@@ -377,8 +377,11 @@ def render_marginal_report(changes: list[dict], today: str | None = None) -> str
     first = [c for c in changes if c["direction"] == "首次记录"]
     flat = [c for c in changes if c["direction"] == "符合预期"]
 
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = [
         f"# 边际变化日报 · {today}",
+        "",
+        f"> 生成时间: {now}",
         "",
         f"> 边际向好 **{len(up)}** · 边际下滑 **{len(down)}** · 首次记录 **{len(first)}** · 符合预期 **{len(flat)}**",
         "",

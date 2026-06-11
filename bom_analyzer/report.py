@@ -1,4 +1,5 @@
 """BOM 产业链分析 — Markdown 报告渲染"""
+from datetime import datetime
 from bom_analyzer.config import REPORT_DIR
 from bom_analyzer.models import BomAnalysisResult, LeaderStock
 
@@ -35,7 +36,8 @@ def _section_overview(lines: list[str], result: BomAnalysisResult):
     ld = len(result.leaders)
     lines.append(f"# {result.industry} · BOM 产业链分析")
     lines.append("")
-    lines.append(f"> 分析日期：{result.date} | 三高赛道：{h3} 个 | 锁定龙头：{ld} 家")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    lines.append(f"> 分析日期：{result.date} | 三高赛道：{h3} 个 | 锁定龙头：{ld} 家 | 生成时间: {now}")
     lines.append("")
 
 
