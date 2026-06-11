@@ -856,6 +856,22 @@ def _build_selection(output: str) -> str:
         next_section = re.search(r"\n(?:###\s|\n##|\n---)", rest)
         block = rest[:next_section.start()] if next_section else rest[:300]
         candidates.append({"code": code, "name": name, "block": block.strip()})
+    # 格式E: **N. 名称 (6位代码)** (数字在粗体内)
+    if not candidates:
+        for m in re.finditer(r"(?:^|\n)\s*\*{2}\d+\.\s*([^*\n]+?)\s*\((\d{6})\)\*{0,2}", pool_text):
+            name, code = m.group(1).strip(), m.group(2)
+            line_start = pool_text.rfind("\n", 0, m.start()) + 1
+            rest = pool_text[line_start:]
+            lines_block = rest.split("\n")
+            block_lines = [lines_block[0]]
+            for ln in lines_block[1:]:
+                if re.match(r"\s*\*{2}\d+\.", ln):
+                    break
+                if ln.strip().startswith("## ") or ln.strip().startswith("---"):
+                    break
+                block_lines.append(ln)
+            candidates.append({"code": code, "name": name, "block": "\n".join(block_lines)})
+
     # 格式D: N. **名称 (6位代码)** (编号列表，LLM 偶尔用)
     if not candidates:
         for m in re.finditer(r"(?:^|\n)\s*\d+\.\s*\*{0,2}([^*\n]+?)\s*\((\d{6})\)", pool_text):
@@ -1621,6 +1637,65 @@ def _scan_recurring_themes(today: str) -> str:
         return f"（周期性主题扫描失败: {e}）"
 
 
+def _diff_chokemap(new_output: str, today: str) -> str:
+    """当日重跑时，对比新旧 ChokeMap 主题变化。"""
+    path = BASE / "reports" / f"advice_{today}.md"
+    if not path.exists():
+        return ""
+
+    try:
+        old_text = path.read_text(encoding="utf-8")
+    except Exception:
+        return ""
+
+    def _extract_themes(text: str) -> list[dict]:
+        themes = []
+        in_chokemap = False
+        for line in text.split("\n"):
+            if "ChokeMap" in line and ("第一层" in line or "在哪打" in line):
+                in_chokemap = True
+                continue
+            if in_chokemap:
+                if line.startswith("## ") or line.startswith("---"):
+                    break
+                # 匹配表格行: | **主题名** | 评分 | ... | 标的列表 |
+                m = re.match(r"\|\s*\*{0,2}(.+?)\*{0,2}\s*\|\s*(\d+)\s*\|", line)
+                if m and not m.group(1).startswith("---") and not m.group(1).startswith("卡脖子"):
+                    name = m.group(1).strip().strip("*")
+                    themes.append({"name": name, "score": int(m.group(2))})
+        return themes
+
+    old_themes = _extract_themes(old_text)
+    new_themes = _extract_themes(new_output)
+
+    if not old_themes or not new_themes:
+        return ""
+
+    old_names = {t["name"] for t in old_themes}
+    new_names = {t["name"] for t in new_themes}
+
+    added = new_names - old_names
+    removed = old_names - new_names
+    kept = old_names & new_names
+
+    if not added and not removed:
+        return ""
+
+    lines = ["", "> ⚠️ **ChokeMap 变化**（较今日前次运行）:", ""]
+    if added:
+        added_str = "、".join(f"「{a}」" for a in added)
+        lines.append(f"> 🆕 **新增战场**: {added_str} — 增量 feeds 中出现新的边际变化信号")
+    if removed:
+        removed_str = "、".join(f"「{r}」" for r in removed)
+        lines.append(f"> 📤 **退出战场**: {removed_str} — 边际变化信号减弱或被更高优先级环节替代")
+    if kept:
+        kept_str = "、".join(f"「{k}」" for k in kept)
+        lines.append(f"> 🔄 **持续战场**: {kept_str} — 边际变化逻辑延续")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
 def main():
     today = sys.argv[1] if len(sys.argv) > 1 else date.today().isoformat()
     yesterday = sys.argv[2] if len(sys.argv) > 2 else (date.today() - timedelta(days=1)).isoformat()
@@ -1718,6 +1793,14 @@ def main():
     output = _validate_index_claims(output, us_indices)
     output = _validate_code_names(output)
     output = _validate_dow_claims(output, yesterday)
+    # ChokeMap 变化说明（当日重跑时对比）
+    chokemap_diff = _diff_chokemap(output, today)
+    if chokemap_diff:
+        marker = "## 🏔️ 第一层：ChokeMap"
+        if marker in output:
+            idx = output.find(marker)
+            nl = output.find("\n", idx)
+            output = output[:nl + 1] + chokemap_diff + "\n" + output[nl + 1:]
     output = _build_selection(output)
     diff_section = _build_daily_diff(output, yesterday, today)
     if diff_section:
