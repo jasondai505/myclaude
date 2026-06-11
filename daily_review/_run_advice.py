@@ -937,6 +937,18 @@ def _build_selection(output: str) -> str:
         codes_str = ",".join(c["code"] for c in missing_delta[:8])
         print(f"  [SELECTION] WARNING {len(missing_delta)}/{len(candidates)} 只缺Δ ({codes_str}...)，Δ=0，盘前应跑 Δ 评分")
 
+    # 解析持有期标签
+    for c in candidates:
+        hp_m = re.search(r"[-*]\s*\*{0,2}持有期\*{0,2}\s*(.+)", c["block"])
+        c["hold_period"] = hp_m.group(1).strip() if hp_m else "未标注"
+        hp = c["hold_period"]
+        if "短线" in hp or "超短" in hp:
+            c["hold_period"] = "短线催化"
+        elif "中线" in hp or "趋势" in hp[:4]:
+            c["hold_period"] = "中线趋势"
+        elif "长线" in hp or "底仓" in hp or "长期" in hp:
+            c["hold_period"] = "长线底仓"
+
     # 计算 FEVΔ，排序
     for c in candidates:
         fv = fev_map.get(c["code"], {})
@@ -951,22 +963,79 @@ def _build_selection(output: str) -> str:
         c["delta_signal"] = d.get("signal", "") if d else ""
         c["fevd"] = c["fev"] + c["delta"]
 
-    candidates.sort(key=lambda x: -x["fevd"])
+    # 连续性加分：昨日精选中催化仍成立的标的，防一日游
+    from datetime import date as _dt, timedelta as _td
+    _yesterday = (_dt.today() - _td(days=1)).isoformat()
+    y_path = BASE / "reports" / f"advice_{_yesterday}.md"
+    yesterday_holds: dict[str, str] = {}  # code -> hold_period
+    if y_path.exists():
+        try:
+            y_text = y_path.read_text(encoding="utf-8")
+            in_table = False
+            for line in y_text.split("\n"):
+                if "精选标的" in line and "🎯" in line:
+                    in_table = True
+                    continue
+                if in_table:
+                    if line.startswith("> 候选池") or line.startswith("<details>"):
+                        break
+                    m = re.search(r"\*\*(.+?)\((\d{6})\)\*\*", line)
+                    if m:
+                        code = m.group(2)
+                        hp_m = re.search(r"\|\s*(短线催化|中线趋势|长线底仓)\s*\|", line)
+                        hp = hp_m.group(1) if hp_m else ""
+                        yesterday_holds[code] = hp
+        except Exception:
+            pass
+
+    for c in candidates:
+        hp = yesterday_holds.get(c["code"], "")
+        if hp == "长线底仓":
+            c["continuity_bonus"] = 5
+        elif hp == "中线趋势":
+            c["continuity_bonus"] = 3
+        elif hp == "短线催化":
+            c["continuity_bonus"] = 1
+        elif hp == "":
+            c["continuity_bonus"] = 2  # 旧格式无持有期标签，默认+2
+        else:
+            c["continuity_bonus"] = 0
+        c["fevd_adjusted"] = c["fevd"] + c["continuity_bonus"]
+
+    candidates.sort(key=lambda x: -x["fevd_adjusted"])
 
     # 取前10
     top10 = candidates[:10]
     rank_emoji = ["🥇", "🥈", "🥉"] + ["4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
 
+    # 时间姿态总览
+    hp_counts = {"短线催化": 0, "中线趋势": 0, "长线底仓": 0}
+    for c in top10:
+        hp = c.get("hold_period", "")
+        if hp in hp_counts:
+            hp_counts[hp] += 1
+    dominant = max(hp_counts, key=hp_counts.get)
+    posture = {
+        "短线催化": "偏短线，适合事件驱动盯盘，持仓 1-5 天",
+        "中线趋势": "偏中线，适合趋势跟随，持仓 1-3 周",
+        "长线底仓": "偏长线，适合底仓配置，持仓 1 月+",
+    }
+    hp_parts = [f"{v}只 {k}" for k, v in hp_counts.items() if v > 0]
+
     lines = ["", "## 🎯 精选标的 — 用谁打", "",
-             "> 由 Python 后端按 **FEVΔ = FEV + Δ** 硬排名，消除 LLM 随机性。", "",
-             "| # | 标的 | FEV | Δ | FEVΔ | 来源 |",
-             "|:--|------|:---:|:--:|:-----:|------|"]
+             f"> ⏱️ **时间姿态**: {' / '.join(hp_parts)} → {posture.get(dominant, '')}",
+             "> 由 Python 后端按 **FEVΔ = FEV + Δ + 连续性加分** 硬排名。延续标的获加分（长线+5/中线+3/短线+1），防一日游。", "",
+             "| # | 标的 | FEV | Δ | 加分 | FEVΔ | 持有期 | 来源 |",
+             "|:--|------|:---:|:--:|:----:|:-----:|:------:|------|"]
     for i, c in enumerate(top10):
         sign = "+" if c["delta"] >= 0 else ""
         ds_str = f"{sign}{c['delta']}" if c["delta"] != 0 else "0"
+        cb = c.get("continuity_bonus", 0)
+        cb_str = f"+{cb}" if cb > 0 else "—"
+        hp = c.get("hold_period", "未标注")
         lines.append(
             f"| {rank_emoji[i]} | **{c['name']}({c['code']})** | "
-            f"{c['fev']} | {ds_str} | **{c['fevd']}** | {c['fev_source']} |"
+            f"{c['fev']} | {ds_str} | {cb_str} | **{c['fevd_adjusted']}** | {hp} | {c['fev_source']} |"
         )
     lines.append("")
     lines.append(f"> 候选池共 {len(candidates)} 只，FEVΔ 范围 {top10[0]['fevd']}~{top10[-1]['fevd']}，"
@@ -983,11 +1052,25 @@ def _build_selection(output: str) -> str:
         lines.append(f"| FEV | {c['fev']} (F={c['f_score']} E={c['e_score']} V={c['v_score']}) · {c['fev_source']} |")
         sign = "+" if c['delta'] >= 0 else ""
         lines.append(f"| Δ | {sign}{c['delta']} · {c['delta_signal'][:60]} |")
-        lines.append(f"| FEVΔ | **{c['fevd']}/40** |")
+        cb = c.get("continuity_bonus", 0)
+        if cb > 0:
+            lines.append(f"| FEVΔ | **{c['fevd']}/40** + 连续性加分 {cb} = **{c['fevd_adjusted']}** |")
+        else:
+            lines.append(f"| FEVΔ | **{c['fevd']}/40** |")
         lines.append(f"| ChokeMap | {chain_str} |")
+        hp = c.get("hold_period", "未标注")
+        # 从 W4 提取时间锚点，与持有期合并展示
+        w4_text = ""
+        w4_m = re.search(r"-\s*\*\*W4\*\*\s*(.+)", c["block"])
+        if w4_m:
+            w4_text = w4_m.group(1).strip()
+        if w4_text:
+            lines.append(f"| ⏱️ 时间锚 | {w4_text} · **{hp}** |")
+        else:
+            lines.append(f"| ⏱️ 时间锚 | **{hp}** |")
         lines.append("")
-        # 附上 LLM 写的 W1-W5 分析（从 block 中提取）
-        for w_tag in ["W1", "W3", "W4", "W5"]:
+        # 附上 LLM 写的 W1/W3/W5 分析（W4 已融入时间锚，跳过）
+        for w_tag in ["W1", "W3", "W5"]:
             m = re.search(rf"-\s*\*\*{w_tag}\*\*\s*(.+)", c["block"])
             if m:
                 lines.append(f"- **{w_tag}** {m.group(1).strip()}")
@@ -1007,6 +1090,48 @@ def _build_selection(output: str) -> str:
         lines.append("</details>")
         lines.append("")
 
+    # 持续追踪池：昨日精选中跌出前10但持有期≠短线催化的标的
+    if yesterday_holds:
+        today_codes = {c["code"] for c in top10}
+        # 判断昨日文件是否有持有期标签（新格式才有）
+        has_labels = any(hp in ("短线催化", "中线趋势", "长线底仓") for hp in yesterday_holds.values())
+        tracking = []
+        for code, hp in yesterday_holds.items():
+            should_track = hp in ("中线趋势", "长线底仓")
+            if not has_labels:
+                should_track = True  # 旧格式无标签，全部纳入追踪
+            if code not in today_codes and should_track:
+                # 在今日候选池或备选中查找当前FEVΔ
+                found = None
+                for c in candidates:
+                    if c["code"] == code:
+                        found = c
+                        break
+                if found:
+                    tracking.append({
+                        "code": code,
+                        "name": found["name"],
+                        "fevd": found["fevd"],
+                        "hold_period": hp if hp else "未标注",
+                        "delta": found["delta"],
+                    })
+        if tracking:
+            lines.append("## 🔭 持续追踪池（跌出精选但逻辑未破）")
+            lines.append("")
+            lines.append("> 以下标的昨日在精选池中，持有期为中线/长线，今日因排名下滑跌出前10。催化逻辑可能仍成立，保持关注。")
+            lines.append("")
+            lines.append("| 标的 | 今日FEVΔ | Δ | 持有期 | 关注原因 |")
+            lines.append("|------|:--------:|:--:|:------:|---------|")
+            for t in sorted(tracking, key=lambda x: -x["fevd"]):
+                sign = "+" if t["delta"] > 0 else ""
+                ds = f"{sign}{t['delta']}" if t['delta'] != 0 else "0"
+                reason = "Δ衰减但逻辑持续" if t["delta"] == 0 else "被更高分标的挤出"
+                lines.append(
+                    f"| {t['name']}({t['code']}) | **{t['fevd']}** | {ds} | "
+                    f"{t['hold_period']} | {reason} |"
+                )
+            lines.append("")
+
     # 替换候选池段落
     before = output[:pool_start]
     after = output[pool_end:]
@@ -1017,6 +1142,318 @@ def _build_selection(output: str) -> str:
     print(f"  [SELECTION] 候选 {len(candidates)} → 精选 {len(top10)}，"
           f"FEVΔ {top10[0]['fevd']}~{top10[-1]['fevd']}")
     return new_output
+
+
+def _build_daily_diff(today_output: str, yesterday: str, today: str) -> str:
+    """比较今日与昨日精选标的，生成日间变化说明。"""
+    path = BASE / "reports" / f"advice_{yesterday}.md"
+    if not path.exists():
+        return ""
+
+    try:
+        y_text = path.read_text(encoding="utf-8")
+    except Exception:
+        return ""
+
+    # 提取今日精选标的（从硬排名表格中）
+    # 表格列: # | 标的 | FEV | Δ | 加分 | FEVΔ | 持有期 | 来源
+    today_stocks = {}
+    in_table = False
+    for line in today_output.split("\n"):
+        if "精选标的" in line and "🎯" in line:
+            in_table = True
+            continue
+        if in_table:
+            if line.startswith("> 候选池") or line.startswith("<details>"):
+                break
+            m = re.search(r"\*\*(.+?)\((\d{6})\)\*\*", line)
+            if m:
+                name, code = m.group(1).strip(), m.group(2)
+                cols = line.split("|")
+                if len(cols) >= 8:
+                    fevd_str = cols[6].strip().strip("*")  # FEVΔ 在第6列
+                    delta_str = cols[4].strip().strip("*")  # Δ 在第4列
+                    hp_str = cols[7].strip()                 # 持有期 在第7列
+                    try:
+                        fevd = int(fevd_str)
+                    except ValueError:
+                        fevd = 0
+                    try:
+                        delta = int(delta_str)
+                    except ValueError:
+                        delta = 0
+                else:
+                    fevd, delta = 0, 0
+                    hp_str = ""
+                hp = hp_str if hp_str in ("短线催化", "中线趋势", "长线底仓") else ""
+                today_stocks[code] = {"name": name, "fevd": fevd, "delta": delta, "hold_period": hp}
+
+    if not today_stocks:
+        return ""
+
+    # 提取昨日精选标的（旧格式无加分列，FEVΔ总在第5列）
+    yesterday_stocks = {}
+    in_table = False
+    for line in y_text.split("\n"):
+        if "精选标的" in line and "🎯" in line:
+            in_table = True
+            continue
+        if in_table:
+            if line.startswith("> 候选池") or line.startswith("<details>"):
+                break
+            m = re.search(r"\*\*(.+?)\((\d{6})\)\*\*", line)
+            if m:
+                name, code = m.group(1).strip(), m.group(2)
+                cols = line.split("|")
+                # 旧/新格式 FEVΔ 都在 cols[5]（加分列是今天才加的）
+                fevd_str = cols[5].strip().strip("*") if len(cols) > 5 else "0"
+                try:
+                    fevd = int(fevd_str)
+                except ValueError:
+                    fevd = 0
+                yesterday_stocks[code] = {"name": name, "fevd": fevd}
+
+    if not yesterday_stocks:
+        return ""
+
+    today_set = set(today_stocks.keys())
+    yesterday_set = set(yesterday_stocks.keys())
+    continued = yesterday_set & today_set
+    new_entries = today_set - yesterday_set
+    exited = yesterday_set - today_set
+
+    jaccard = len(continued) / len(yesterday_set | today_set) if (yesterday_set | today_set) else 0
+
+    lines = ["", "## 📈 日间变化说明", "",
+             f"> 较昨日（{yesterday}）精选标的对比 · 相似度: **{jaccard:.0%}** "
+             f"（延续 {len(continued)} / 新进 {len(new_entries)} / 退出 {len(exited)}）", ""]
+
+    if continued:
+        lines.append("### ✅ 延续标的")
+        lines.append("")
+        lines.append("| 标的 | 昨日FEVΔ | 今日FEVΔ | 变化 | 持有期 |")
+        lines.append("|------|:--------:|:--------:|:----:|:------:|")
+        for code in sorted(continued):
+            t = today_stocks[code]
+            y = yesterday_stocks[code]
+            diff = t["fevd"] - y["fevd"]
+            diff_str = f"+{diff}" if diff > 0 else str(diff) if diff < 0 else "—"
+            note = "↑" if diff > 0 else ("↓" if diff < 0 else "→")
+            lines.append(
+                f"| {t['name']}({code}) | {y['fevd']} | **{t['fevd']}** | "
+                f"{diff_str} {note} | {t['hold_period']} |"
+            )
+        lines.append("")
+
+    if new_entries:
+        lines.append("### 🆕 新进入")
+        lines.append("")
+        lines.append("| 标的 | FEVΔ | Δ | 进入原因 | 持有期 |")
+        lines.append("|------|:----:|:--:|---------|:------:|")
+        for code in sorted(new_entries, key=lambda c: -today_stocks[c]["fevd"]):
+            t = today_stocks[code]
+            sign = "+" if t["delta"] > 0 else ""
+            ds = f"{sign}{t['delta']}" if t["delta"] != 0 else "0"
+            if t["delta"] > 0:
+                reason = f"新催化 Δ={ds}"
+            elif t["fevd"] >= 18:
+                reason = "FEVΔ排名进入前10"
+            else:
+                reason = "候选池排名上升"
+            lines.append(
+                f"| {t['name']}({code}) | **{t['fevd']}** | {ds} | {reason} | {t['hold_period']} |"
+            )
+        lines.append("")
+
+    if exited:
+        lines.append("### 📤 退出精选")
+        lines.append("")
+        lines.append("| 标的 | 昨日FEVΔ | 退出原因 |")
+        lines.append("|------|:--------:|---------|")
+        for code in sorted(exited, key=lambda c: -yesterday_stocks[c]["fevd"]):
+            y = yesterday_stocks[code]
+            reason = "FEVΔ排名跌出前10（Delta衰减或更高分标的挤压）"
+            lines.append(f"| {y['name']}({code}) | {y['fevd']} | {reason} |")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def _backtrack_labels(today: str) -> str:
+    """回溯历史持有期标签，验证标签准确性。"""
+    from datetime import date as _dt, timedelta as _td
+
+    check_dates = {
+        "短线催化": [(_dt.fromisoformat(today) - _td(days=i)).isoformat() for i in [3, 5, 7]],
+        "中线趋势": [(_dt.fromisoformat(today) - _td(days=i)).isoformat() for i in [10, 15, 20]],
+    }
+
+    try:
+        import data
+        import pandas as pd
+    except ImportError:
+        return ""
+
+    all_stocks: dict[str, dict] = {}  # code -> {label, rec_date, name}
+    for label, dates in check_dates.items():
+        for d in dates:
+            path = BASE / "reports" / f"advice_{d}.md"
+            if not path.exists():
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            in_table = False
+            for line in text.split("\n"):
+                if "精选标的" in line and "🎯" in line:
+                    in_table = True
+                    continue
+                if in_table and (line.startswith("> 候选池") or line.startswith("<details>")):
+                    break
+                if in_table:
+                    m = re.search(r"\*\*(.+?)\((\d{6})\)\*\*", line)
+                    if not m:
+                        continue
+                    name, code = m.group(1).strip(), m.group(2)
+                    if code in all_stocks:
+                        continue
+                    hp_m = re.search(r"\|\s*(短线催化|中线趋势|长线底仓)\s*\|", line)
+                    hp = hp_m.group(1) if hp_m else ""
+                    if hp and hp in label:
+                        all_stocks[code] = {"name": name, "label": hp, "rec_date": d}
+
+    if len(all_stocks) < 3:
+        return "（标签回溯数据不足，需≥3只有标签的历史标的）"
+
+    results = []
+    for code, info in all_stocks.items():
+        try:
+            df = data.fetch_klines(code, days=120)
+            if df is None or df.empty:
+                continue
+            df = df.sort_index()
+            after = df[df.index >= pd.Timestamp(info["rec_date"])]
+            if after.empty:
+                continue
+            entry_close = float(after.iloc[0].get("close", 0))
+            latest_close = float(after.iloc[-1].get("close", 0))
+            max_close = float(after["close"].max())
+            if entry_close <= 0:
+                continue
+            ret = (latest_close / entry_close - 1) * 100
+            max_ret = (max_close / entry_close - 1) * 100
+            days_held = len(after)
+            results.append({
+                **info,
+                "ret": ret, "max_ret": max_ret, "days_held": days_held,
+            })
+        except Exception:
+            continue
+
+    if len(results) < 3:
+        return "（标签回溯数据不足，k线获取失败）"
+
+    lines = ["", "## 🏷️ 标签回溯验证", "",
+             "> 回测历史持有期标签实际表现，验证标签判断。", ""]
+
+    for label in ["短线催化", "中线趋势"]:
+        group = [r for r in results if r["label"] == label]
+        if not group:
+            continue
+        avg_ret = sum(r["ret"] for r in group) / len(group)
+        avg_max = sum(r["max_ret"] for r in group) / len(group)
+        avg_days = sum(r["days_held"] for r in group) / len(group)
+        pos = sum(1 for r in group if r["ret"] > 0)
+
+        lines.append(f"### {label}（{len(group)}只）")
+        lines.append("")
+        lines.append(f"| 指标 | 值 |")
+        lines.append(f"|------|-----|")
+        lines.append(f"| 平均持有天数 | {avg_days:.0f} 天 |")
+        lines.append(f"| 平均收益 | {avg_ret:+.1f}% |")
+        lines.append(f"| 平均最大收益 | {avg_max:+.1f}% |")
+        lines.append(f"| 胜率 | {pos}/{len(group)} |")
+        lines.append("")
+        lines.append("| 标的 | 推荐日 | 持有天数 | 收益 | 最大收益 |")
+        lines.append("|------|--------|:------:|:-----:|:------:|")
+        for r in sorted(group, key=lambda x: -x["ret"]):
+            lines.append(
+                f"| {r['name']}({r['code']}) | {r['rec_date']} | {r['days_held']}天 | "
+                f"{r['ret']:+.1f}% | {r['max_ret']:+.1f}% |"
+            )
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def _scan_recurring_themes(today: str) -> str:
+    """扫描过去7天 primary_synthesis，Haiku 提取周期性主题和标的。"""
+    from datetime import date as dt_date, timedelta
+
+    parts = []
+    found = 0
+    for i in range(1, 8):
+        d = (dt_date.fromisoformat(today) - timedelta(days=i)).isoformat()
+        path = BASE / "reports" / "feeds" / f"primary_synthesis_{d}.md"
+        if path.exists():
+            try:
+                text = path.read_text(encoding="utf-8")
+                relevant = []
+                capture = False
+                for line in text.split("\n"):
+                    if "共识主题" in line or "多源共同提及" in line or "cross_validated" in line:
+                        capture = True
+                    if capture:
+                        relevant.append(line)
+                    if capture and line.startswith("##") and "共识" not in line and "共同" not in line:
+                        capture = False
+                if relevant:
+                    parts.append(f"### {d}\n" + "\n".join(relevant[:30]))
+                    found += 1
+            except Exception:
+                pass
+
+    if found < 2:
+        return "（周期性主题数据不足，需 ≥2 天 primary_synthesis 产出）"
+
+    combined = "\n\n".join(parts)
+    if len(combined) > 5000:
+        combined = combined[:5000]
+
+    api_key = _load_api_key()
+    if not api_key:
+        return "（API key 不可用，周期性主题扫描跳过）"
+
+    scan_prompt = f"""你是A股投研助手。以下是过去{found}天的四源交叉验证摘要。请提取：
+
+1. 反复出现的主题（≥3天出现）：名称 / 出现天数 / 趋势（强化/稳定/减弱）/ 关联标的
+2. 多日共同提及标的（≥3天被提及）：6位代码+名称 / 出现天数 / 关联主题
+3. 最近2天首次出现的新信号：主题或标的
+
+只输出Markdown表格，不要解释。
+
+数据：
+{combined}"""
+
+    try:
+        client = Anthropic(api_key=api_key, base_url="https://api.deepseek.com/anthropic")
+        resp = client.messages.create(
+            model=HAIKU_MODEL,
+            max_tokens=800,
+            messages=[{"role": "user", "content": scan_prompt}],
+            thinking={"type": "disabled"},
+            timeout=60,
+        )
+        parts_text = []
+        for block in resp.content:
+            if hasattr(block, "text") and block.text:
+                parts_text.append(block.text)
+        result = "\n".join(parts_text)
+        print(f"  [RECURRING] 周期性主题扫描完成，{found}/7 天有数据")
+        return result
+    except Exception as e:
+        return f"（周期性主题扫描失败: {e}）"
 
 
 def main():
@@ -1038,6 +1475,7 @@ def main():
     weibo = _inject_weibo(today)
     primary_synthesis = _inject_primary_synthesis(today)
     marginal = _inject_marginal(today)
+    recurring = _scan_recurring_themes(today)
     must_consider = _inject_must_consider()
     yesterday_logic = _inject_yesterday_logic(yesterday)
     feeds["%%JIUYANG%%"] = jiuyang
@@ -1080,6 +1518,7 @@ def main():
         .replace("%%WEIBO%%", weibo)
         .replace("%%PRIMARY_SYNTHESIS%%", primary_synthesis)
         .replace("%%MARGINAL_CHANGES%%", marginal)
+        .replace("%%RECURRING_THEMES%%", recurring)
         .replace("%%MUST_CONSIDER%%", must_consider)
         .replace("%%YESTERDAY_LOGIC%%", yesterday_logic)
         .replace("%%FEV_TABLE%%", fev_table)
@@ -1113,6 +1552,31 @@ def main():
     output = _validate_code_names(output)
     output = _validate_dow_claims(output, yesterday)
     output = _build_selection(output)
+    diff_section = _build_daily_diff(output, yesterday, today)
+    if diff_section:
+        # 插入到备选标的前面
+        details_marker = "<details><summary>📋 备选标的"
+        if details_marker in output:
+            idx = output.find(details_marker)
+            output = output[:idx] + diff_section + "\n" + output[idx:]
+        else:
+            output += "\n" + diff_section
+    backtrack = _backtrack_labels(today)
+    if backtrack and "数据不足" not in backtrack:
+        # 插入到日间变化说明之后
+        diff_marker = "## 📈 日间变化说明"
+        bt_marker = "## 🏷️ 标签回溯验证"
+        if bt_marker not in output:
+            if diff_marker in output:
+                idx = output.find(diff_marker)
+                # 找到日间变化说明的结束位置（下一个 ##）
+                rest = output[idx + 10:]
+                next_sec = re.search(r"\n(?=## |<details>)", rest)
+                insert_at = idx + 10 + next_sec.start() if next_sec else len(output)
+                output = output[:insert_at] + "\n" + backtrack + "\n" + output[insert_at:]
+            else:
+                output += "\n" + backtrack
+
     output = _validate_advice_coverage(output)
 
     print(output)
