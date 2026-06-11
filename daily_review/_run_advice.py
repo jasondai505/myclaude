@@ -1042,6 +1042,9 @@ def _build_selection(output: str) -> str:
                  f"未入选 {len(candidates)-10} 只见文末备选。")
     lines.append("")
 
+    # 自辩：对所有精选标的跑 fact-debate
+    debate_map = _debate_stocks(top10)
+
     # 逐只展开
     for i, c in enumerate(top10):
         lines.append(f"### {rank_emoji[i]} {c['name']} ({c['code']})")
@@ -1074,6 +1077,16 @@ def _build_selection(output: str) -> str:
             m = re.search(rf"-\s*\*\*{w_tag}\*\*\s*(.+)", c["block"])
             if m:
                 lines.append(f"- **{w_tag}** {m.group(1).strip()}")
+        # 自辩质疑
+        questions = debate_map.get(c["code"], [])
+        if questions:
+            lines.append("")
+            lines.append("<details><summary>🛡️ 魔鬼辩护人</summary>")
+            lines.append("")
+            for q in questions[:3]:
+                lines.append(f"> ⚡ {q}")
+            lines.append("")
+            lines.append("</details>")
         lines.append("")
 
     # 备选标的
@@ -1387,6 +1400,143 @@ def _backtrack_labels(today: str) -> str:
     return "\n".join(lines)
 
 
+def _debate_stocks(top10: list[dict]) -> dict[str, list[str]]:
+    """对精选标的跑 fact-debate，返回每只标的的最致命 2-3 个质疑。"""
+    if not top10:
+        return {}
+
+    api_key = _load_api_key()
+    if not api_key:
+        return {}
+
+    # 构建每只标的的简要信息
+    stock_briefs = []
+    for c in top10:
+        w1 = w3 = w4 = ""
+        w1_m = re.search(r"-\s*\*\*W1\*\*\s*(.+)", c["block"])
+        w3_m = re.search(r"-\s*\*\*W3\*\*\s*(.+)", c["block"])
+        w4_m = re.search(r"-\s*\*\*W4\*\*\s*(.+)", c["block"])
+        if w1_m:
+            w1 = w1_m.group(1).strip()[:80]
+        if w3_m:
+            w3 = w3_m.group(1).strip()[:80]
+        if w4_m:
+            w4 = w4_m.group(1).strip()[:60]
+        stock_briefs.append(
+            f"- {c['name']}({c['code']}) {c.get('hold_period','')} FEVΔ={c['fevd_adjusted']} "
+            f"W1:{w1} W3:{w3} W4:{w4}"
+        )
+
+    debate_prompt = f"""你是严苛的投委会评审。对以下精选标的，每只找出最致命的2-3个质疑。
+质疑必须具体——指出逻辑漏洞、数据缺失、时间风险或反向证据。不要泛泛而谈。
+只输出JSON，不要解释。格式: {{"代码": ["质疑1", "质疑2"], ...}}
+
+标的：
+{chr(10).join(stock_briefs)}"""
+
+    try:
+        client = Anthropic(api_key=api_key, base_url="https://api.deepseek.com/anthropic")
+        resp = client.messages.create(
+            model=HAIKU_MODEL,
+            max_tokens=1200,
+            messages=[{"role": "user", "content": debate_prompt}],
+            thinking={"type": "disabled"},
+            timeout=60,
+        )
+        text = ""
+        for block in resp.content:
+            if hasattr(block, "text") and block.text:
+                text += block.text
+        # 提取 JSON
+        json_match = re.search(r"\{[\s\S]*\}", text)
+        if json_match:
+            result = json.loads(json_match.group(0))
+            print(f"  [DEBATE] 自辩完成，{len(result)} 只标的")
+            return result
+    except Exception as e:
+        print(f"  [DEBATE] 自辩失败: {e}")
+
+    return {}
+
+
+def _inject_theme_clock(today: str) -> str:
+    """从 morning_intel theme_tracker 读取近期主题时钟，注入 advice。"""
+    import sqlite3
+    from datetime import date as _dt, timedelta as _td
+
+    db_path = BASE.parent / "morning_intel" / "data" / "supply_chain.db"
+    if not db_path.exists():
+        return "（theme_tracker 数据库暂不可用）"
+
+    try:
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        seven_d_ago = (_dt.fromisoformat(today) - _td(days=7)).isoformat()
+        rows = conn.execute(
+            "SELECT event_name, date, day_n, confidence, status, mainline_match, fading_match, emerging_match "
+            "FROM theme_tracker WHERE date >= ? ORDER BY date DESC, day_n DESC",
+            (seven_d_ago,)
+        ).fetchall()
+        conn.close()
+    except Exception as e:
+        return f"（theme_tracker 读取失败: {e}）"
+
+    if not rows:
+        return "（近7天无主题追踪数据）"
+
+    themes: dict[str, dict] = {}
+    for r in rows:
+        name = r["event_name"]
+        if name not in themes:
+            themes[name] = {
+                "first_date": r["date"], "last_date": r["date"],
+                "max_day": r["day_n"], "confidence": r["confidence"],
+                "status": r["status"],
+                "mainline": r["mainline_match"] or "",
+                "fading": r["fading_match"] or "",
+                "emerging": r["emerging_match"] or "",
+            }
+        else:
+            themes[name]["first_date"] = r["date"]
+            themes[name]["max_day"] = max(themes[name]["max_day"], r["day_n"])
+
+    active = []
+    for name, t in themes.items():
+        if t["status"] == "dead":
+            continue
+        try:
+            age = (_dt.fromisoformat(today) - _dt.fromisoformat(t["first_date"])).days
+        except ValueError:
+            age = 0
+        active.append({**t, "name": name, "age": age})
+
+    if not active:
+        return "（近7天无活跃主题）"
+
+    active.sort(key=lambda x: -x["age"])
+
+    lines = ["## 产业链主题时钟（近7天 morning_intel theme_tracker）", "",
+             "| 主题 | 首次出现 | 持续天数 | 状态 | 匹配置信度 |",
+             "|------|---------|:------:|:----:|:--------:|"]
+    for t in active[:15]:
+        status_icon = {"active": "🆕", "confirmed": "✅", "weakening": "⚠️"}.get(t["status"], "→")
+        match_info = ""
+        if t["mainline"]:
+            match_info = f"主线:{t['mainline']}"
+        elif t["fading"]:
+            match_info = f"退潮:{t['fading']}"
+        elif t["emerging"]:
+            match_info = f"新兴:{t['emerging']}"
+        lines.append(
+            f"| {t['name'][:30]} | {t['first_date']} | {t['age']}天 | "
+            f"{status_icon} {t['status']} | {t['confidence']} {match_info} |"
+        )
+    lines.append("")
+    lines.append("> 持续 ≥2 天且主线匹配=confirmed → 优先关注。持续 ≥2 天且退潮匹配=weakening → 谨慎。")
+
+    return "\n".join(lines)
+
+
 def _scan_recurring_themes(today: str) -> str:
     """扫描过去7天 primary_synthesis，Haiku 提取周期性主题和标的。"""
     from datetime import date as dt_date, timedelta
@@ -1476,6 +1626,7 @@ def main():
     primary_synthesis = _inject_primary_synthesis(today)
     marginal = _inject_marginal(today)
     recurring = _scan_recurring_themes(today)
+    theme_clock = _inject_theme_clock(today)
     must_consider = _inject_must_consider()
     yesterday_logic = _inject_yesterday_logic(yesterday)
     feeds["%%JIUYANG%%"] = jiuyang
@@ -1519,6 +1670,7 @@ def main():
         .replace("%%PRIMARY_SYNTHESIS%%", primary_synthesis)
         .replace("%%MARGINAL_CHANGES%%", marginal)
         .replace("%%RECURRING_THEMES%%", recurring)
+        .replace("%%THEME_CLOCK%%", theme_clock)
         .replace("%%MUST_CONSIDER%%", must_consider)
         .replace("%%YESTERDAY_LOGIC%%", yesterday_logic)
         .replace("%%FEV_TABLE%%", fev_table)
