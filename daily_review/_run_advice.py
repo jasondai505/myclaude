@@ -805,12 +805,12 @@ def _validate_advice_coverage(output: str) -> str:
 
 def _build_selection(output: str) -> str:
     """解析 LLM 候选池 → 查 FEVΔ → 硬排名取前10 → 替换候选池为精选标的。"""
-    # 找到候选池段落
-    pool_start = output.find("## 🎯 候选池")
-    if pool_start == -1:
-        pool_start = output.find("## 🎯 第三层")
-    if pool_start == -1:
-        pool_start = output.find("候选池")
+    # 找到候选池段落（兼容 LLM 可能的各种写法）
+    pool_start = -1
+    for marker in ["## 🎯 候选池", "# 🎯 候选池", "## 🎯 第三层", "## 候选标的", "候选池"]:
+        pool_start = output.find(marker)
+        if pool_start != -1:
+            break
     if pool_start == -1:
         return output
 
@@ -856,6 +856,21 @@ def _build_selection(output: str) -> str:
         next_section = re.search(r"\n(?:###\s|\n##|\n---)", rest)
         block = rest[:next_section.start()] if next_section else rest[:300]
         candidates.append({"code": code, "name": name, "block": block.strip()})
+    # 格式D: N. **名称 (6位代码)** (编号列表，LLM 偶尔用)
+    if not candidates:
+        for m in re.finditer(r"(?:^|\n)\s*\d+\.\s*\*{0,2}([^*\n]+?)\s*\((\d{6})\)", pool_text):
+            name, code = m.group(1).strip(), m.group(2)
+            line_start = pool_text.rfind("\n", 0, m.start()) + 1
+            rest = pool_text[line_start:]
+            lines_block = rest.split("\n")
+            block_lines = [lines_block[0]]
+            for ln in lines_block[1:]:
+                if re.match(r"\s*\d+\.\s*\*{0,2}", ln):
+                    break
+                if ln.strip().startswith("## ") or ln.strip().startswith("---"):
+                    break
+                block_lines.append(ln)
+            candidates.append({"code": code, "name": name, "block": "\n".join(block_lines)})
 
     if len(candidates) < 5:
         print(f"  [SELECTION] 候选池仅 {len(candidates)} 只，跳过硬排名")
