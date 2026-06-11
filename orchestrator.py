@@ -39,7 +39,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
     "pre": {
         "name": "盘前流水线",
         "desc": "健康 → 采集 → 公众号 → 摘要 → 追踪 → 四源 → 解读 → FEVΔ → 边际变化 → 建议 → Serenity",
-        "trigger": "05:00 盘前",
+        "trigger": "06:00 盘前（美股4:00收盘，数据源需2h更新窗口）",
         "steps": [
             {"id": "health", "name": "系统健康检查", "cmd": "python daily_review/health_check.py"},
             {"id": "collect", "name": "数据采集", "cmd": "python daily_review/daily_collect.py"},

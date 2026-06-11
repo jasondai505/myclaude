@@ -858,10 +858,12 @@ def _fetch_indices_akshare() -> dict:
                 continue
             last, prev = df.iloc[-1], df.iloc[-2]
             chg = (last["close"] - prev["close"]) / prev["close"] * 100
+            data_date = str(last.get("date", df.index[-1]))[:10] if hasattr(df.index[-1], '__str__') else str(last.get("date", ""))[:10]
             out[label] = {
                 "name": label,
                 "price": float(last["close"]),
                 "change_pct": round(chg, 2),
+                "data_date": data_date,
             }
             time.sleep(0.2)
         except Exception as e:

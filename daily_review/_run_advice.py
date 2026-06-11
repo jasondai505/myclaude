@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -47,6 +48,82 @@ def _load_api_key() -> str:
     return key
 
 
+def _last_trade_date_us() -> str:
+    """上一个美股交易日（跳过周末）。"""
+    d = date.today() - timedelta(days=1)
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return d.isoformat()
+
+
+def _fetch_us_indices_fresh(expected_date: str, max_wait: int = 1800) -> str:
+    """拉取美股三大指数收盘数据，带新鲜度校验。
+
+    轮询 akshare 直到数据日期 >= expected_date，
+    最长等待 max_wait 秒（默认30分钟），超时降级返回旧数据+警告。
+    返回 JSON 字符串，含 data_date 和 is_fresh 标记。
+    """
+    import data
+    RETRY_DELAY = 300
+    max_retries = max(1, max_wait // RETRY_DELAY)
+
+    for attempt in range(max_retries + 1):
+        try:
+            result = data._fetch_indices_akshare()
+        except Exception as e:
+            if attempt < max_retries:
+                print(f"  [RETRY] akshare 不可用 ({attempt+1}/{max_retries+1}): {e}")
+                time.sleep(RETRY_DELAY)
+                continue
+            return json.dumps({"error": f"akshare不可用: {e}", "is_fresh": False},
+                            ensure_ascii=False)
+
+        us_only = {k: v for k, v in result.items()
+                   if k in ("道琼斯", "纳斯达克", "标普500")}
+        if len(us_only) < 3:
+            if attempt < max_retries:
+                print(f"  [RETRY] 美股指数不全 ({len(us_only)}/3) "
+                      f"({attempt+1}/{max_retries+1})")
+                time.sleep(RETRY_DELAY)
+                continue
+            return json.dumps({"error": f"美股指数不全({len(us_only)}/3)", "is_fresh": False},
+                            ensure_ascii=False)
+
+        stale = [k for k, v in us_only.items()
+                 if v.get("data_date", "") < expected_date]
+        if not stale:
+            print(f"  [OK] 美股指数全部新鲜 (≥{expected_date})")
+            out = {}
+            for k, v in us_only.items():
+                out[k] = {"price": v.get("price"), "change_pct": v.get("change_pct"),
+                          "change_pct_5d": v.get("change_pct_5d"),
+                          "data_date": v.get("data_date")}
+            out["is_fresh"] = True
+            return json.dumps(out, ensure_ascii=False, indent=2)
+
+        dates_str = ", ".join(
+            f"{k}={v.get('data_date','?')}" for k, v in us_only.items())
+        if attempt < max_retries:
+            print(f"  [WAIT] 部分指数陈旧 ({stale}) | {dates_str} "
+                  f"({attempt+1}/{max_retries+1}, {RETRY_DELAY}s后重试)")
+            time.sleep(RETRY_DELAY)
+        else:
+            print(f"  [STALE] 超时降级: {stale} 仍为旧数据")
+            out = {}
+            for k, v in us_only.items():
+                out[k] = {"price": v.get("price"), "change_pct": v.get("change_pct"),
+                          "change_pct_5d": v.get("change_pct_5d"),
+                          "data_date": v.get("data_date")}
+            out["is_fresh"] = False
+            out["_stale_warning"] = (
+                f"⚠️ 以下美股指数数据陈旧（非 {expected_date} 收盘）: {stale}。"
+                f"各指数数据日期: {dates_str}。陈旧指数的涨跌幅请勿使用！"
+            )
+            return json.dumps(out, ensure_ascii=False, indent=2)
+
+    return json.dumps({"error": "未知错误", "is_fresh": False}, ensure_ascii=False)
+
+
 def _fetch_market_data() -> tuple[str, str, str, str]:
     try:
         import data
@@ -55,6 +132,8 @@ def _fetch_market_data() -> tuple[str, str, str, str]:
         err = json.dumps({"error": f"模块导入失败: {e}"}, ensure_ascii=False)
         return err, err, err, err
 
+    us_idx_str = _fetch_us_indices_fresh(_last_trade_date_us())
+
     try:
         us = data.fetch_us_movers()
         us_str = json.dumps(us, ensure_ascii=False, indent=2)
@@ -62,25 +141,11 @@ def _fetch_market_data() -> tuple[str, str, str, str]:
         us_str = json.dumps({"error": f"数据暂不可用（{e}）"}, ensure_ascii=False)
 
     try:
-        global_data = data.fetch_global_markets()
-        us_idx = global_data.get("indices", {})
-        us_idx_out = {}
-        for k, v in us_idx.items():
-            us_idx_out[k] = {
-                "price": v.get("price"),
-                "change_pct": v.get("change_pct"),
-                "change_pct_5d": v.get("change_pct_5d"),
-            }
-        us_idx_str = json.dumps(us_idx_out, ensure_ascii=False, indent=2)
-    except Exception as e:
-        us_idx_str = json.dumps({"error": f"数据暂不可用（{e}）"}, ensure_ascii=False)
-
-    try:
         kr_jp = data.fetch_kr_jp_markets()
         kr_jp_str = json.dumps(kr_jp, ensure_ascii=False, indent=2)
         if not kr_jp or kr_jp_str == "{}":
             kr_jp_str = json.dumps(
-                {"info": "日韩尚未开盘，实时数据暂不可用（API未返回），请基于美股映射和星球信号判断"},
+                {"info": "日韩尚未开盘，实时数据暂不可用"},
                 ensure_ascii=False, indent=2)
     except Exception as e:
         kr_jp_str = json.dumps({"error": f"数据暂不可用（{e}）"}, ensure_ascii=False)
@@ -169,18 +234,45 @@ def _inject_feeds(today: str, yesterday: str) -> dict[str, str]:
 
 
 def _inject_wechat_analysis(today: str) -> str:
+    """注入公众号分析报告；若为空则回退到原始 feed 摘要。"""
     path = BASE / "reports" / f"wechat_analysis_{today}.md"
     if not path.exists():
-        return "（公众号分析报告暂未生成）"
+        return _inject_wechat_raw(today)
+
     text = path.read_text(encoding="utf-8")
     marker = "## 逐篇拆解"
     idx = text.find(marker)
     if idx == -1:
-        return text[:MAX_DIRECT_CHARS] + "\n...(truncated)"
+        synthesis = text[:MAX_DIRECT_CHARS]
+        if len(synthesis) < 500:
+            return _inject_wechat_raw(today)
+        return synthesis
+
     synthesis = text[:idx].strip()
+    if len(synthesis) < 500:
+        print(f"  [WARN] 公众号分析几乎为空 ({len(synthesis)} chars)，回退到原始 feed")
+        return _inject_wechat_raw(today)
     if len(synthesis) > MAX_DIRECT_CHARS * 2:
         synthesis = synthesis[:MAX_DIRECT_CHARS * 2] + "\n...(truncated)"
     return synthesis
+
+
+def _inject_wechat_raw(today: str) -> str:
+    """公众号分析不可用时的兜底：注入原始 feed 内容。"""
+    path = BASE / "reports" / "feeds" / f"wechat_{today}.md"
+    if not path.exists():
+        yesterday = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
+        path = BASE / "reports" / "feeds" / f"wechat_{yesterday}.md"
+    if not path.exists():
+        return "（公众号文章暂未采集，请检查 WeWe-RSS 服务）"
+    try:
+        content = path.read_text(encoding="utf-8")
+        if len(content) > MAX_DIRECT_CHARS * 2:
+            content = content[:MAX_DIRECT_CHARS * 2] + "\n...(truncated)"
+        header = "> ⚠️ 公众号AI分析未产出，以下为原始文章列表，请自行提取关键信号。\n\n"
+        return header + content
+    except Exception as e:
+        return f"（公众号 feed 读取失败: {e}）"
 
 
 def _extract_codes_from_feeds(feeds: dict[str, str]) -> set[str]:
@@ -374,18 +466,26 @@ def _inject_intel_dimensions(today: str) -> str:
 
 
 def _inject_jiuyang(today: str) -> str:
-    """注入韭研公社脱水研报。"""
-    path = BASE / "reports" / "feeds" / f"jiuyang_{today}.md"
-    if not path.exists():
-        return ("（韭研脱水研报暂未生成，请关注 wayzhang007 主页 "
-                "https://www.jiuyangongshe.com/u/42ba01f7cc33451ea0ee10c83b4941eb ）")
-    try:
-        content = path.read_text(encoding="utf-8")
-        if len(content) > MAX_DIRECT_CHARS * 3:
-            content = content[:MAX_DIRECT_CHARS * 3] + "\n...(truncated)"
-        return content
-    except Exception as e:
-        return f"（韭研脱水研报读取失败: {e}）"
+    """注入韭研公社脱水研报（最近2天）。"""
+    today_path = BASE / "reports" / "feeds" / f"jiuyang_{today}.md"
+    yesterday = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
+    yesterday_path = BASE / "reports" / "feeds" / f"jiuyang_{yesterday}.md"
+
+    parts = []
+    for p in (today_path, yesterday_path):
+        if p.exists():
+            try:
+                content = p.read_text(encoding="utf-8")
+                if len(content) > MAX_DIRECT_CHARS * 2:
+                    content = content[:MAX_DIRECT_CHARS * 2] + "\n...(truncated)"
+                parts.append(content)
+            except Exception as e:
+                parts.append(f"（{p.name} 读取失败: {e}）")
+
+    if parts:
+        return "\n\n---\n\n".join(parts)
+    return ("（韭研脱水研报暂未生成，请关注 wayzhang007 主页 "
+            "https://www.jiuyangongshe.com/u/42ba01f7cc33451ea0ee10c83b4941eb ）")
 
 
 def _inject_weibo(today: str) -> str:
@@ -586,9 +686,11 @@ def _validate_index_claims(output: str, us_indices_json: str) -> str:
     if not real or "error" in real:
         return output
 
-    # 构建 {指数名: 真实涨跌幅} 映射
+    # 构建 {指数名: 真实涨跌幅} 映射（跳过 is_fresh/_stale_warning 等非 dict 字段）
     truth: dict[str, float] = {}
     for name, info in real.items():
+        if not isinstance(info, dict):
+            continue
         chg = info.get("change_pct")
         if chg is not None:
             truth[name] = round(float(chg), 2)
