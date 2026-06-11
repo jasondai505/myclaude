@@ -727,9 +727,10 @@ def _build_focus_pool_full(trade_date, watchlist, zt_pool, all_quotes_merged,
     lhb_data = data.fetch_lhb(trade_date)
     print(f"  ✓ 龙虎榜 {len(lhb_data)} 只")
 
+    high_priority = lambda s: s.get("hot_rank", 0) <= 50 or "zt" in s.get("source", [])
+
     pool_research = {}
-    research_candidates = [c for c, s in focus_pool.items()
-                           if s.get("hot_rank", 0) <= 50 or "zt" in s["source"]]
+    research_candidates = [c for c, s in focus_pool.items() if high_priority(s)]
     if research_candidates:
         pool_research = _parallel_stock_fetch(
             research_candidates,
@@ -757,11 +758,10 @@ def _build_focus_pool_full(trade_date, watchlist, zt_pool, all_quotes_merged,
 
     pool_non_watch = [c for c in focus_pool if c not in set(watchlist)]
     eps_candidates = [c for c in pool_non_watch if c not in eps_data
-                      and (focus_pool[c].get("hot_rank", 0) <= 50
-                           or "zt" in focus_pool[c]["source"])]
+                      and high_priority(focus_pool[c])]
     if eps_candidates:
         new_eps = _parallel_stock_fetch(
-            eps_candidates[:80],
+            eps_candidates,
             lambda c: data.fetch_eps_forecast(c),
             "拉取盈利预测", max_workers=5,
         )
