@@ -8,6 +8,7 @@
 import sys
 import time
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date as _date
 from pathlib import Path
 
@@ -168,48 +169,61 @@ def _dispatch_early(args) -> bool:
 # ============================================================
 
 def _fetch_market_data(trade_date):
-    total_steps = 12
+    """并行拉取 5 个独立数据源。"""
 
-    print(f"[1/{total_steps}] 拉取指数行情...")
-    indices = data.fetch_indices()
-    print(f"  ✓ {len(indices)} 个指数")
+    def _fetch_indices():
+        r = data.fetch_indices()
+        print(f"  ✓ 指数: {len(r)} 个")
+        return "indices", r
 
-    print(f"[2/{total_steps}] 拉取行业排名...")
-    try:
-        industry = data.fetch_industry_ranking()
-        print(f"  ✓ {len(industry.get('all', []))} 个行业")
-    except Exception as e:
-        print(f"  ✗ 行业数据获取失败: {e}")
-        industry = {"all": [], "total_up": 0, "total_down": 0}
+    def _fetch_industry():
+        try:
+            r = data.fetch_industry_ranking()
+            print(f"  ✓ 行业: {len(r.get('all', []))} 个")
+            return "industry", r
+        except Exception as e:
+            print(f"  ✗ 行业数据获取失败: {e}")
+            return "industry", {"all": [], "total_up": 0, "total_down": 0}
 
-    print(f"[3/{total_steps}] 拉取题材热度...")
-    hot_df = data.fetch_hot_themes(trade_date)
-    print(f"  ✓ {len(hot_df)} 只强势股")
+    def _fetch_hot():
+        r = data.fetch_hot_themes(trade_date)
+        print(f"  ✓ 强势股: {len(r)} 只")
+        return "hot", r
 
-    print(f"[4/{total_steps}] 拉取北向资金...")
-    try:
-        northbound = data.fetch_northbound()
-        print(f"  ✓ 北向合计: {northbound['total']:+.1f}亿")
-    except Exception as e:
-        print(f"  ✗ 北向数据获取失败: {e}")
-        northbound = {"hgt_close": 0, "sgt_close": 0, "total": 0, "df": None}
+    def _fetch_nb():
+        try:
+            r = data.fetch_northbound()
+            print(f"  ✓ 北向: {r['total']:+.1f}亿")
+            return "northbound", r
+        except Exception as e:
+            print(f"  ✗ 北向数据获取失败: {e}")
+            return "northbound", {"hgt_close": 0, "sgt_close": 0, "total": 0, "df": None}
 
-    print(f"[5/{total_steps}] 拉取外围市场...")
-    try:
-        global_data = data.fetch_global_markets()
-        g_count = len(global_data.get("indices", {})) + len(global_data.get("watchlist", {}))
-        print(f"  ✓ {g_count} 个标的")
-    except Exception as e:
-        print(f"  ✗ 外围数据获取失败: {e}")
-        global_data = {}
+    def _fetch_global():
+        try:
+            r = data.fetch_global_markets()
+            print(f"  ✓ 外围: {len(r.get('indices', {})) + len(r.get('watchlist', {}))} 个标的")
+            return "global", r
+        except Exception as e:
+            print(f"  ✗ 外围数据获取失败: {e}")
+            return "global", {}
 
-    return indices, industry, hot_df, northbound, global_data
+    print("[1/12] 并行拉取市场数据（5源）...")
+    results = {}
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        futures = [ex.submit(f) for f in (
+            _fetch_indices, _fetch_industry, _fetch_hot, _fetch_nb, _fetch_global,
+        )]
+        for future in as_completed(futures):
+            key, val = future.result()
+            results[key] = val
+
+    return results["indices"], results["industry"], results["hot"], results["northbound"], results["global"]
 
 
 def _fetch_watchlist_data(watchlist):
-    total_steps = 12
 
-    print(f"[6/{total_steps}] 扫描自选股 ({len(watchlist)} 只)...")
+    print(f"[2/12] 扫描自选股 ({len(watchlist)} 只)...")
     stock_quotes = data.fetch_stock_quotes(watchlist)
     print(f"  ✓ 行情: {len(stock_quotes)} 只")
 
@@ -667,6 +681,24 @@ def _run_fundamentals_fev(watchlist, stock_quotes, watchlist_results, hot_df,
 # Phase 4: 聚焦池
 # ============================================================
 
+def _parallel_stock_fetch(codes: list[str], fetch_fn, desc: str, max_workers: int = 5):
+    """并行拉取 per-stock 数据，替代逐只循环 + sleep。"""
+    results = {}
+    if not codes:
+        return results
+    print(f"  {desc}（{len(codes)}只，并行）...")
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = {ex.submit(fetch_fn, c): c for c in codes}
+        for future in as_completed(futures):
+            try:
+                r = future.result()
+                if r:
+                    results[futures[future]] = r
+            except Exception:
+                pass
+    return results
+
+
 def _build_focus_pool_full(trade_date, watchlist, zt_pool, all_quotes_merged,
                            all_klines_merged, stock_klines, fev_scores,
                            eps_data, shareholder_data, hot_codes, code_themes,
@@ -693,13 +725,11 @@ def _build_focus_pool_full(trade_date, watchlist, zt_pool, all_quotes_merged,
     research_candidates = [c for c, s in focus_pool.items()
                            if s.get("hot_rank", 0) <= 50 or "zt" in s["source"]]
     if research_candidates:
-        print(f"  拉取研报（{len(research_candidates)}只）...")
-        for code in progress_bar(research_candidates, desc="  研报", unit="只",
-                         bar_format="  {desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"):
-            r = data.fetch_stock_research(code, limit=3)
-            if r:
-                pool_research[code] = r
-            time.sleep(0.2)
+        pool_research = _parallel_stock_fetch(
+            research_candidates,
+            lambda c: data.fetch_stock_research(c, limit=3),
+            "拉取研报", max_workers=5,
+        )
 
     zsxq_mentions_map = {}
     if zsxq_data:
@@ -724,13 +754,12 @@ def _build_focus_pool_full(trade_date, watchlist, zt_pool, all_quotes_merged,
                       and (focus_pool[c].get("hot_rank", 0) <= 50
                            or "zt" in focus_pool[c]["source"])]
     if eps_candidates:
-        print(f"  拉取聚焦池盈利预测（{len(eps_candidates)}只）...")
-        for code in progress_bar(eps_candidates[:80], desc="  盈利预测", unit="只",
-                         bar_format="  {desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"):
-            eps = data.fetch_eps_forecast(code)
-            if eps:
-                eps_data[code] = eps
-            time.sleep(0.15)
+        new_eps = _parallel_stock_fetch(
+            eps_candidates[:80],
+            lambda c: data.fetch_eps_forecast(c),
+            "拉取盈利预测", max_workers=5,
+        )
+        eps_data.update(new_eps)
 
     for code in pool_non_watch:
         if code in fev_map:
@@ -758,21 +787,26 @@ def _build_focus_pool_full(trade_date, watchlist, zt_pool, all_quotes_merged,
             "irm": [],
             "news": [],
         }
-    for code in progress_bar(list(focus_pool.keys()), desc="  互动+新闻", unit="只",
-                     bar_format="  {desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"):
+    def _fetch_corpus_for_code(code: str):
         if code.startswith(("0", "3")):
             qa = data.fetch_irm_szse(code, limit=3)
         elif code.startswith("6"):
             qa = data.fetch_irm_sse(code, limit=3)
         else:
             qa = []
+        ns = data.fetch_stock_news(code, limit=3) if not qa else []
+        return code, qa, ns
+
+    corpus_futures = _parallel_stock_fetch(
+        list(focus_pool.keys()),
+        _fetch_corpus_for_code,
+        "拉取互动+新闻", max_workers=8,
+    )
+    for code, (_, qa, ns) in corpus_futures.items():
         if qa:
             corpus_map[code]["irm"] = qa
-        if not corpus_map[code]["news"]:
-            ns = data.fetch_stock_news(code, limit=3)
-            if ns:
-                corpus_map[code]["news"] = ns
-        time.sleep(0.15)
+        if ns:
+            corpus_map[code]["news"] = ns
 
     # B1: 逻辑/情绪涨停四维分类
     theme_counts: dict[str, int] = {}

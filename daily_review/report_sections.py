@@ -355,46 +355,7 @@ def render_global_markets(lines, global_markets):
 
 
 def render_watchlist(lines, watchlist_results, fev_scores):
-    lines.append("## 六、自选股扫描\n")
-    valid_stocks = [s for s in watchlist_results if s.get("quote")]
-    no_data = [s for s in watchlist_results if not s.get("quote")]
-
-    fev_map = {}
-    if fev_scores:
-        fev_map = {f["code"]: f for f in fev_scores}
-
-    if fev_map:
-        lines.append("| 代码 | 名称 | 涨跌幅 | 换手率 | 量比 | FEV | F | E | V |")
-        lines.append("|------|------|-------:|------:|-----:|----:|--:|--:|--:|")
-        for s in sorted(valid_stocks, key=lambda x: fev_map.get(x["code"], {}).get("fev_total", 0), reverse=True):
-            q = s.get("quote") or {}
-            chg = q.get("change_pct", 0)
-            turn = q.get("turnover_pct", 0)
-            vr = q.get("vol_ratio", 0)
-            sign = "+" if chg > 0 else ""
-            fev = fev_map.get(s["code"], {})
-            ft = fev.get("fev_total", 0)
-            fs = fev.get("f_score", 0)
-            es = fev.get("e_score", 0)
-            vs = fev.get("v_score", 0)
-            lines.append(f"| {s['code']} | {s['name']} | {sign}{chg}% | {turn}% | {vr} | {ft} | {fs} | {es} | {vs} |")
-    else:
-        lines.append("| 代码 | 名称 | 涨跌幅 | 换手率 | 量比 | 趋势分 |")
-        lines.append("|------|------|-------:|------:|-----:|-------:|")
-        for s in sorted(valid_stocks, key=lambda x: x.get("trend_score", 0), reverse=True):
-            q = s.get("quote") or {}
-            chg = q.get("change_pct", 0)
-            turn = q.get("turnover_pct", 0)
-            vr = q.get("vol_ratio", 0)
-            score = s.get("trend_score", 0)
-            sign = "+" if chg > 0 else ""
-            score_sign = "+" if score > 0 else ""
-            lines.append(f"| {s['code']} | {s['name']} | {sign}{chg}% | {turn}% | {vr} | {score_sign}{score} |")
-
-    if no_data:
-        codes = ", ".join(s["code"] for s in no_data)
-        lines.append(f"\n> 以下标的无行情数据（北交所920xxx/已退市等）：{codes}")
-    lines.append("")
+    lines.append("## 六、自选股关键信号\n")
 
     if fev_scores:
         highlights = [f for f in fev_scores if f["fev_total"] >= 20]
@@ -409,9 +370,6 @@ def render_watchlist(lines, watchlist_results, fev_scores):
                     lines.append(f"- E: {', '.join(h['e_reasons'])}")
                 if h["v_reasons"]:
                     lines.append(f"- V: {', '.join(h['v_reasons'])}")
-                if h.get("surge_details"):
-                    ss = h.get("surge_score", 0)
-                    lines.append(f"- 大涨前提: {ss}/5（{' '.join(h['surge_details'])}）")
                 if h.get("alpha_bucket"):
                     lines.append(f"- Alpha来源: {h['alpha_bucket']}")
                 lines.append("")
@@ -426,7 +384,7 @@ def render_watchlist(lines, watchlist_results, fev_scores):
 
     has_signals = any(s["signals"] for s in watchlist_results)
     if has_signals:
-        lines.append("### 信号明细\n")
+        lines.append("### 技术信号\n")
         for s in watchlist_results:
             if not s["signals"]:
                 continue
@@ -544,9 +502,6 @@ def render_focus_pool(lines, focus_pool_data):
     hot_surge = [s for s in focus_pool_data if s.get("rank_chg", 0) and abs(s.get("rank_chg", 0)) >= 5 and s.get("composite", {}).get("total", 0) >= 40]
     hot_surge.sort(key=lambda x: x.get("composite", {}).get("total", 0), reverse=True)
 
-    watch_items = [s for s in focus_pool_data if "watch" in s.get("source", [])]
-    watch_items.sort(key=lambda x: x.get("composite", {}).get("total", 0), reverse=True)
-
     if resonance:
         lines.append("### 多维共振（人气+涨停+自选 多源交叉）\n")
         _render_focus_table(lines, resonance)
@@ -554,10 +509,6 @@ def render_focus_pool(lines, focus_pool_data):
     if hot_surge:
         lines.append("### 人气飙升标的\n")
         _render_focus_table(lines, hot_surge, 10)
-
-    if watch_items:
-        lines.append("### 自选股状态\n")
-        _render_focus_table(lines, watch_items, 30)
 
     corpus_items = [s for s in focus_pool_data if (s.get("corpus") or {}).get("announcements") or (s.get("corpus") or {}).get("irm") or (s.get("corpus") or {}).get("news")]
     if corpus_items:
