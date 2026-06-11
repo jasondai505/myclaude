@@ -5,6 +5,7 @@
     python run.py --date 2026-05-12  # 指定日期
     python run.py --list             # 查看当前自选股
 """
+import os
 import sys
 import time
 import argparse
