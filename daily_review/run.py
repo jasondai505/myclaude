@@ -686,16 +686,21 @@ def _parallel_stock_fetch(codes: list[str], fetch_fn, desc: str, max_workers: in
     results = {}
     if not codes:
         return results
-    print(f"  {desc}（{len(codes)}只，并行）...")
-    with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        futures = {ex.submit(fetch_fn, c): c for c in codes}
-        for future in as_completed(futures):
-            try:
-                r = future.result()
-                if r:
-                    results[futures[future]] = r
-            except Exception:
-                pass
+    with open(os.devnull, "w") as devnull:
+        real_stdout, sys.stdout = sys.stdout, devnull
+        try:
+            with ThreadPoolExecutor(max_workers=max_workers) as ex:
+                futures = {ex.submit(fetch_fn, c): c for c in codes}
+                for future in as_completed(futures):
+                    try:
+                        r = future.result()
+                        if r:
+                            results[futures[future]] = r
+                    except Exception:
+                        pass
+        finally:
+            sys.stdout = real_stdout
+    print(f"  ✓ {desc}: {len(results)}/{len(codes)} 只有数据")
     return results
 
 
