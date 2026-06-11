@@ -11,6 +11,10 @@ from config import (
     THEME_EXPAND_MAX_STOCKS, THEME_ZHONGJUN_MIN_FREQ_30D,
     THEME_STOPWORDS, THEME_ALIAS,
     MERGE_POOL_MAX_CONCEPTS, MERGE_POOL_MIN_FREQ,
+    CONCEPT_UNIVERSE, ENRICHMENT_THRESHOLD,
+    TEMPORAL_TAG_PATTERNS, GENERIC_ATTRIBUTE_TAGS,
+    TOTAL_CONCEPT_STOCKS,
+    STOCK_PRIMARY_CONCEPT, STOCK_SECONDARY_CONCEPT,
 )
 from utils import safe_str, safe_float
 import store
@@ -19,6 +23,80 @@ SOURCE_ZT = "涨"
 SOURCE_POP = "人"
 SOURCE_GAIN = "强"
 SOURCE_EXPAND = "扩"
+
+
+def _is_temporal_tag(tag: str) -> bool:
+    """检查标签是否为临时事件（季报/分红/摘帽等），非可投资主题"""
+    return any(p in tag for p in TEMPORAL_TAG_PATTERNS)
+
+
+def _is_generic_attribute(tag: str) -> bool:
+    """检查标签是否为宽泛属性（央企/国企/xx国资），无投资信息量"""
+    if tag in GENERIC_ATTRIBUTE_TAGS:
+        return True
+    if tag.endswith("国资") and tag not in CONCEPT_UNIVERSE:
+        return True
+    return False
+
+
+def _is_noise_tag(tag: str, today_count: int, total_stocks: int) -> bool:
+    """富集比检验：标签是否在统计上不显著。
+
+    标准概念（在 CONCEPT_UNIVERSE 中）：ER < 阈值 → 噪音
+    非标准概念：临时事件或宽泛属性 → 噪音；其余（具体品种）默认保留
+    """
+    base_rate = CONCEPT_UNIVERSE.get(tag)
+    if base_rate is not None:
+        expected = total_stocks * base_rate
+        if expected > 0:
+            er = today_count / expected
+            return er < ENRICHMENT_THRESHOLD
+        return False
+    if _is_temporal_tag(tag):
+        return True
+    if _is_generic_attribute(tag):
+        return True
+    return False
+
+
+def _pick_primary_tag(tags: list[str], code: str) -> str | None:
+    """为一只股票选择主因标签，优先匹配 Sheet 2 第一顺位概念。
+
+    匹配策略：
+    1. 精确匹配 Sheet 2 rank-1 → 直接返回
+    2. 子串匹配 → 选名称最长的（越具体越好）→ 六氟化钨 > 氟化工
+    3. 尝试 rank-2（同上逻辑）
+    4. Fallback：选特异性最高的标签
+    """
+    if not tags:
+        return None
+
+    primary = STOCK_PRIMARY_CONCEPT.get(code, "")
+    secondary = STOCK_SECONDARY_CONCEPT.get(code, "")
+
+    for concept in (primary, secondary):
+        if not concept:
+            continue
+        exact = [t for t in tags if t == concept]
+        if exact:
+            return exact[0]
+        fuzzy = [t for t in tags if t in concept or concept in t]
+        if fuzzy:
+            fuzzy.sort(key=len, reverse=True)
+            return fuzzy[0]
+
+    scored = []
+    for tag in tags:
+        score = 0
+        if tag not in CONCEPT_UNIVERSE:
+            score += 200  # 不在标准概念库中 = 更具体的品种标签
+        score += len(tag)
+        if not _is_temporal_tag(tag) and not _is_generic_attribute(tag):
+            score += 50
+        scored.append((score, tag))
+    scored.sort(reverse=True)
+    return scored[0][1]
+
 
 _BOARD_RE = re.compile(r"^\d+连板$|^\d+天\d+板$|^连续\d+")
 _BOARD_WORDS = {"连板", "涨停", "首板", "二连板", "炸板", "T字板",
@@ -47,12 +125,35 @@ def analyze_themes(hot_df: pd.DataFrame, trade_date: str) -> dict:
     for _, row in hot_df.iterrows():
         reason = safe_str(row, "题材归因")
         code = safe_str(row, "代码")
+        tags = []
         for raw in reason.split("+"):
             tag = normalize_theme(raw)
             if tag:
-                theme_stocks.setdefault(tag, set()).add(code)
+                tags.append(tag)
+        primary = _pick_primary_tag(tags, code)
+        if primary:
+            theme_stocks.setdefault(primary, set()).add(code)
+        for tag in tags:
+            theme_stocks.setdefault(tag, set())  # 保留空集合，维持标签存在性
+
+    # 清理未获得任何主因归因的空标签
+    theme_stocks = {t: codes for t, codes in theme_stocks.items() if codes}
 
     cnt = Counter({theme: len(codes) for theme, codes in theme_stocks.items()})
+
+    total_stocks = len(hot_df)
+    noise_tags = []
+    for tag in list(theme_stocks.keys()):
+        today_count = len(theme_stocks[tag])
+        if _is_noise_tag(tag, today_count, total_stocks):
+            noise_tags.append((tag, today_count))
+            del theme_stocks[tag]
+
+    cnt = Counter({theme: len(codes) for theme, codes in theme_stocks.items()})
+    if noise_tags:
+        noise_summary = ", ".join(f"{t}({n})" for t, n in sorted(noise_tags, key=lambda x: -x[1]))
+        print(f"  [ER过滤] 剔除噪音标签: {noise_summary}")
+
     top_themes = cnt.most_common(20)
 
     theme_data = {}
