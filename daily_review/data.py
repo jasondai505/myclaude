@@ -922,23 +922,83 @@ def fetch_eps_forecast(code: str) -> list[dict]:
 
 
 def fetch_stock_news(code: str, limit: int = 5) -> list[dict]:
-    """个股最近新闻（东方财富）"""
+    """个股最近新闻（东方财富）。
+
+    akshare stock_news_em 在 .str.replace(r\"\\u3000\", regex=True) 处
+    与新版 pyarrow 不兼容（ArrowInvalid: invalid escape sequence \\u），
+    此处直调东财 API 并自行清洗 HTML，绕过该 bug。
+    """
     try:
         import akshare as ak
         df = _ak(lambda: ak.stock_news_em(symbol=code))
-        if df is None or df.empty:
+        if df is not None and not df.empty:
+            rows = []
+            for _, row in df.head(limit).iterrows():
+                rows.append({
+                    "title": str(row.get("新闻标题", "")),
+                    "content": _clean_html(str(row.get("新闻内容", "")))[:200],
+                    "time": str(row.get("发布时间", "")),
+                    "source": str(row.get("文章来源", "")),
+                })
+            return rows
+    except Exception:
+        pass
+
+    return _fetch_stock_news_direct(code, limit)
+
+
+def _fetch_stock_news_direct(code: str, limit: int = 5) -> list[dict]:
+    """绕过 akshare，直调东方财富搜索 API 拉个股新闻。"""
+    import json as _json
+    inner = {
+        "uid": "", "keyword": code,
+        "type": ["cmsArticleWebOld"],
+        "client": "web", "clientType": "web", "clientVersion": "curr",
+        "param": {"cmsArticleWebOld": {
+            "searchScope": "default", "sort": "default",
+            "pageIndex": 1, "pageSize": 10,
+            "preTag": "<em>", "postTag": "</em>",
+        }},
+    }
+    url = "https://search-api-web.eastmoney.com/search/jsonp"
+    params = {
+        "cb": "jQuery",
+        "param": _json.dumps(inner, ensure_ascii=False),
+        "_": str(int(time.time() * 1000)),
+    }
+    headers = {
+        "User-Agent": UA,
+        "Referer": f"https://so.eastmoney.com/news/s?keyword={code}",
+    }
+    try:
+        r = requests.get(url, params=params, headers=headers, timeout=REQUEST_TIMEOUT)
+        text = r.text
+        start = text.find("(")
+        end = text.rfind(")")
+        if start == -1 or end == -1:
             return []
+        data = _json.loads(text[start + 1:end])
+        items = data.get("result", {}).get("cmsArticleWebOld", [])
         rows = []
-        for _, row in df.head(limit).iterrows():
+        for item in items[:limit]:
+            title = _clean_html(str(item.get("title", "")))
+            content = _clean_html(str(item.get("content", "")))[:200]
             rows.append({
-                "title": row.get("新闻标题", ""),
-                "content": str(row.get("新闻内容", ""))[:200],
-                "time": str(row.get("发布时间", "")),
-                "source": row.get("文章来源", ""),
+                "title": title,
+                "content": content,
+                "time": str(item.get("date", "")),
+                "source": str(item.get("mediaName", "")),
             })
         return rows
     except Exception:
         return []
+
+
+def _clean_html(text: str) -> str:
+    """去除 HTML 标签 + 全角空格 + 换行符。"""
+    text = re.sub(r"<[^>]+>", "", text)
+    text = text.replace("　", "").replace("\r\n", " ").replace("\n", " ")
+    return text.strip()
 
 
 def fetch_shareholder_count(code: str) -> list[dict]:
