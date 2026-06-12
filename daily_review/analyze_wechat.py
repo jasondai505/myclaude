@@ -60,7 +60,7 @@ def _load_api_key() -> str:
 
 def _get_client():
     from anthropic import Anthropic
-    return Anthropic(api_key=_load_api_key(), timeout=TIMEOUT)
+    return Anthropic(api_key=_load_api_key(), base_url="https://api.deepseek.com/anthropic", timeout=TIMEOUT)
 
 
 def _scrape_article(url: str) -> str:
@@ -553,7 +553,7 @@ def main():
         return
 
     from anthropic import Anthropic
-    client = Anthropic(api_key=key, timeout=TIMEOUT)
+    client = Anthropic(api_key=key, base_url="https://api.deepseek.com/anthropic", timeout=TIMEOUT)
 
     # 抓取正文
     print(f"  抓取 {len(rows)} 篇文章正文...")
