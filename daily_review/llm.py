@@ -56,9 +56,11 @@ def generate_overseas_catalysts(watchlist: dict, today: str) -> dict:
     )
 
     try:
-        client = Anthropic(api_key=api_key, base_url="https://api.deepseek.com/anthropic", timeout=TIMEOUT)
+        from roles import get_client as _get_client, get_model
+        client = _get_client("scan", timeout=TIMEOUT)
+        model = get_model("scan")
         resp = client.messages.create(
-            model=MODEL,
+            model=model,
             max_tokens=MAX_TOKENS,
             messages=[{"role": "user", "content": prompt}],
             thinking={"type": "disabled"},

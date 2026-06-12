@@ -552,8 +552,7 @@ def main():
         print("  API key 不可用")
         return
 
-    from anthropic import Anthropic
-    client = Anthropic(api_key=key, base_url="https://api.deepseek.com/anthropic", timeout=TIMEOUT)
+    from roles import get_client as _get_client
 
     # 抓取正文
     print(f"  抓取 {len(rows)} 篇文章正文...")
@@ -577,10 +576,11 @@ def main():
     print(f"  正文: {fetched} 成功, {failed} 失败")
 
     # 阶段一
-    print(f"\n  阶段一: Haiku 逐篇拆解...")
+    print(f"\n  阶段一: 逐篇拆解 (synthesis)...")
+    s1_client = _get_client("synthesis", timeout=TIMEOUT)
     single_results = []
     for i, a in enumerate(articles_with_body):
-        sr = _analyze_single(client, a["feed"], a["date"], a["title"], a["body"])
+        sr = _analyze_single(s1_client, a["feed"], a["date"], a["title"], a["body"])
         single_results.append(sr)
         score = sr.get("relevance_score", 0)
         stars = "★" * score + "☆" * (5 - score)
@@ -588,8 +588,9 @@ def main():
               f"{a['title'][:30]}...")
 
     # 阶段二
-    print(f"\n  阶段二: Sonnet 综合研判...")
-    data = _synthesize(client, single_results, today)
+    print(f"\n  阶段二: 综合研判 (deep)...")
+    s2_client = _get_client("deep", timeout=TIMEOUT)
+    data = _synthesize(s2_client, single_results, today)
     if not data:
         print("  Sonnet 不可用")
         _write_report({}, single_results, today, fetched, failed)

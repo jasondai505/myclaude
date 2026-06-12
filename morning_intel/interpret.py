@@ -144,7 +144,7 @@ def _render_prompt(template: str, today: str, feed_contents: dict[str, str],
 
 
 def _call_claude(prompt: str) -> str:
-    return _llm_call(MODEL_INTERPRET, prompt, max_tokens=LLM_MAX_TOKENS, timeout=LLM_TIMEOUT)
+    return _llm_call("deep", prompt, max_tokens=LLM_MAX_TOKENS, timeout=LLM_TIMEOUT)
 
 
 def _extract_json(text: str) -> dict | None:

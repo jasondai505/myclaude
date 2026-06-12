@@ -1,31 +1,15 @@
-"""共享 LLM 调用 helper — Anthropic SDK 直调 DeepSeek，禁用 thinking。"""
-import json
-import os
+"""共享 LLM 调用 helper — 统一走角色化配置，禁用 thinking。"""
+import sys
 from pathlib import Path
-from anthropic import Anthropic
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "daily_review"))
+from roles import get_client as _get_client, get_model
 
 
-def _load_api_key() -> str:
-    key = os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
-    if key:
-        return key
-    settings = Path.home() / ".claude" / "settings.json"
-    if settings.exists():
-        try:
-            data = json.loads(settings.read_text(encoding="utf-8"))
-            key = data.get("env", {}).get("ANTHROPIC_AUTH_TOKEN", "")
-        except (json.JSONDecodeError, OSError):
-            pass
-    return key
-
-
-API_KEY = _load_api_key()
-BASE_URL = "https://api.deepseek.com/anthropic"
-
-
-def call(model: str, prompt: str, max_tokens: int = 4000, timeout: int = 120) -> str:
+def call(role: str, prompt: str, max_tokens: int = 4000, timeout: int = 120) -> str:
     try:
-        client = Anthropic(api_key=API_KEY, base_url=BASE_URL)
+        client = _get_client(role, timeout=timeout)
+        model = get_model(role)
         resp = client.messages.create(
             model=model,
             max_tokens=max_tokens,

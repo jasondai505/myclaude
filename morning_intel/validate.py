@@ -98,7 +98,7 @@ def _claude_spot_check(delta_text: str, morning_data: dict) -> str | None:
         f"【盘中增量帖子】\n{delta_text[:3000]}"
     )
 
-    out = _llm_call(MODEL_AUDIT, prompt, timeout=LLM_TIMEOUT).strip()
+    out = _llm_call("scan", prompt, timeout=LLM_TIMEOUT).strip()
     if not out or out.startswith("[ERROR]"):
         return None
     return out

@@ -81,7 +81,7 @@ def _haiku_analyze(posts_text: str) -> str | None:
         f"{posts_text[:3000]}"
     )
 
-    out = _llm_call(MODEL_AUDIT, prompt, timeout=LLM_TIMEOUT).strip()
+    out = _llm_call("synthesis", prompt, timeout=LLM_TIMEOUT).strip()
     if not out or out == "无关" or out.startswith("[ERROR]"):
         return None
     return out

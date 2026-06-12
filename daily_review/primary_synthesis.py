@@ -145,10 +145,11 @@ def _call_haiku(prompt: str) -> dict | None:
         return None
 
     try:
-        from anthropic import Anthropic
-        client = Anthropic(api_key=key, base_url="https://api.deepseek.com/anthropic")
+        from roles import get_client as _get_client, get_model
+        client = _get_client("synthesis", timeout=TIMEOUT)
+        model = get_model("synthesis")
         resp = client.messages.create(
-            model=MODEL,
+            model=model,
             max_tokens=3000,
             messages=[{"role": "user", "content": prompt}],
             thinking={"type": "disabled"},

@@ -348,29 +348,25 @@ def main():
 
     print(f"  总计 {len(all_rows)} 帖，有实质内容 {len(signal_rows)} 帖")
 
-    key = _load_api_key()
-    if not key:
-        print("  API key 不可用")
-        return
+    from roles import get_client as _get_client
 
-    from anthropic import Anthropic
-    client = Anthropic(api_key=key, base_url="https://api.deepseek.com/anthropic", timeout=TIMEOUT)
-
-    # 阶段一：Haiku 逐帖拆解
-    print(f"  阶段一：Haiku 逐帖拆解...")
+    # 阶段一：逐帖拆解 → synthesis
+    print(f"  阶段一：逐帖拆解...")
+    s1_client = _get_client("synthesis", timeout=TIMEOUT)
     all_results = []
     for start in range(0, len(signal_rows), BATCH_SIZE):
         batch = signal_rows[start:start + BATCH_SIZE]
         print(f"    批次 {start // BATCH_SIZE + 1}/{(len(signal_rows) - 1) // BATCH_SIZE + 1} "
               f"({len(batch)} 帖)...")
-        results = _haiku_analyze_batch(client, batch)
+        results = _haiku_analyze_batch(s1_client, batch)
         all_results.extend(results)
 
     print(f"  阶段一完成: {len(all_results)} 条有效提取")
 
-    # 阶段二：Sonnet 综合研判
-    print(f"  阶段二：Sonnet 综合研判...")
-    data = _sonnet_synthesize(client, all_results, today)
+    # 阶段二：综合研判 → deep
+    print(f"  阶段二：综合研判...")
+    s2_client = _get_client("deep", timeout=TIMEOUT)
+    data = _sonnet_synthesize(s2_client, all_results, today)
     if not data:
         print("  Sonnet 研判失败")
         return

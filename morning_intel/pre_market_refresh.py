@@ -106,7 +106,7 @@ def _haiku_analyze(context: str) -> str | None:
         "保持简洁，不要客套。无增量信息就直说。"
     )
 
-    out = _llm_call(MODEL_AUDIT, prompt, timeout=LLM_TIMEOUT).strip()
+    out = _llm_call("scan", prompt, timeout=LLM_TIMEOUT).strip()
     return out if out and not out.startswith("[ERROR]") else None
 
 
