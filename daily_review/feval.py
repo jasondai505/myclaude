@@ -218,8 +218,8 @@ def score_batch(stocks: list[dict]) -> list[dict]:
         print("  [WARN] feval: 无 API key，跳过评分")
         return []
 
-    from anthropic import Anthropic
-    client = Anthropic(api_key=api_key, base_url="https://api.deepseek.com/anthropic")
+    from daily_review.roles import get_client as _rc2, get_model as _rm2
+client = _rc2("synthesis", timeout=120)
 
     all_results = []
     for i in range(0, len(stocks), BATCH_SIZE):
@@ -458,8 +458,7 @@ def score_delta_from_feeds(date_str: str = "") -> list[dict]:
         print("  [WARN] delta: 无 API key，跳过")
         return []
 
-    from anthropic import Anthropic
-    client = Anthropic(api_key=api_key, base_url="https://api.deepseek.com/anthropic")
+    client = _rc2("synthesis", timeout=120)
 
     combined_feeds = "\n".join(feed_texts)
     prompt = DELTA_PROMPT.format(feed_text=combined_feeds[:20000])

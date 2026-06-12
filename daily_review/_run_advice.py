@@ -9,6 +9,7 @@ import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from daily_review.roles import get_client as _rc, get_model as _rm
 from anthropic import Anthropic
 
 sys.stdout.reconfigure(encoding="utf-8")
@@ -175,9 +176,9 @@ def _summarize_feed(content: str, source_name: str) -> str:
 {content[:12000]}"""
 
     try:
-        client = Anthropic(api_key=api_key, base_url="https://api.deepseek.com/anthropic")
+        client = _rc("synthesis", timeout=60)
         resp = client.messages.create(
-            model=HAIKU_MODEL,
+            model=_rm("synthesis"),
             max_tokens=2000,
             messages=[{"role": "user", "content": summary_prompt}],
             thinking={"type": "disabled"},
@@ -1558,9 +1559,9 @@ def _debate_stocks(top10: list[dict]) -> dict[str, list[str]]:
 {chr(10).join(stock_briefs)}"""
 
     try:
-        client = Anthropic(api_key=api_key, base_url="https://api.deepseek.com/anthropic")
+        client = _rc("synthesis", timeout=60)
         resp = client.messages.create(
-            model=HAIKU_MODEL,
+            model=_rm("synthesis"),
             max_tokens=1200,
             messages=[{"role": "user", "content": debate_prompt}],
             thinking={"type": "disabled"},
@@ -1710,9 +1711,9 @@ def _scan_recurring_themes(today: str) -> str:
 {combined}"""
 
     try:
-        client = Anthropic(api_key=api_key, base_url="https://api.deepseek.com/anthropic")
+        client = _rc("scan", timeout=60)
         resp = client.messages.create(
-            model=HAIKU_MODEL,
+            model=_rm("scan"),
             max_tokens=800,
             messages=[{"role": "user", "content": scan_prompt}],
             thinking={"type": "disabled"},
@@ -1863,12 +1864,9 @@ def main():
     advice_path = BASE / "reports" / f"advice_{today}.md"
 
     try:
-        client = Anthropic(
-            api_key=_load_api_key(),
-            base_url="https://api.deepseek.com/anthropic",
-        )
+        client = _rc("deep", timeout=600)
         resp = client.messages.create(
-            model=MODEL,
+            model=_rm("deep"),
             max_tokens=8000,
             messages=[{"role": "user", "content": prompt}],
             thinking={"type": "disabled"},
