@@ -905,7 +905,24 @@ def _validate_advice_coverage(output: str) -> str:
     return output
 
 
-def _build_selection(output: str) -> str:
+def _tag_stock_sources(code: str, feeds: dict[str, str]) -> str:
+    """标注某只标的在哪些 feed 中被提及，返回紧凑标签如「星球·韭研·公告」"""
+    tags = []
+    feed_labels = {
+        "%%ZSXQ%%": "星球", "%%WECHAT_ANALYSIS%%": "公众号",
+        "%%JIUYANG%%": "韭研", "%%WEIBO%%": "微博",
+        "%%NEWS%%": "新闻", "%%ANNOUNCEMENTS%%": "公告",
+        "%%RECAP%%": "复盘", "%%PRIMARY_SYNTHESIS%%": "四源",
+        "%%SUPPLY_CHAIN_INTEL%%": "晨间情报",
+    }
+    for key, label in feed_labels.items():
+        text = feeds.get(key, "")
+        if code in text:
+            tags.append(label)
+    return "·".join(tags) if tags else "—"
+
+
+def _build_selection(output: str, feeds: dict[str, str]) -> str:
     """解析 LLM 候选池 → 查 FEVΔ → 硬排名取前10 → 替换候选池为精选标的。"""
     # 找到候选池段落（兼容 LLM 可能的各种写法）
     pool_start = -1
@@ -1156,70 +1173,43 @@ def _build_selection(output: str) -> str:
     hp_parts = [f"{v}只 {k}" for k, v in hp_counts.items() if v > 0]
 
     lines = ["", "## 🎯 精选标的 — 用谁打", "",
-             f"> ⏱️ **时间姿态**: {' / '.join(hp_parts)} → {posture.get(dominant, '')}",
-             "> 由 Python 后端按 **FEVΔ = FEV + Δ + 连续性加分** 硬排名。延续标的获加分（长线+5/中线+3/短线+1），防一日游。", "",
-             "| # | 标的 | FEV | Δ | 加分 | FEVΔ | 持有期 | 来源 |",
-             "|:--|------|:---:|:--:|:----:|:-----:|:------:|------|"]
+             f"> ⏱️ 时间姿态: {' / '.join(hp_parts)} → {posture.get(dominant, '')}",
+             "> 按 **FEVΔ = FEV + Δ + 连续性加分** 硬排名。延续标的获加分（长线+5/中线+3/短线+1）。", "",
+             "| # | 标的 | FEV | Δ | FEVΔ | 持有期 | 信号源 | W1 催化 | W3 预期差 |",
+             "|:--|------|:---:|:--:|:-----:|:------:|--------|---------|----------|"]
     for i, c in enumerate(top10):
         sign = "+" if c["delta"] >= 0 else ""
         ds_str = f"{sign}{c['delta']}" if c["delta"] != 0 else "0"
-        cb = c.get("continuity_bonus", 0)
-        cb_str = f"+{cb}" if cb > 0 else "—"
-        hp = c.get("hold_period", "未标注")
+        hp = c.get("hold_period", "—")
+        sources = _tag_stock_sources(c["code"], feeds)
+        w1 = w3 = "—"
+        w1_m = re.search(r"-\s*\*\*W1\*\*\s*(.+)", c["block"])
+        w3_m = re.search(r"-\s*\*\*W3\*\*\s*(.+)", c["block"])
+        if w1_m: w1 = w1_m.group(1).strip()[:55]
+        if w3_m: w3 = w3_m.group(1).strip()[:50]
         lines.append(
             f"| {rank_emoji[i]} | **{c['name']}({c['code']})** | "
-            f"{c['fev']} | {ds_str} | {cb_str} | **{c['fevd_adjusted']}** | {hp} | {c['fev_source']} |"
+            f"{c['fev']} | {ds_str} | **{c['fevd_adjusted']}** | {hp} | {sources} | {w1} | {w3} |"
         )
     lines.append("")
-    lines.append(f"> 候选池共 {len(candidates)} 只，FEVΔ 范围 {top10[0]['fevd']}~{top10[-1]['fevd']}，"
-                 f"未入选 {len(candidates)-10} 只见文末备选。")
+    lines.append(f"> 候选池 {len(candidates)} 只，未入选 {len(candidates)-10} 只见文末备选。")
     lines.append("")
 
-    # 自辩：对所有精选标的跑 fact-debate
+    # 自辩
     debate_map = _debate_stocks(top10)
-
-    # 逐只展开
+    debate_lines = []
     for i, c in enumerate(top10):
-        lines.append(f"### {rank_emoji[i]} {c['name']} ({c['code']})")
-        lines.append("")
-        lines.append(f"| 指标 | 值 |")
-        lines.append(f"|------|-----|")
-        chain_str = f"{c['serenity_chain']}" if c['serenity_chain'] else "未覆盖"
-        lines.append(f"| FEV | {c['fev']} (F={c['f_score']} E={c['e_score']} V={c['v_score']}) · {c['fev_source']} |")
-        sign = "+" if c['delta'] >= 0 else ""
-        lines.append(f"| Δ | {sign}{c['delta']} · {c['delta_signal'][:60]} |")
-        cb = c.get("continuity_bonus", 0)
-        if cb > 0:
-            lines.append(f"| FEVΔ | **{c['fevd']}/40** + 连续性加分 {cb} = **{c['fevd_adjusted']}** |")
-        else:
-            lines.append(f"| FEVΔ | **{c['fevd']}/40** |")
-        lines.append(f"| ChokeMap | {chain_str} |")
-        hp = c.get("hold_period", "未标注")
-        # 从 W4 提取时间锚点，与持有期合并展示
-        w4_text = ""
-        w4_m = re.search(r"-\s*\*\*W4\*\*\s*(.+)", c["block"])
-        if w4_m:
-            w4_text = w4_m.group(1).strip()
-        if w4_text:
-            lines.append(f"| ⏱️ 时间锚 | {w4_text} · **{hp}** |")
-        else:
-            lines.append(f"| ⏱️ 时间锚 | **{hp}** |")
-        lines.append("")
-        # 附上 LLM 写的 W1/W3/W5 分析（W4 已融入时间锚，跳过）
-        for w_tag in ["W1", "W3", "W5"]:
-            m = re.search(rf"-\s*\*\*{w_tag}\*\*\s*(.+)", c["block"])
-            if m:
-                lines.append(f"- **{w_tag}** {m.group(1).strip()}")
-        # 自辩质疑
         questions = debate_map.get(c["code"], [])
         if questions:
-            lines.append("")
-            lines.append("<details><summary>🛡️ 魔鬼辩护人</summary>")
-            lines.append("")
+            debate_lines.append(f"- **{c['name']}({c['code']})**:")
             for q in questions[:3]:
-                lines.append(f"> ⚡ {q}")
-            lines.append("")
-            lines.append("</details>")
+                debate_lines.append(f"  > ⚡ {q}")
+    if debate_lines:
+        lines.append("<details><summary>🛡️ 魔鬼辩护人质疑</summary>")
+        lines.append("")
+        lines.extend(debate_lines)
+        lines.append("")
+        lines.append("</details>")
         lines.append("")
 
     # 备选标的
@@ -1903,7 +1893,7 @@ def main():
             idx = output.find(marker)
             nl = output.find("\n", idx)
             output = output[:nl + 1] + chokemap_diff + "\n" + output[nl + 1:]
-    output = _build_selection(output)
+    output = _build_selection(output, feeds)
     diff_section = _build_daily_diff(output, yesterday, today)
     if diff_section:
         # 插入到备选标的前面
