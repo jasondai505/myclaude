@@ -113,6 +113,52 @@ def _market_prefix(code: str) -> str:
 
 
 # ============================================================
+# 方案0: Redis 实时行情（最快，自有数据源）
+# ============================================================
+
+def _scan_via_redis(code_df: pd.DataFrame | None = None) -> pd.DataFrame | None:
+    """从 Redis 读取全市场行情，返回 DataFrame。失败返回 None"""
+    try:
+        from data import redis_quote_all, redis_available
+    except ImportError:
+        return None
+    if not redis_available():
+        return None
+
+    quotes = redis_quote_all()
+    if not quotes:
+        return None
+
+    if code_df is None:
+        code_df = _load_code_list()
+    name_map = dict(zip(code_df["code"], code_df["name"])) if not code_df.empty else {}
+
+    rows = []
+    for code, q in quotes.items():
+        rows.append({
+            "code": code,
+            "name": name_map.get(code, ""),
+            "price": q["price"],
+            "change_pct": q["change_pct"],
+            "change_amt": q["change_amt"],
+            "volume_shou": q["volume_shou"],
+            "amount_wan": q["amount"] / 10000 if q["amount"] else 0,
+            "turnover_pct": q["turnover_pct"],
+            "vol_ratio": q["vol_ratio"],
+            "high": q["high"],
+            "low": q["low"],
+            "open": q["open"],
+            "prev_close": q["prev_close"],
+            "pe_ttm": None, "pb": None, "mcap_yi": None, "float_mcap_yi": None,
+            "industry": "", "concepts": "",
+        })
+
+    df = pd.DataFrame(rows)
+    existing = [c for c in _PREFERRED_COLS if c in df.columns]
+    return df[existing]
+
+
+# ============================================================
 # 方案1: 东财 clist（最快，需要能访问 push2.eastmoney.com）
 # ============================================================
 
@@ -325,26 +371,31 @@ def scan_all(force_refresh_codes: bool = False,
              workers: int = 8) -> pd.DataFrame:
     """全A实时行情扫描，返回 DataFrame (~5200只)
 
-    自动选数据源: 东财 clist > 腾讯行情 API
-    耗时: 东财 ~8s, 腾讯 ~15-25s
+    自动选数据源: Redis > 东财 clist > 腾讯行情 API
+    耗时: Redis ~2s, 东财 ~8s, 腾讯 ~15-25s
     """
     t0 = time.perf_counter()
+    code_df = _load_code_list(force_refresh=force_refresh_codes)
 
-    # 优先东财 clist（最快）
-    df = _scan_via_eastmoney()
-    source = "东财"
+    # 优先 Redis（自有数据源，最快最稳）
+    df = _scan_via_redis(code_df)
+    if df is not None and not df.empty:
+        source = "Redis"
+    else:
+        # 次选东财 clist
+        df = _scan_via_eastmoney()
+        source = "东财"
 
-    if df is None:
-        code_df = _load_code_list(force_refresh=force_refresh_codes)
-        if code_df.empty:
-            print("[live_scanner] 无法获取股票代码列表")
-            return pd.DataFrame(columns=_PREFERRED_COLS)
-        df = _scan_via_tencent(code_df, workers=workers)
-        source = "腾讯"
-        # akshare 的名称更全，合并进来
-        if "name" in code_df.columns and not df.empty:
-            name_map = dict(zip(code_df["code"], code_df["name"]))
-            df["name"] = df["code"].map(name_map).fillna(df.get("name", ""))
+        if df is None:
+            if code_df.empty:
+                print("[live_scanner] 无法获取股票代码列表")
+                return pd.DataFrame(columns=_PREFERRED_COLS)
+            df = _scan_via_tencent(code_df, workers=workers)
+            source = "腾讯"
+            # akshare 的名称更全，合并进来
+            if "name" in code_df.columns and not df.empty:
+                name_map = dict(zip(code_df["code"], code_df["name"]))
+                df["name"] = df["code"].map(name_map).fillna(df.get("name", ""))
 
     elapsed = time.perf_counter() - t0
     print(f"[live_scanner] {source} | 全A {len(df)} 只 | {elapsed:.1f}s")

@@ -11,6 +11,7 @@ from config import (
     UA, REQUEST_TIMEOUT, FETCH_DELAY, INDICES, STYLE_INDICES,
     GLOBAL_INDICES_EM, GLOBAL_WATCHLIST_EM, OVERSEAS_MAP,
     LIXINGER_TOKEN, LIXINGER_BASE,
+    REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, REDIS_DB, REDIS_MARKET_KEY,
 )
 
 
@@ -33,6 +34,102 @@ def _market_prefix(code: str) -> str:
     elif code.startswith("8"):
         return "bj"
     return "sz"
+
+
+# ============================================================
+# Redis 实时行情
+# ============================================================
+
+_redis_client = None
+
+
+def _get_redis():
+    global _redis_client
+    if _redis_client is None:
+        import redis
+        _redis_client = redis.Redis(
+            host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD,
+            db=REDIS_DB, decode_responses=True, protocol=2,
+            socket_connect_timeout=5, socket_timeout=10,
+        )
+    return _redis_client
+
+
+def redis_quote_all() -> dict[str, dict]:
+    """从 Redis 读取全市场实时行情，返回 {code: {price, prev_close, open, ...}}
+    失败返回 {}"""
+    try:
+        r = _get_redis()
+        raw = r.hgetall(REDIS_MARKET_KEY)
+        if not raw:
+            return {}
+        result = {}
+        for code, csv_line in raw.items():
+            parts = csv_line.split(",")
+            if len(parts) < 38:
+                continue
+            code6 = _normalize_code(code)
+            price = float(parts[1]) if parts[1] else 0
+            prev_close = float(parts[2]) if parts[2] else 0
+            if price <= 0 or prev_close <= 0:
+                continue
+            result[code6] = {
+                "price": price,
+                "prev_close": prev_close,
+                "open": float(parts[3]) if parts[3] else 0,
+                "high": float(parts[4]) if parts[4] else 0,
+                "low": float(parts[5]) if parts[5] else 0,
+                "volume_shou": float(parts[7]) if parts[7] else 0,
+                "amount": float(parts[9]) if parts[9] else 0,
+                "turnover_pct": float(parts[35]) if parts[35] else 0,
+                "vol_ratio": float(parts[37]) if parts[37] else 0,
+                "change_pct": round((price - prev_close) / prev_close * 100, 2) if prev_close > 0 else 0,
+                "change_amt": round(price - prev_close, 2),
+                "low52": float(parts[33]) if parts[33] else 0,
+                "high52": float(parts[34]) if parts[34] else 0,
+            }
+        return result
+    except Exception as e:
+        print(f"  [WARN] Redis 行情读取失败: {e}")
+        return {}
+
+
+_redis_available = None
+
+
+def redis_available() -> bool:
+    """检查 Redis 是否可用（缓存结果，避免反复尝试）"""
+    global _redis_available
+    if _redis_available is None:
+        try:
+            r = _get_redis()
+            r.ping()
+            _redis_available = True
+        except Exception:
+            _redis_available = False
+    return _redis_available
+
+
+def _stock_board(code: str) -> str:
+    """返回板块: main/kcb/cyb/bj"""
+    if code.startswith(("688", "689")):
+        return "kcb"
+    if code.startswith(("300", "301")):
+        return "cyb"
+    if code.startswith("8"):
+        return "bj"
+    return "main"
+
+
+_LIMIT_PCT = {"main": 0.10, "kcb": 0.20, "cyb": 0.20, "bj": 0.30}
+
+
+def calc_limit_price(prev_close: float, board: str, is_st: bool = False) -> tuple[float, float]:
+    """返回 (涨停价, 跌停价)"""
+    pct = 0.05 if is_st else _LIMIT_PCT.get(board, 0.10)
+    up = round(prev_close * (1 + pct), 2)
+    down = round(prev_close * (1 - pct), 2)
+    return up, down
 
 
 # ============================================================
@@ -99,7 +196,28 @@ def fetch_indices() -> dict[str, dict]:
 
 
 def fetch_stock_quotes(codes: list[str], batch_size: int = 30, max_retries: int = 3) -> dict[str, dict]:
-    """拉取个股行情，codes 为6位代码列表，自动分批防超时"""
+    """拉取个股行情，Redis 优先（腾讯 API 兜底）"""
+    if redis_available():
+        all_quotes = redis_quote_all()
+        if all_quotes:
+            result = {}
+            for c in codes:
+                if c in all_quotes:
+                    q = all_quotes[c]
+                    result[c] = {
+                        "name": "", "price": q["price"],
+                        "last_close": q["prev_close"], "open": q["open"],
+                        "high": q["high"], "low": q["low"],
+                        "change_pct": q["change_pct"], "change_amt": q["change_amt"],
+                        "amount_wan": q["amount"] / 10000 if q["amount"] else 0,
+                        "turnover_pct": q["turnover_pct"], "vol_ratio": q["vol_ratio"],
+                        "pe_ttm": 0, "pb": 0, "mcap_yi": 0, "float_mcap_yi": 0,
+                        "amplitude_pct": 0, "limit_up": 0, "limit_down": 0,
+                        "pe_static": 0, "date": q.get("time", ""),
+                    }
+            return result
+
+    # 兜底: 腾讯 API
     result = {}
     for i in range(0, len(codes), batch_size):
         batch = codes[i:i + batch_size]
@@ -282,14 +400,62 @@ def fetch_lhb(date: str = None) -> dict[str, dict]:
 
 
 # ============================================================
-# 东方财富涨停池 — 涨停时间 + 连板数
+# 涨停池 — Redis 实时行情 + akshare 补充连板数
 # ============================================================
 
+def _load_name_map() -> dict[str, str]:
+    """加载代码→名称映射（优先本地缓存）"""
+    try:
+        from pathlib import Path
+        import json
+        cache = Path(__file__).parent / "data" / "stock_codes.json"
+        if cache.exists():
+            data = json.loads(cache.read_text(encoding="utf-8"))
+            return {c["code"]: c["name"] for c in data.get("codes", [])}
+    except Exception:
+        pass
+    return {}
+
+
+def _fetch_zt_pool_redis(name_map: dict[str, str] | None = None) -> dict[str, dict]:
+    """Redis 涨停池: 价格触板判定"""
+    quotes = redis_quote_all()
+    if not quotes:
+        return {}
+    if name_map is None:
+        name_map = _load_name_map()
+    result = {}
+    for code, q in quotes.items():
+        if q["prev_close"] <= 0:
+            continue
+        board = _stock_board(code)
+        name = name_map.get(code, "")
+        is_st = "ST" in name.upper()
+        limit_up, _ = calc_limit_price(q["prev_close"], board, is_st)
+        if q["price"] >= limit_up:
+            result[code] = {
+                "name": name,
+                "price": q["price"],
+                "change_pct": q["change_pct"],
+                "consecutive_boards": 1,  # Redis 快照无历史，引擎有 hot_df 兜底
+                "first_time": "",
+                "last_time": "",
+                "zt_stats": "",
+                "blasted": 0,
+            }
+    return result
+
+
 def fetch_zt_pool(date: str = None) -> dict[str, dict]:
-    """
-    拉取东方财富涨停池数据，返回 {code: {first_time, last_time, zt_stats, consecutive_boards, blasted}}
-    date: YYYY-MM-DD
-    """
+    """涨停池: Redis 优先，akshare 兜底"""
+    if redis_available():
+        name_map = _load_name_map()
+        result = _fetch_zt_pool_redis(name_map)
+        if result:
+            print(f"  ✓ 涨停池(Redis) {len(result)} 只")
+            return result
+
+    # 兜底: akshare
     import akshare as ak
     if date is None:
         from datetime import date as _date
@@ -316,15 +482,47 @@ def fetch_zt_pool(date: str = None) -> dict[str, dict]:
             "consecutive_boards": int(row.get("连板数", 1)),
             "blasted": int(row.get("炸板次数", 0)),
         }
+    print(f"  ✓ 涨停池(akshare) {len(result)} 只")
     return result
 
 
 # ============================================================
-# 东方财富跌停股池
+# 跌停池
 # ============================================================
 
+def _fetch_dt_pool_redis(name_map: dict[str, str] | None = None) -> dict[str, dict]:
+    """Redis 跌停池: 价格触板判定"""
+    quotes = redis_quote_all()
+    if not quotes:
+        return {}
+    if name_map is None:
+        name_map = _load_name_map()
+    result = {}
+    for code, q in quotes.items():
+        if q["prev_close"] <= 0:
+            continue
+        board = _stock_board(code)
+        name = name_map.get(code, "")
+        is_st = "ST" in name.upper()
+        _, limit_down = calc_limit_price(q["prev_close"], board, is_st)
+        if q["price"] <= limit_down:
+            result[code] = {
+                "name": name,
+                "close": q["price"],
+                "chg_pct": q["change_pct"],
+            }
+    return result
+
+
 def fetch_dt_pool(date: str = None) -> dict[str, dict]:
-    """跌停股池: {code: {name, close, chg_pct}}；接口不稳时返回 {}"""
+    """跌停池: Redis 优先，akshare 兜底"""
+    if redis_available():
+        name_map = _load_name_map()
+        result = _fetch_dt_pool_redis(name_map)
+        if result:
+            print(f"  ✓ 跌停池(Redis) {len(result)} 只")
+            return result
+
     import akshare as ak
     if date is None:
         from datetime import date as _date
@@ -344,6 +542,7 @@ def fetch_dt_pool(date: str = None) -> dict[str, dict]:
             "close": float(row.get("最新价", 0) or 0),
             "chg_pct": float(row.get("涨跌幅", 0) or 0),
         }
+    print(f"  ✓ 跌停池(akshare) {len(result)} 只")
     return result
 
 

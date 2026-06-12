@@ -10853,3 +10853,21 @@ STOCK_SECONDARY_CONCEPT: dict[str, str] = {
     "920985": "HJT电池",
     "920992": "智能医疗",
 }
+
+
+# ============================================================
+# Redis 实时行情
+# ============================================================
+REDIS_HOST = 'stock.xiaoxinren.cn'
+REDIS_PORT = 5679
+REDIS_PASSWORD = 'xin58333'
+REDIS_DB = 0
+REDIS_MARKET_KEY = 'Market'
+REDIS_QUOTE_FIELDS = [
+    'code', 'price', 'prev_close', 'open', 'high', 'low', 'time',
+    'volume_shou', 'trade_count', 'amount', 'amount2', 'flag1',
+    'bp1', 'sp1', 'bv1', 'sv1', 'bp2', 'sp2', 'bv2', 'sv2',
+    'bp3', 'sp3', 'bv3', 'sv3', 'bp4', 'sp4', 'bv4', 'sv4',
+    'bp5', 'sp5', 'bv5', 'sv5',
+    'flag2', 'low52', 'high52', 'turnover_pct', 'flag3', 'vol_ratio',
+]
