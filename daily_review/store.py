@@ -942,6 +942,14 @@ def init_feeds_tables():
             conn.execute("ALTER TABLE wechat_articles ADD COLUMN analyzed_at TEXT")
         except Exception:
             pass
+        try:
+            conn.execute("ALTER TABLE catalyst_signals ADD COLUMN price_confirmed INTEGER DEFAULT 0")
+        except Exception:
+            pass
+        try:
+            conn.execute("ALTER TABLE catalyst_signals ADD COLUMN price_confirm_date TEXT")
+        except Exception:
+            pass
 
 
 def save_announcements(rows: list[dict]) -> int:

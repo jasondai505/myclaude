@@ -234,6 +234,21 @@ def _inject_catalyst_screen(today: str) -> str:
     return "\n".join(lines)
 
 
+def _inject_catalyst_track(today: str) -> str:
+    """读取催化剂走势跟踪报告"""
+    path = FEEDS_DIR / f"catalyst_track_{today}.md"
+    if not path.exists():
+        return "（今日催化剂走势跟踪暂未生成）"
+    try:
+        content = path.read_text(encoding="utf-8")
+        # 提取核心部分（历史催化复活 + 仍在跟踪），控制长度
+        if len(content) > 3000:
+            content = content[:3000] + "\n...(truncated)"
+        return content
+    except Exception:
+        return "（催化剂走势跟踪报告读取失败）"
+
+
 def _inject_feeds(today: str, yesterday: str) -> dict[str, str]:
     """读取 feed — 优先 SQLite 缓存，回退文件。大文件经 Haiku 摘要。"""
     try:
@@ -1899,6 +1914,7 @@ def main():
         .replace("%%YESTERDAY_LOGIC%%", yesterday_logic)
         .replace("%%FEV_TABLE%%", fev_table)
         .replace("%%CATALYST_SCREEN%%", _inject_catalyst_screen(today))
+        .replace("%%CATALYST_TRACK%%", _inject_catalyst_track(today))
     )
     for key, val in feeds.items():
         prompt = prompt.replace(key, val)

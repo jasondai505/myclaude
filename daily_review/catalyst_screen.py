@@ -599,6 +599,56 @@ def main(today_str: str, phase: int = 12, max_per_source: int = 50):
             stock_maps[name] = full
             print(f"    {name}: {len(full)}只标的")
 
+    # --- 入库 ---
+    try:
+        from store import save_catalyst_signals, save_catalyst_stock_map, init_db
+        init_db()
+        db_signals = []
+        for c in catalysts:
+            merged_from = c.get("merged_from", [])
+            db_signals.append({
+                "date": today_str,
+                "signal_id": hashlib.md5(
+                    f"{today_str}:{c.get('catalyst_name','')}".encode()).hexdigest()[:16],
+                "source_type": merged_from[0] if merged_from else "?",
+                "catalyst_name": c.get("catalyst_name", ""),
+                "catalyst_type": c.get("catalyst_type", ""),
+                "magnitude_score": c.get("magnitude", c.get("magnitude_score", 0)),
+                "specificity_score": c.get("specificity", c.get("specificity_score", 0)),
+                "novelty_score": c.get("novelty", c.get("novelty_score", 0)),
+                "urgency_score": c.get("urgency", c.get("urgency_score", 0)),
+                "actionability": c.get("final_actionability", 0),
+                "source_count": c.get("source_count", 1),
+                "price_data": c.get("price_data", {}),
+                "key_entities": c.get("key_entities", []),
+                "suggested_concepts": c.get("suggested_concepts", []),
+                "merged_from": merged_from,
+                "thesis": c.get("thesis", ""),
+                "time_horizon": c.get("time_horizon", "?"),
+                "mentioned_codes": c.get("mentioned_codes", []),
+                "validation_note": c.get("validation_note", ""),
+                "sonnet_validated": 0,
+                "price_confirmed": 0,
+            })
+        save_catalyst_signals(db_signals)
+        print(f"  DB: {len(db_signals)}条催化入库")
+
+        db_maps = []
+        for cname, mapped in stock_maps.items():
+            for m in mapped:
+                db_maps.append({
+                    "date": today_str, "catalyst_name": cname,
+                    "stock_code": m.get("code", ""), "stock_name": m.get("name", ""),
+                    "mapping_method": m.get("method", m.get("mapping_method", "?")),
+                    "matched_concept": m.get("concept", ""),
+                    "relevance": m.get("relevance", ""),
+                    "confidence": m.get("confidence", "medium"),
+                })
+        save_catalyst_stock_map(db_maps)
+        print(f"  DB: {len(db_maps)}条标的映射入库")
+    except Exception as e:
+        print(f"  [WARN] DB save failed: {e}")
+
     # --- 生成报告 ---
     report_path = _generate_report(catalysts, stock_maps, today_str)
     _save_json(catalysts, stock_maps, today_str)
