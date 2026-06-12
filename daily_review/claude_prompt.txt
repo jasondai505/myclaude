@@ -153,6 +153,11 @@
 %%PRIMARY_SYNTHESIS%%
 ```
 
+**今日催化筛查（Haiku自动提取+四维打分 → 高行动性催化事件+标的映射）**
+```
+%%CATALYST_SCREEN%%
+```
+
 **今日5W信号（盘前预处理 — 结构化边际信号，参考使用）**
 ```
 %%INTEL_DIMENSIONS%%

@@ -193,6 +193,47 @@ def _summarize_feed(content: str, source_name: str) -> str:
         return content[:MAX_DIRECT_CHARS] + "\n...(summarization failed, truncated)"
 
 
+def _inject_catalyst_screen(today: str) -> str:
+    """读取催化筛查报告，压缩为 advice prompt 可用的紧凑格式"""
+    path = FEEDS_DIR / f"catalyst_screen_{today}.json"
+    if not path.exists():
+        return "（今日催化筛查报告暂未生成）"
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        catalysts = data.get("catalysts", [])
+        if not catalysts:
+            return "（今日未提取到可交易催化事件）"
+    except Exception:
+        return "（催化筛查报告读取失败）"
+
+    lines = ["## 今日催化筛查（仅列高行动性催化）\n"]
+    for c in catalysts[:10]:
+        score = c.get("final_actionability", 0)
+        label = "CRITICAL" if score >= 60 else "HIGH" if score >= 40 else "MEDIUM"
+        lines.append(
+            f"- [{label}] **{c.get('catalyst_name','?')}** "
+            f"({c.get('catalyst_type','?')}, {score}分): "
+            f"{c.get('thesis','')[:150]}"
+        )
+        mapped = data.get("stock_maps", {}).get(c.get("catalyst_name", ""), [])
+        if mapped:
+            stocks_str = " ".join(
+                f"{m['code']}({m.get('name','?')} {m.get('confidence','?')})"
+                for m in mapped[:5]
+            )
+            lines.append(f"  标的: {stocks_str}")
+
+    # Summary
+    summary = catalysts[0] if catalysts else {}
+    if summary.get("summary"):
+        lines.append(f"\n**综合判断**: {summary['summary']}")
+    if summary.get("market_implication"):
+        lines.append(f"**盘面影响**: {summary['market_implication']}")
+
+    return "\n".join(lines)
+
+
 def _inject_feeds(today: str, yesterday: str) -> dict[str, str]:
     """读取 feed — 优先 SQLite 缓存，回退文件。大文件经 Haiku 摘要。"""
     try:
@@ -1857,6 +1898,7 @@ def main():
         .replace("%%MUST_CONSIDER%%", must_consider)
         .replace("%%YESTERDAY_LOGIC%%", yesterday_logic)
         .replace("%%FEV_TABLE%%", fev_table)
+        .replace("%%CATALYST_SCREEN%%", _inject_catalyst_screen(today))
     )
     for key, val in feeds.items():
         prompt = prompt.replace(key, val)
