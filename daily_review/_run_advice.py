@@ -979,79 +979,6 @@ def _tag_stock_sources(code: str, feeds: dict[str, str]) -> str:
     return "·".join(tags) if tags else "—"
 
 
-def _enforce_catalyst_coverage(
-    today: str, top10_codes: set[str], candidate_map: dict[str, dict],
-    fev_map: dict, delta_map: dict,
-) -> str:
-    """CRITICAL 催化标的未进入精选池时，生成强制关注段落"""
-    path = FEEDS_DIR / f"catalyst_screen_{today}.json"
-    if not path.exists():
-        return ""
-
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return ""
-
-    catalysts = data.get("catalysts", [])
-    stock_maps = data.get("stock_maps", {})
-    critical = [c for c in catalysts if c.get("final_actionability", 0) >= 60]
-    if not critical:
-        return ""
-
-    # 收集所有 CRITICAL 映射标的，排除已在精选/候选中的
-    missing = []
-    seen = set()
-    for cat in critical:
-        for s in stock_maps.get(cat.get("catalyst_name", ""), []):
-            code = s.get("code", "")
-            if not code or code in seen:
-                continue
-            seen.add(code)
-            if code in top10_codes or code in candidate_map:
-                continue
-            missing.append({
-                "code": code,
-                "name": s.get("name", candidate_map.get(code, {}).get("name", "?")),
-                "catalyst": cat.get("catalyst_name", "?"),
-                "actionability": cat.get("final_actionability", 0),
-                "confidence": s.get("confidence", "?"),
-            })
-
-    if not missing:
-        return ""
-
-    # 补 FEVΔ
-    try:
-        import data
-        codes = [m["code"] for m in missing]
-        quotes = data.fetch_stock_quotes(codes, batch_size=30)
-        for m in missing:
-            q = quotes.get(m["code"], {})
-            if not m["name"] or m["name"] == "?":
-                m["name"] = q.get("name", "?")
-    except Exception:
-        pass
-
-    for m in missing:
-        fv = fev_map.get(m["code"], {})
-        d = delta_map.get(m["code"], {})
-        m["fev"] = fv.get("fev", 0)
-        m["fevd"] = m["fev"] + (d.get("delta_score", 0) if d else 0)
-
-    lines = ["", "## ⚡ 催化强制关注（CRITICAL 催化 → 标的未进精选）", "",
-             f"> CRITICAL 催化 {len(critical)} 条，{len(missing)} 只标的未进入精选池。催化行动性极高，须纳入关注。", "",
-             "| 标的 | 关联催化 | 行动性 | FEVΔ | 置信度 |",
-             "|------|---------|:------:|:-----:|:------:|"]
-    for m in sorted(missing, key=lambda x: -x["actionability"]):
-        lines.append(
-            f"| **{m['name']}({m['code']})** | {m['catalyst'][:30]} | "
-            f"{m['actionability']} | {m['fevd']} | {m['confidence']} |"
-        )
-    lines.append("")
-    return "\n".join(lines)
-
-
 def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
     """解析 LLM 候选池 → 查 FEVΔ → 硬排名取前10 → 替换候选池为精选标的。"""
     # 找到候选池段落（兼容 LLM 可能的各种写法）
@@ -1284,13 +1211,60 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
 
     candidates.sort(key=lambda x: -x["fevd_adjusted"])
 
-    # 取前10
-    top10 = candidates[:10]
+    # 双轨制：FEVΔ 取前7 + 催化行动性取3只
+    top7 = candidates[:7]
+    top7_codes = {c["code"] for c in top7}
+
+    # 催��化轨：从 catalyst_screen JSON 提取 CRITICAL/HIGH 催化标的
+    catalyst_picks = []
+    try:
+        cat_data = json.loads(
+            (FEEDS_DIR / f"catalyst_screen_{today}.json").read_text(encoding="utf-8"))
+        cat_candidates = cat_data.get("catalysts", [])
+        cat_maps = cat_data.get("stock_maps", {})
+        # 按行动性排序，取不在 top7 中的标的
+        for cat in sorted(cat_candidates, key=lambda x: -x.get("final_actionability", 0)):
+            for s in cat_maps.get(cat.get("catalyst_name", ""), []):
+                code = s.get("code", "")
+                if not code or code in top7_codes:
+                    continue
+                # 是否已在 candidates 中
+                cand = candidate_map.get(code, {})
+                fv = fev_map.get(code, {})
+                d = delta_map.get(code, {})
+                catalyst_picks.append({
+                    "code": code,
+                    "name": s.get("name", cand.get("name", "?")),
+                    "catalyst": cat.get("catalyst_name", "?"),
+                    "actionability": cat.get("final_actionability", 0),
+                    "fev": fv.get("fev", 0),
+                    "fevd": fv.get("fev", 0) + (d.get("delta_score", 0) if d else 0),
+                    "confidence": s.get("confidence", "?"),
+                    "source": "催化驱动",
+                })
+                top7_codes.add(code)  # 防止同催化多标的占满3席
+                break
+            if len(catalyst_picks) >= 3:
+                break
+    except Exception:
+        pass
+
+    # 补够3只（催化不够时从 FEVΔ 候选中补）
+    while len(catalyst_picks) < 3 and len(candidates) > len(top7) + len(catalyst_picks):
+        c = candidates[len(top7) + len(catalyst_picks)]
+        if c["code"] not in top7_codes:
+            catalyst_picks.append({
+                "code": c["code"], "name": c["name"], "catalyst": "FEVΔ补位",
+                "actionability": 0, "fev": c["fev"], "fevd": c["fevd"],
+                "confidence": "—", "source": "FEVΔ补位",
+            })
+
+    selection = top7 + catalyst_picks
     rank_emoji = ["🥇", "🥈", "🥉"] + ["4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
 
-    # 时间姿态总览
+    # 时间姿态
     hp_counts = {"短线催化": 0, "中线趋势": 0, "长线底仓": 0}
-    for c in top10:
+    for c in selection:
         hp = c.get("hold_period", "")
         if hp in hp_counts:
             hp_counts[hp] += 1
@@ -1304,31 +1278,40 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
 
     lines = ["", "## 🎯 精选标的 — 用谁打", "",
              f"> ⏱️ 时间姿态: {' / '.join(hp_parts)} → {posture.get(dominant, '')}",
-             "> 按 **FEVΔ = FEV + Δ + 连续性加分** 硬排名。延续标的获加分（长线+5/中线+3/短线+1）。", "",
-             "| # | 标的 | FEV | Δ | FEVΔ | 持有期 | 信号源 | W1 催化 | W3 预期差 |",
-             "|:--|------|:---:|:--:|:-----:|:------:|--------|---------|----------|"]
-    for i, c in enumerate(top10):
-        sign = "+" if c["delta"] >= 0 else ""
-        ds_str = f"{sign}{c['delta']}" if c["delta"] != 0 else "0"
+             f"> 🛤️ 双轨制: **FEVΔ 排名 {len(top7)} 只** + **催化行动性 {len(catalyst_picks)} 只**。"
+             "延续标的获加分（长线+5/中线+3/短线+1）。", "",
+             "| # | 标的 | FEV | Δ | FEVΔ | 驱动 | 信号源 | 催化逻辑 |",
+             "|:--|------|:---:|:--:|:-----:|:----:|--------|---------|"]
+    for i, c in enumerate(selection):
+        sign = "+" if c.get("delta", 0) >= 0 else ""
+        ds_str = f"{sign}{c.get('delta', 0)}" if c.get("delta", 0) != 0 else "0"
         hp = c.get("hold_period", "—")
         sources = _tag_stock_sources(c["code"], feeds)
-        w1 = w3 = "—"
-        w1_m = re.search(r"-\s*\*\*W1\*\*\s*(.+)", c["block"])
-        w3_m = re.search(r"-\s*\*\*W3\*\*\s*(.+)", c["block"])
-        if w1_m: w1 = w1_m.group(1).strip()[:55]
-        if w3_m: w3 = w3_m.group(1).strip()[:50]
+        # FEVΔ 轨显示 W1/W3，催化轨显示催化名+行动性
+        if "source" in c and c["source"] == "催化驱动":
+            logic = f"{c.get('catalyst','?')} ({c.get('actionability',0)}分)"
+        elif "source" in c and c["source"] == "FEVΔ补位":
+            logic = "FEVΔ补位"
+        else:
+            w1 = w3 = "—"
+            w1_m = re.search(r"-\s*\*\*W1\*\*\s*(.+)", c.get("block", ""))
+            w3_m = re.search(r"-\s*\*\*W3\*\*\s*(.+)", c.get("block", ""))
+            if w1_m: w1 = w1_m.group(1).strip()[:55]
+            if w3_m: w3 = w3_m.group(1).strip()[:50]
+            logic = f"W1:{w1} | W3:{w3}" if (w1 != "—" or w3 != "—") else "—"
+        driver = c.get("source", "FEVΔ")
         lines.append(
             f"| {rank_emoji[i]} | **{c['name']}({c['code']})** | "
-            f"{c['fev']} | {ds_str} | **{c['fevd_adjusted']}** | {hp} | {sources} | {w1} | {w3} |"
+            f"{c.get('fev',0)} | {ds_str} | **{c.get('fevd',0)}** | {driver} | {sources} | {logic[:80]} |"
         )
     lines.append("")
-    lines.append(f"> 候选池 {len(candidates)} 只，未入选 {len(candidates)-10} 只见文末备选。")
+    lines.append(f"> 候选池 {len(candidates)} 只 → FEVΔ {len(top7)}只 + 催化 {len(catalyst_picks)}只")
     lines.append("")
 
     # 自辩
-    debate_map = _debate_stocks(top10)
+    debate_map = _debate_stocks(selection)
     debate_lines = []
-    for i, c in enumerate(top10):
+    for i, c in enumerate(selection):
         questions = debate_map.get(c["code"], [])
         if questions:
             debate_lines.append(f"- **{c['name']}({c['code']})**:")
@@ -1342,14 +1325,15 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
         lines.append("</details>")
         lines.append("")
 
-    # 备选标的
-    if len(candidates) > 10:
-        rest = candidates[10:]
-        lines.append("<details><summary>📋 备选标的（未进前10，点击展开）</summary>")
+    # 备选标的 (排除已在 selection 中的)
+    selection_codes = {c["code"] for c in selection}
+    rest = [c for c in candidates if c["code"] not in selection_codes]
+    if rest:
+        lines.append("<details><summary>📋 备选标的（未进精选，点击展开）</summary>")
         lines.append("")
         lines.append("| 标的 | FEVΔ | 未入选原因推测 |")
         lines.append("|------|:----:|---------------|")
-        for c in rest:
+        for c in rest[:15]:
             reason = "Δ=0无新增信号" if c["delta"] == 0 else f"FEV={c['fev']}偏低"
             lines.append(f"| {c['name']}({c['code']}) | {c['fevd']} | {reason} |")
         lines.append("")
@@ -1358,7 +1342,7 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
 
     # 持续追踪池：昨日精选中跌出前10但持有期≠短线催化的标的
     if yesterday_holds:
-        today_codes = {c["code"] for c in top10}
+        today_codes = {c["code"] for c in selection}
         # 判断昨日文件是否有持有期标签（新格式才有）
         has_labels = any(hp in ("短线催化", "中线趋势", "长线底仓") for hp in yesterday_holds.values())
         tracking = []
@@ -1398,23 +1382,14 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
                 )
             lines.append("")
 
-    # 催化强制关注：CRITICAL 催化标的未进精选的补入
-    top10_codes = {c["code"] for c in top10}
-    candidate_map = {c["code"]: c for c in candidates}
-    enforced = _enforce_catalyst_coverage(
-        today, top10_codes, candidate_map, fev_map, delta_map)
-    if enforced:
-        lines.append(enforced)
-
     # 替换候选池段落
     before = output[:pool_start]
     after = output[pool_end:]
-    # 移除候选池标题后的空行
     after = after.lstrip("\n")
     new_output = before.rstrip("\n") + "\n" + "\n".join(lines) + "\n" + after
 
-    print(f"  [SELECTION] 候选 {len(candidates)} → 精选 {len(top10)}，"
-          f"FEVΔ {top10[0]['fevd']}~{top10[-1]['fevd']}")
+    print(f"  [SELECTION] 候选 {len(candidates)} → FEVΔ{len(top7)} + 催化{len(catalyst_picks)}，"
+          f"FEVΔ {top7[0]['fevd']}~{top7[-1]['fevd']}")
     return new_output
 
 

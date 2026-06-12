@@ -5,14 +5,14 @@
     python daily_review/catalyst_monitor.py --date 2026-06-12
 
 逻辑:
-    1. 读取今日 catalyst_screen JSON → 提取所有映射标的
-    2. 盘中增量情报扫描 → 补充盘中新出现的催化
-    3. Redis 实时行情检查每只标的
-    4. 异动(涨>3%/涨停/放量) → 关联回催化事件 → 输出提醒+推送
+    1. 监控池 = 今日催化标的 + 7天历史未确认 HIGH/CRITICAL 催化标的 + 盘中增量
+    2. Redis 实时行情检查每只标的
+    3. 异动(涨>3%/涨停/放量) → 关联回催化事件 → 输出提醒+推送
+    4. 历史催化标的盘中异动 → 计算复活得分 → ≥4分推送盘中复活提醒
 """
 import hashlib, re, sys, json, argparse
 from pathlib import Path
-from datetime import date
+from datetime import date, timedelta
 from collections import defaultdict
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -34,6 +34,17 @@ INTEL_REPORTS = Path(__file__).parent.parent / "morning_intel" / "reports"
 ALERT_CHG_PCT = 3.0
 ALERT_VOL_RATIO = 2.0
 ALERT_LIMIT_UP = True
+
+# 盘中复活评分
+RESURRECT_LIMIT_UP = 4       # 涨停
+RESURRECT_STRONG_CHG = 3     # 涨>7%
+RESURRECT_MODERATE_CHG = 2   # 涨>5%
+RESURRECT_VOL_SPIKE = 2      # 量比>3
+RESURRECT_CHG_VOL = 1        # 涨>3% + 量比>2
+RESURRECT_THRESHOLD = 4      # 累计>=4分盘中复活
+
+HISTORY_LOOKBACK = 7          # 历史催化回溯天数
+HISTORY_MIN_SCORE = 40        # 历史催化最低行动性
 
 CATALYST_KEYWORDS = [
     ("supply_shock", "停产|断供|出口管[制限]|禁运|限产|产能退出|减[产少].*[0-9]+%"),
@@ -133,22 +144,91 @@ def _scan_intraday_delta(today_str: str) -> dict[str, list[dict]]:
     return result
 
 
+def _load_history_catalysts(today_str: str) -> dict[str, list[dict]]:
+    """DB 查询过去 N 天未确认的 HIGH/CRITICAL 催化及其映射标的"""
+    try:
+        from store import init_db, query_catalyst_by_date, query_catalyst_stocks
+        init_db()
+    except Exception:
+        return {}
+
+    today_date = date.fromisoformat(today_str)
+    result = {}
+    seen = set()
+    for i in range(1, HISTORY_LOOKBACK + 1):
+        d = (today_date - timedelta(days=i)).isoformat()
+        signals = query_catalyst_by_date(d, min_score=HISTORY_MIN_SCORE)
+        for s in signals:
+            if s.get("price_confirmed") or s.get("expired"):
+                continue
+            cname = f"[历史复活池] {s['catalyst_name']}"
+            if cname in seen:
+                continue
+            stocks = query_catalyst_stocks(d, s["catalyst_name"])
+            if stocks:
+                result[cname] = [{
+                    "code": st["stock_code"], "name": st.get("stock_name", ""),
+                    "confidence": st.get("confidence", "low"),
+                    "catalyst_date": d,
+                    "actionability": s.get("actionability", 0),
+                } for st in stocks if st.get("stock_code")]
+                seen.add(cname)
+    return result
+
+
+def _score_resurrection(q: dict) -> tuple[int, list[str]]:
+    """盘中复活得分 + 触发原因列表"""
+    score = 0
+    reasons = []
+    chg = q.get("change_pct", 0)
+    limit_up = q.get("is_limit_up", False)
+    vol = q.get("vol_ratio", 0)
+
+    if limit_up:
+        score += RESURRECT_LIMIT_UP
+        reasons.append("涨停")
+    elif chg >= 7:
+        score += RESURRECT_STRONG_CHG
+        reasons.append(f"+{chg:.1f}%")
+    elif chg >= 5:
+        score += RESURRECT_MODERATE_CHG
+        reasons.append(f"+{chg:.1f}%")
+    if vol >= 3 and chg > 0:
+        score += RESURRECT_VOL_SPIKE
+        reasons.append(f"量比{vol:.1f}")
+    elif vol >= 2 and chg >= ALERT_CHG_PCT:
+        score += RESURRECT_CHG_VOL
+        reasons.append(f"+{chg:.1f}%+量比{vol:.1f}")
+    return score, reasons
+
+
 def load_catalyst_stocks(today_str: str) -> dict[str, list[dict]]:
-    """读取今日催化筛查结果 + 盘中增量 → {catalyst_name: [{code, name, confidence}, ...]}"""
+    """监控池 = 今日催化 + 7天历史未确认催化 + 盘中增量"""
     result = {}
     path = FEEDS_DIR / f"catalyst_screen_{today_str}.json"
     if path.exists():
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             for cname, stocks in data.get("stock_maps", {}).items():
-                result[cname] = stocks
+                result[cname] = [{
+                    "code": s.get("code", ""), "name": s.get("name", ""),
+                    "confidence": s.get("confidence", "?"), "source": "today",
+                } for s in stocks]
         except Exception:
             pass
 
-    # 合并盘中增量
+    history = _load_history_catalysts(today_str)
+    if history:
+        result.update(history)
+        print(f"  History catalysts: {len(history)} from past {HISTORY_LOOKBACK}d")
+
     intraday = _scan_intraday_delta(today_str)
     if intraday:
-        result.update(intraday)
+        for cname, stocks in intraday.items():
+            result[cname] = [{
+                "code": s.get("code", ""), "name": s.get("name", ""),
+                "confidence": "low", "source": "intraday",
+            } for s in stocks]
         print(f"  Intraday catalysts: {len(intraday)} new")
     return result
 
@@ -158,11 +238,16 @@ def monitor(today_str: str):
 
     catalyst_stocks = load_catalyst_stocks(today_str)
     if not catalyst_stocks:
-        print("  [SKIP] No catalyst screen data for today")
+        print("  [SKIP] No catalyst data for today")
         return
 
+    today_count = sum(1 for v in catalyst_stocks.values()
+                      if v and v[0].get("source") == "today")
+    history_count = sum(1 for v in catalyst_stocks.values()
+                        if v and v[0].get("source") != "today" and v[0].get("source") != "intraday")
     total_mapped = sum(len(v) for v in catalyst_stocks.values())
-    print(f"  Monitoring {len(catalyst_stocks)} catalysts, {total_mapped} mapped stocks")
+    print(f"  Pool: {len(catalyst_stocks)} catalysts ({today_count} today + {history_count} history)"
+          f" → {total_mapped} stocks")
 
     quotes = fetch_redis_quotes()
     if not quotes:
@@ -170,9 +255,11 @@ def monitor(today_str: str):
         return
 
     alerts = []
+    resurrections = []
     seen = set()
 
     for cname, stocks in catalyst_stocks.items():
+        is_history = cname.startswith("[历史复活池]")
         for s in stocks:
             code = s.get("code", "")
             if not code or code in seen:
@@ -187,6 +274,7 @@ def monitor(today_str: str):
             limit_up = q.get("is_limit_up", False)
             vol = q.get("vol_ratio", 0)
 
+            # 通用异动检测
             triggered = False
             reasons = []
 
@@ -201,40 +289,68 @@ def monitor(today_str: str):
                     triggered = True
                 reasons.append(f"量比{vol:.1f}")
 
-            if triggered:
-                alerts.append({
-                    "catalyst": cname,
-                    "code": code,
-                    "name": q.get("name", "?"),
-                    "chg": chg,
-                    "limit_up": limit_up,
-                    "vol_ratio": vol,
-                    "confidence": s.get("confidence", "?"),
-                    "reasons": reasons,
-                })
+            alert = {
+                "catalyst": cname.replace("[历史复活池] ", ""), "code": code,
+                "name": q.get("name", "?"), "chg": chg,
+                "limit_up": limit_up, "vol_ratio": vol,
+                "confidence": s.get("confidence", "?"), "reasons": reasons,
+                "is_history": is_history,
+                "actionability": s.get("actionability", 0),
+            }
 
+            if triggered:
+                alerts.append(alert)
+
+            # 历史催化：计算盘中复活得分
+            if is_history and chg > 0:
+                rscore, rreasons = _score_resurrection(q)
+                if rscore >= RESURRECT_THRESHOLD:
+                    alert["resurrection_score"] = rscore
+                    alert["resurrection_reasons"] = rreasons
+                    resurrections.append(alert)
+
+    # --- 盘中复活推送（独立于常规异动） ---
+    if resurrections:
+        resurrections.sort(key=lambda x: (-x["resurrection_score"], -x["chg"]))
+        rtitle = f"🔄 盘中复活 {len(resurrections)}条催化"
+        rlines = []
+        for r in resurrections[:5]:
+            flags = " ".join(r["resurrection_reasons"])
+            rlines.append(
+                f"- [{r['catalyst'][:25]}] **{r['code']} {r['name']}** "
+                f"{flags} (原行动性{r['actionability']}分)"
+            )
+        if len(resurrections) > 5:
+            rlines.append(f"\n... 共 {len(resurrections)} 条复活")
+        _push(rtitle, "\n".join(rlines))
+
+    # --- 常规异动 ---
     if alerts:
         alerts.sort(key=lambda x: (-x["limit_up"], -x["chg"], -x["vol_ratio"]))
 
-        print(f"\n  ALERTS ({len(alerts)} stocks):")
-        for a in alerts:
+        # 区分今日和历史
+        today_alerts = [a for a in alerts if not a["is_history"]]
+        history_alerts = [a for a in alerts if a["is_history"]]
+        print(f"\n  ALERTS ({len(alerts)} stocks, {len(history_alerts)} from history):")
+        for a in alerts[:10]:
+            tag = "[H]" if a["is_history"] else "[T]"
             flags = " ".join(a["reasons"])
-            print(f"    [{a['catalyst'][:40]}] {a['code']} {a['name']} {flags} (conf={a['confidence']})")
+            print(f"    {tag} [{a['catalyst'][:35]}] {a['code']} {a['name']} {flags}")
 
-        # 按催化聚合输出
         by_catalyst = defaultdict(list)
         for a in alerts:
             by_catalyst[a["catalyst"]].append(a)
 
-        L = []
-        L.append(f"# 催化剂盘中监控 {today_str}")
-        L.append(f"\n> 监控 {len(catalyst_stocks)} 条催化 {total_mapped} 只标的 | 异动 {len(alerts)} 只\n")
-
+        L = [f"# 催化剂盘中监控 {today_str}",
+             f"\n> 监控池: {today_count}今日 + {history_count}历史 + {len(catalyst_stocks)-today_count-history_count}盘中 "
+             f"→ {total_mapped}只标的 | 异动 {len(alerts)}只 "
+             f"(历史{len(history_alerts)})\n"]
         for cname, items in by_catalyst.items():
             L.append(f"## {cname}")
             for a in items:
                 flags = " ".join(a["reasons"])
-                L.append(f"- **{a['code']} {a['name']}** {flags} (置信度={a['confidence']})")
+                hist_tag = " [历史复活池]" if a["is_history"] else ""
+                L.append(f"- **{a['code']} {a['name']}** {flags} (置信度={a['confidence']}){hist_tag}")
             L.append("")
 
         out = FEEDS_DIR / f"catalyst_monitor_{today_str}.md"
@@ -251,13 +367,21 @@ def monitor(today_str: str):
             f"{f'放量{vol_alerts}' if vol_alerts else ''})"
         )
         push_lines = []
-        for a in alerts[:5]:
+        for a in today_alerts[:3]:
             flags = " ".join(a["reasons"])
             push_lines.append(
                 f"- [{a['catalyst'][:30]}] **{a['code']} {a['name']}** "
                 f"{flags} ({a['chg']:+.1f}%)"
             )
-        if len(alerts) > 5:
+        if history_alerts:
+            push_lines.append(f"\n📜 历史催化异动 {len(history_alerts)}只:")
+            for a in history_alerts[:3]:
+                flags = " ".join(a["reasons"])
+                push_lines.append(
+                    f"- [{a['catalyst'][:25]}] **{a['code']} {a['name']}** "
+                    f"{flags} ({a['chg']:+.1f}%)"
+                )
+        if len(alerts) > 6:
             push_lines.append(f"\n... 共 {len(alerts)} 只异动")
         _push(push_title, "\n".join(push_lines))
     else:
