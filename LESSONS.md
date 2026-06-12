@@ -49,6 +49,29 @@
 
 - `_parallel_stock_fetch` 中用 `os.devnull` 需确保文件顶部有 `import os`（2026-06-12 崩溃修复）
 - 并行线程中的 tqdm 进度条会产生 ANSI 乱码，必须重定向 stdout
+
+## 催化筛查管线（2026-06-12 建成）
+
+### 核心文件
+- `daily_review/catalyst_screen.py` — Haiku 四维提取 + Sonnet 交叉验证 + 三级标的映射
+- `daily_review/catalyst_tracker.py` — 14 天生命周期跟踪，走势交叉确认
+- `daily_review/store.py` — `catalyst_signals` / `catalyst_stock_map` 两张表
+- `orchestrator.py` — pre pipeline 第 9/10 步
+
+### 盘前必须跨日加载
+核心催化往往在前一晚 22:00 后的星球帖中出现。catalyst_screen 已改为自动加载今天+昨天双日数据。如果以后加新的信息管线，盘前模式必须照此处理。
+
+### 多概念交集（Sheet1）的适用边界
+集群清晰的日子（如有色/军工/PCB 各自清楚）多概念几乎无增量。价值在集群模糊的日子——当单概念看过去全是 1-2 只、看不出模式时，多概念可能揭示「这批票共同拥有的第二概念」。日常用单概念（Sheet2），模糊时切多概念。
+
+### Haiku 提取的不一致性
+同一批数据两次跑，氧化钇有时抓到（#3, 66分）有时漏。Haiku 变异性约 10-20%。缓解方向：① 调大 batch_size ② 对高价值源（星球）跑两轮取并集 ③ 对 supply_shock/price_spike 类型做 prompt 加权。Phase 5 迭代时解决。
+
+### catalyst_tracker 信号阈值
+走势确认：涨停 +3 分 / 涨>5% +2 分 / 放量(量比>2 且上涨) +1 分 / 连续出现在强势池 +1 分。累计 ≥3 分视为确认。阈值可调。
+
+### 概念父子层级维护
+`CONCEPT_HIERARCHY` 在 config.py。349 个概念中已有约 65% 归入 18 个父级，其余自动独立。新增同花顺概念时检查是否需要补映射。
 - `_pick_primary_tag` 非 CONCEPT_UNIVERSE 标签评分最初 +100（优先标准概念），修正为 +200（优先小众品种标签），因具体品种比泛概念更有信息量
 
 ## 运行命令
