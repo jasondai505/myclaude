@@ -93,12 +93,21 @@ SOURCE_TABLE = {
     "weibo": ("weibo_posts", "created_at"),
 }
 
+SOURCE_TIERS = {
+    "daily": {"zsxq", "announcements", "news", "research", "industry",
+              "wechat", "weibo", "jiuyang"},
+    "weekly": {"interactions", "earnings", "surveys", "lockups", "eps", "financials"},
+}
+
 
 def _parse_args():
     p = argparse.ArgumentParser(description="每日数据源自动补全")
     p.add_argument("--source", type=str, default="",
                    help="逗号分隔: zsxq,announcements,news,research,interactions,"
                         "earnings,surveys,lockups,eps,industry,financials；默认全部")
+    p.add_argument("--tier", type=str, default="all",
+                   choices=["all", "daily", "weekly"],
+                   help="按频率分层: all=全部14源, daily=日更8源, weekly=低频6源")
     p.add_argument("--days", type=int, default=7, help="回补天数")
     p.add_argument("--since", type=str, help="起始日期 YYYY-MM-DD")
     p.add_argument("--until", type=str, help="截止日期 YYYY-MM-DD，默认今天")
@@ -115,10 +124,13 @@ def _resolve_dates(args) -> tuple[date, date]:
     return since, until
 
 
-def _resolve_sources(arg: str) -> list[str]:
-    if not arg.strip():
-        return list(ALL_SOURCES.keys())
-    items = [s.strip() for s in arg.split(",") if s.strip()]
+def _resolve_sources(arg: str, tier: str = "all") -> list[str]:
+    if arg.strip():
+        items = [s.strip() for s in arg.split(",") if s.strip()]
+    elif tier in SOURCE_TIERS:
+        items = sorted(SOURCE_TIERS[tier])
+    else:
+        items = list(ALL_SOURCES.keys())
     bad = [s for s in items if s not in ALL_SOURCES]
     if bad:
         raise SystemExit(f"未知数据源: {bad}，可选: {list(ALL_SOURCES.keys())}")
@@ -228,7 +240,7 @@ def main():
         return
 
     since, until = _resolve_dates(args)
-    sources = _resolve_sources(args.source)
+    sources = _resolve_sources(args.source, args.tier)
 
     print(f"采集窗口: {fmt_iso(since)} ~ {fmt_iso(until)}")
     print(f"目标源: {', '.join(SOURCE_LABELS.get(s, s) for s in sources)}")

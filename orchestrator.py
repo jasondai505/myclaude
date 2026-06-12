@@ -42,7 +42,8 @@ PIPELINES: dict[str, dict[str, Any]] = {
         "trigger": "06:00 盘前（美股4:00收盘，数据源需2h更新窗口）",
         "steps": [
             {"id": "health", "name": "系统健康检查", "cmd": "python daily_review/health_check.py"},
-            {"id": "collect", "name": "数据采集", "cmd": "python daily_review/daily_collect.py"},
+            {"id": "collect", "name": "数据采集(日更)", "cmd": "python daily_review/daily_collect.py --tier daily"},
+            {"id": "collect_weekly", "name": "数据采集(低频)", "cmd": "python daily_review/daily_collect.py --tier weekly", "only_on": [5]},
             {"id": "wechat", "name": "公众号分析", "cmd": "python daily_review/analyze_wechat.py"},
             {"id": "summary", "name": "复盘摘要", "cmd": "python daily_review/review_summary.py"},
             {"id": "track", "name": "推荐追踪", "cmd": "python daily_review/track_recommendations.py"},
@@ -173,6 +174,7 @@ def run_pipeline(name: str, *, dry_run: bool = False, from_step: str = None) -> 
         log.write(f"启动: {datetime.now()}\n")
         log.write(f"日期: {date.today().isoformat()}\n\n")
 
+        today_wd = date.today().weekday()
         for i, step in enumerate(steps):
             if skip:
                 if step["id"] == from_step:
@@ -181,6 +183,12 @@ def run_pipeline(name: str, *, dry_run: bool = False, from_step: str = None) -> 
                     print(f"  [{i+1}/{len(steps)}] [SKIP] {step['name']}")
                     log.write(f"[SKIP] {step['name']}\n\n")
                     continue
+
+            only_on = step.get("only_on")
+            if only_on and today_wd not in only_on:
+                print(f"  [{i+1}/{len(steps)}] [SKIP] {step['name']} (only_on={only_on})")
+                log.write(f"[SKIP] {step['name']} (only_on={only_on})\n\n")
+                continue
 
             print(f"  [{i+1}/{len(steps)}] [RUN] {step['name']}...", end=" ", flush=True)
             ok = run_step(step, log)

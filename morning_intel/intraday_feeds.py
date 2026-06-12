@@ -124,7 +124,23 @@ def run(today: str = None) -> dict:
     now = datetime.now()
     is_first_run = last_run is None
 
-    # 2. 查询新增帖子（首次运行只设基线，不生成 delta）
+    # 2. 增量刷新微博
+    new_weibo_posts = []
+    if not is_first_run:
+        try:
+            import weibo_watch
+            wb_result = weibo_watch.run()
+            wb_posts = wb_result.get("posts_data", [])
+            for p in wb_posts:
+                ct = p.get("created_at", "")
+                if ct and ct > (last_run_str or ""):
+                    new_weibo_posts.append(p)
+            if new_weibo_posts:
+                print(f"[intraday] 微博新增 {len(new_weibo_posts)} 帖")
+        except Exception as e:
+            print(f"[intraday] weibo 刷新失败: {e}")
+
+    # 3. 查询星球新增帖子（首次运行只设基线，不生成 delta）
     all_posts = query_zsxq_by_date(today)
     new_posts = []
     if not is_first_run:
@@ -133,22 +149,30 @@ def run(today: str = None) -> dict:
             if ct and ct > last_run.isoformat():
                 new_posts.append(p)
 
-    # 3. 扫描 drops/
+    # 4. 扫描 drops/
     new_drops = [] if is_first_run else _scan_drops(last_run)
 
-    new_count = len(new_posts) + len(new_drops)
+    new_count = len(new_posts) + len(new_drops) + len(new_weibo_posts)
 
-    # 4. 写增量 delta + Haiku 分析 + 推送（首次运行跳过）
+    # 5. 写增量 delta + Haiku 分析 + 推送（首次运行跳过）
     pushed = False
     if new_count > 0:
         delta_path = REPORT_DIR / f"intraday_delta_{today}.md"
         lines = [
             f"# 盘中增量情报 {today} {now.strftime('%H:%M')}",
-            f"新增星球帖子: {len(new_posts)} | 新增投放: {len(new_drops)}",
+            f"星球: {len(new_posts)} | 微博: {len(new_weibo_posts)} | 投放: {len(new_drops)}",
             "",
         ]
         for p in new_posts:
             lines.append(_format_zsxq_post(p))
+
+        for wp in new_weibo_posts:
+            ts = wp.get("created_at", "")
+            text = wp.get("text", "")[:300]
+            lines.append(f"## 微博 {ts}")
+            lines.append("")
+            lines.append(text)
+            lines.append("")
 
         for f in new_drops:
             content = f.read_text(encoding="utf-8").strip()
@@ -172,7 +196,7 @@ def run(today: str = None) -> dict:
             now_str = now.strftime("%H:%M")
             emoji = "🟢" if "利好" in verdict or "机会" in verdict else "🟡"
             msg = (
-                f"**{now_str} 盘中增量** ({len(new_posts)}帖/{len(new_drops)}投放)\n\n"
+                f"**{now_str} 盘中增量** (星球{len(new_posts)}/微博{len(new_weibo_posts)}/投放{len(new_drops)})\n\n"
                 f"{verdict[:800]}"
             )
             pushed = push(f"🔔 盘中情报 {now_str}", msg)
