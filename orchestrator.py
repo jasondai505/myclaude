@@ -81,6 +81,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
         "steps": [
             {"id": "health", "name": "系统健康检查", "cmd": "python daily_review/health_check.py"},
             {"id": "feeds", "name": "盘中情报", "cmd": "python morning_intel/intraday_feeds.py"},
+            {"id": "catalyst_monitor", "name": "催化盘中监控", "cmd": "python daily_review/catalyst_monitor.py"},
             {"id": "validate", "name": "盘中验证", "cmd": "python morning_intel/run_morning.py --phase intraday"},
         ],
     },
