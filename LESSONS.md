@@ -218,3 +218,11 @@ dashboard/
 ## 3分钟微信提醒模块
 
 AskUserQuestion 3 分钟无响应 → PushPlus 微信推送。4 个文件：`_hook_remind.py` / `_remind_pending.py` / `_hook_cancel_remind.py` / `_hook_debug.log`。Token: `9cdb736206654981a8b230bee39ee56d`，Topic: `morning_intel`。ECC 插件接管 hook 系统后，settings.json 的 hooks 不生效，当前手动后台进程模式可用。详见 [[3min-ask-reminder]]。
+
+## sys.path 时序错误 → ModuleNotFoundError 但 import module 正常
+
+**现象**：`python daily_review/_run_advice.py` 报 `ModuleNotFoundError: No module named 'daily_review'`，但 `python -c "import daily_review._run_advice"` 正常。
+
+**原因**：`sys.path.insert(0, str(BASE))` 在第 18 行，`from daily_review.roles import ...` 在第 12 行——path 操作在 import 之后。脚本直接运行时，Python 只用脚本目录 + cwd 搜索包，`daily_review` 作为包找不到。module 方式运行时 Python 自动加了父目录。
+
+**修复**：所有 `sys.path` 操作移到本地包 import 之前，用 `BASE.parent`（项目根目录）而非 `BASE`（脚本目录）。commit: `5d5cbe5`。
