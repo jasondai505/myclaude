@@ -39,40 +39,67 @@ def _load_multi_map():
     return json.loads(MULTI_MAP_PATH.read_text(encoding="utf-8"))
 
 def _load_sources(today_str: str) -> dict[str, list[dict]]:
-    """加载4个信息源的当日数据"""
+    """加载当日+前一日信息源数据（盘前需要看昨晚的帖子）"""
+    yesterday = (date.fromisoformat(today_str) - timedelta(days=1)).isoformat()
+    return _load_sources_multi([yesterday, today_str])
+
+def _load_sources_multi(dates: list[str]) -> dict[str, list[dict]]:
     sources = {}
 
-    zsxq_rows = query_zsxq_by_date(today_str)
-    if zsxq_rows:
-        sources["zsxq"] = [
-            {"id": r["topic_id"], "title": r.get("title", ""), "text": r.get("text", ""),
-             "author": r.get("author", ""), "likes": r.get("likes_count", 0)}
-            for r in zsxq_rows
-        ]
+    seen_ids = set()
+    for d in dates:
+        zsxq_rows = query_zsxq_by_date(d)
+        if zsxq_rows:
+            if "zsxq" not in sources:
+                sources["zsxq"] = []
+            for r in zsxq_rows:
+                tid = r.get("topic_id", "")
+                if tid not in seen_ids:
+                    seen_ids.add(tid)
+                    sources["zsxq"].append({
+                        "id": tid, "title": r.get("title", ""),
+                        "text": r.get("text", ""), "author": r.get("author", ""),
+                        "likes": r.get("likes_count", 0), "date": d,
+                    })
 
-    wechat_rows = query_wechat_articles(today_str, unanalyzed_only=False)
-    if wechat_rows:
-        sources["wechat"] = [
-            {"id": str(i), "title": r.get("title", ""), "text": r.get("content", ""),
-             "author": r.get("feed_source", "")}
-            for i, r in enumerate(wechat_rows)
-        ]
+        wechat_rows = query_wechat_articles(d, unanalyzed_only=False)
+        if wechat_rows:
+            if "wechat" not in sources:
+                sources["wechat"] = []
+            for i, r in enumerate(wechat_rows):
+                wid = f"{d}_{i}"
+                if wid not in seen_ids:
+                    seen_ids.add(wid)
+                    sources["wechat"].append({
+                        "id": wid, "title": r.get("title", ""),
+                        "text": r.get("content", ""), "author": r.get("feed_source", ""),
+                        "date": d,
+                    })
 
-    jiuyang = query_jiuyang_reports(today_str)
-    if jiuyang:
-        sources["jiuyang"] = [
-            {"id": str(i), "title": r.get("title", ""), "text": r.get("content", ""),
-             "author": "韭研公社"}
-            for i, r in enumerate(jiuyang)
-        ]
+        jiuyang = query_jiuyang_reports(d)
+        if jiuyang:
+            if "jiuyang" not in sources:
+                sources["jiuyang"] = []
+            for i, r in enumerate(jiuyang):
+                sources["jiuyang"].append({
+                    "id": f"{d}_jy_{i}", "title": r.get("title", ""),
+                    "text": r.get("content", ""), "author": "韭研公社",
+                    "date": d,
+                })
 
-    weibo = query_weibo_posts(today_str)
-    if weibo:
-        sources["weibo"] = [
-            {"id": r.get("post_id", str(i)), "title": r.get("text", "")[:50],
-             "text": r.get("text", ""), "author": "唐史主任司马迁"}
-            for i, r in enumerate(weibo)
-        ]
+        weibo = query_weibo_posts(d)
+        if weibo:
+            if "weibo" not in sources:
+                sources["weibo"] = []
+            for i, r in enumerate(weibo):
+                pid = r.get("post_id", f"{d}_{i}")
+                if pid not in seen_ids:
+                    seen_ids.add(pid)
+                    sources["weibo"].append({
+                        "id": pid, "title": r.get("text", "")[:50],
+                        "text": r.get("text", ""), "author": "唐史主任司马迁",
+                        "date": d,
+                    })
 
     return sources
 
@@ -157,16 +184,47 @@ def _haiku_extract(client, model, items: list[dict], source_type: str) -> list[d
     return results
 
 def _parse_json(text: str):
-    """从LLM输出中提取JSON（处理markdown代码块）"""
+    """从LLM输出中提取JSON（处理markdown代码块和各种格式问题）"""
     text = text.strip()
+    # 移除 markdown 代码块标记
     if text.startswith("```"):
         text = re.sub(r"^```\w*\n?", "", text)
         text = re.sub(r"\n?```$", "", text)
+
+    # 查找 JSON 对象或数组的边界
     start = text.find("[")
-    end = text.rfind("]") + 1
-    if start >= 0 and end > start:
-        return json.loads(text[start:end])
-    return []
+    if start < 0:
+        start = text.find("{")
+    if start < 0:
+        return {}
+    end = text.rfind("]") if text[start] == "[" else text.rfind("}")
+
+    if end < 0 or end <= start:
+        return {}
+
+    json_str = text[start:end + 1]
+
+    # 尝试直接解析
+    try:
+        return json.loads(json_str)
+    except json.JSONDecodeError:
+        pass
+
+    # 移除尾部逗号 (最常见的 LLM JSON 错误)
+    cleaned = re.sub(r",(\s*[}\]])", r"\1", json_str)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    # 移除单行注释
+    cleaned2 = re.sub(r"//[^\n]*", "", cleaned)
+    try:
+        return json.loads(cleaned2)
+    except json.JSONDecodeError:
+        pass
+
+    return {}
 
 # ============================================================
 # 机械评分
