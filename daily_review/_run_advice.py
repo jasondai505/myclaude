@@ -9,13 +9,13 @@ import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from daily_review.roles import get_client as _rc, get_model as _rm
-from anthropic import Anthropic
-
 sys.stdout.reconfigure(encoding="utf-8")
 
 BASE = Path(__file__).resolve().parent
-sys.path.insert(0, str(BASE))
+sys.path.insert(0, str(BASE.parent))
+
+from daily_review.roles import get_client as _rc, get_model as _rm
+from anthropic import Anthropic
 MODEL = "claude-sonnet-4-6-20250514"
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
 FEEDS_DIR = BASE / "reports" / "feeds"
