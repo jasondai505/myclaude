@@ -87,6 +87,18 @@ def _read_drops() -> str:
     return "\n\n".join(parts)
 
 
+def _read_cross_validation(today: str) -> str:
+    """读取四源交叉验证结果（Haiku 已跑完的共识/分歧/多源标的）。"""
+    path = FEEDS_DIR / f"primary_synthesis_{today}.md"
+    if path.exists():
+        return path.read_text(encoding="utf-8")
+    prev = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
+    path = FEEDS_DIR / f"primary_synthesis_{prev}.md"
+    if path.exists():
+        return path.read_text(encoding="utf-8")
+    return ""
+
+
 def _render_prompt(template: str, today: str, feed_contents: dict[str, str],
                    drops_text: str, supply_chain_text: str) -> str:
     now = datetime.now()
@@ -341,6 +353,7 @@ def run(today: str = None, dry_run: bool = False) -> Path | None:
     # 1. 读取语料
     print(f"[interpret] 读取 {today} 语料...")
     feed_contents = _read_feeds(today)
+    feed_contents["CROSS_VALIDATION_CONTENT"] = _read_cross_validation(today)
     drops_text = _read_drops()
     supply_text = to_context()
 
