@@ -1,5 +1,7 @@
 {
-  "env": {"ECC_GATEGUARD": "off"},
+  "env": {
+    "ECC_GATEGUARD": "off"
+  },
   "permissions": {
     "allow": [
       "Bash(python *)",
@@ -77,7 +79,9 @@
       "Bash(claude --version)",
       "Bash(where claude *)",
       "Bash(npx playwright *)",
-      "Skill(claude-api)"
+      "Skill(claude-api)",
+      "PowerShell(pip install *)",
+      "Read(//c/Users/daixin/AppData/Local/Temp/2/claude/C--Users-daixin-myclaude/21180ac1-ef41-4205-81ee-b4a9eae2a41b/tasks/**)"
     ]
   },
   "PreToolUse": [
