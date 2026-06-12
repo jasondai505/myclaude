@@ -56,7 +56,7 @@ def generate_overseas_catalysts(watchlist: dict, today: str) -> dict:
     )
 
     try:
-        client = Anthropic(api_key=api_key, timeout=TIMEOUT)
+        client = Anthropic(api_key=api_key, base_url="https://api.deepseek.com/anthropic", timeout=TIMEOUT)
         resp = client.messages.create(
             model=MODEL,
             max_tokens=MAX_TOKENS,
