@@ -125,10 +125,17 @@ _LIMIT_PCT = {"main": 0.10, "kcb": 0.20, "cyb": 0.20, "bj": 0.30}
 
 
 def calc_limit_price(prev_close: float, board: str, is_st: bool = False) -> tuple[float, float]:
-    """返回 (涨停价, 跌停价)"""
+    """返回 (涨停价, 跌停价)
+    北交所: 不能超±30%，向内取2位小数（floor/ceil）
+    其他板块: 四舍五入取2位小数"""
+    import math
     pct = 0.05 if is_st else _LIMIT_PCT.get(board, 0.10)
-    up = round(prev_close * (1 + pct), 2)
-    down = round(prev_close * (1 - pct), 2)
+    if board == "bj":
+        up = math.floor(prev_close * (1 + pct) * 100) / 100
+        down = math.ceil(prev_close * (1 - pct) * 100) / 100
+    else:
+        up = round(prev_close * (1 + pct), 2)
+        down = round(prev_close * (1 - pct), 2)
     return up, down
 
 
