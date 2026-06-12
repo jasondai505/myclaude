@@ -890,6 +890,54 @@ def init_feeds_tables():
             );
             CREATE INDEX IF NOT EXISTS idx_weibo_date ON weibo_posts(created_at);
         """)
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS catalyst_signals (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                date            TEXT NOT NULL,
+                signal_id       TEXT NOT NULL,
+                source_type     TEXT NOT NULL,
+                source_title    TEXT,
+                source_text     TEXT,
+                catalyst_name   TEXT NOT NULL,
+                catalyst_type   TEXT NOT NULL,
+                magnitude_score INTEGER NOT NULL,
+                specificity_score INTEGER NOT NULL,
+                novelty_score   INTEGER NOT NULL,
+                urgency_score   INTEGER NOT NULL,
+                actionability   INTEGER NOT NULL,
+                source_count    INTEGER NOT NULL DEFAULT 1,
+                price_data      TEXT,
+                key_entities    TEXT,
+                mentioned_codes TEXT,
+                suggested_concepts TEXT,
+                merged_from     TEXT,
+                thesis          TEXT,
+                time_horizon    TEXT,
+                validation_note TEXT,
+                haiku_raw       TEXT,
+                sonnet_validated INTEGER DEFAULT 0,
+                created_at      TEXT DEFAULT (datetime('now','localtime')),
+                UNIQUE(signal_id, date)
+            );
+            CREATE INDEX IF NOT EXISTS idx_cs_date ON catalyst_signals(date);
+            CREATE INDEX IF NOT EXISTS idx_cs_score ON catalyst_signals(date, actionability);
+
+            CREATE TABLE IF NOT EXISTS catalyst_stock_map (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                date            TEXT NOT NULL,
+                catalyst_name   TEXT NOT NULL,
+                stock_code      TEXT NOT NULL,
+                stock_name      TEXT,
+                mapping_method  TEXT NOT NULL,
+                matched_concept TEXT,
+                relevance       TEXT,
+                confidence      TEXT NOT NULL,
+                created_at      TEXT DEFAULT (datetime('now','localtime')),
+                UNIQUE(date, catalyst_name, stock_code)
+            );
+            CREATE INDEX IF NOT EXISTS idx_csm_date ON catalyst_stock_map(date);
+            CREATE INDEX IF NOT EXISTS idx_csm_code ON catalyst_stock_map(stock_code);
+        """)
         try:
             conn.execute("ALTER TABLE wechat_articles ADD COLUMN analyzed_at TEXT")
         except Exception:
@@ -1131,6 +1179,106 @@ def query_zsxq_by_date(date_str: str) -> list[dict]:
             "SELECT * FROM zsxq_topics WHERE substr(create_time,1,10) = ? "
             "ORDER BY create_time DESC",
             (date_str,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def query_jiuyang_reports(date_str: str) -> list[dict]:
+    with _conn() as conn:
+        try:
+            rows = conn.execute(
+                "SELECT * FROM jiuyang_reports WHERE pub_date = ?",
+                (date_str,),
+            ).fetchall()
+        except Exception:
+            return []
+    return [dict(r) for r in rows]
+
+
+def query_weibo_posts(date_str: str) -> list[dict]:
+    with _conn() as conn:
+        try:
+            rows = conn.execute(
+                "SELECT * FROM weibo_posts WHERE substr(created_at,1,10) = ? "
+                "ORDER BY created_at DESC",
+                (date_str,),
+            ).fetchall()
+        except Exception:
+            return []
+    return [dict(r) for r in rows]
+
+
+def load_weibo_report(date_str: str) -> str:
+    path = REPORT_DIR / "feeds" / f"weibo_{date_str}.md"
+    if path.exists():
+        return path.read_text(encoding="utf-8")
+    return ""
+
+
+# ============================================================
+# 催化筛查 CRUD
+# ============================================================
+def save_catalyst_signals(signals: list[dict]) -> int:
+    if not signals:
+        return 0
+    with _conn() as conn:
+        conn.executemany(
+            """INSERT OR REPLACE INTO catalyst_signals
+            (date, signal_id, source_type, source_title, source_text,
+             catalyst_name, catalyst_type, magnitude_score, specificity_score,
+             novelty_score, urgency_score, actionability, source_count,
+             price_data, key_entities, mentioned_codes, suggested_concepts,
+             merged_from, thesis, time_horizon, validation_note, sonnet_validated)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [(s.get("date"), s.get("signal_id"), s.get("source_type"), s.get("source_title"),
+              s.get("source_text"), s.get("catalyst_name"), s.get("catalyst_type"),
+              s.get("magnitude_score", 0), s.get("specificity_score", 0),
+              s.get("novelty_score", 0), s.get("urgency_score", 0),
+              s.get("actionability", 0), s.get("source_count", 1),
+              json.dumps(s.get("price_data", {}), ensure_ascii=False),
+              json.dumps(s.get("key_entities", []), ensure_ascii=False),
+              json.dumps(s.get("mentioned_codes", []), ensure_ascii=False),
+              json.dumps(s.get("suggested_concepts", []), ensure_ascii=False),
+              json.dumps(s.get("merged_from", []), ensure_ascii=False),
+              s.get("thesis", ""), s.get("time_horizon", ""),
+              s.get("validation_note", ""), s.get("sonnet_validated", 0))
+             for s in signals],
+        )
+    return len(signals)
+
+
+def save_catalyst_stock_map(mappings: list[dict]) -> int:
+    if not mappings:
+        return 0
+    with _conn() as conn:
+        conn.executemany(
+            """INSERT OR REPLACE INTO catalyst_stock_map
+            (date, catalyst_name, stock_code, stock_name, mapping_method,
+             matched_concept, relevance, confidence)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            [(m.get("date"), m.get("catalyst_name"), m.get("stock_code"),
+              m.get("stock_name"), m.get("mapping_method"),
+              m.get("matched_concept"), m.get("relevance"), m.get("confidence"))
+             for m in mappings],
+        )
+    return len(mappings)
+
+
+def query_catalyst_by_date(date_str: str, min_score: int = 20) -> list[dict]:
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM catalyst_signals WHERE date = ? AND actionability >= ? "
+            "ORDER BY actionability DESC",
+            (date_str, min_score),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def query_catalyst_stocks(date_str: str, catalyst_name: str) -> list[dict]:
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM catalyst_stock_map WHERE date = ? AND catalyst_name = ?",
+            (date_str, catalyst_name),
         ).fetchall()
     return [dict(r) for r in rows]
 
