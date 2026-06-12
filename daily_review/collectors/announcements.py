@@ -19,6 +19,19 @@ from .base import (
 
 SOURCE_NAME = "announcements"
 
+_ALPHA_SIGNALS = [
+    "减持", "增持", "回购", "重组", "收购", "增发", "异常波动",
+    "业绩预告", "业绩快报", "权益分派", "股权激励", "重大合同",
+    "重大资产", "停牌", "复牌", "风险警示", "退市", "立案",
+    "处罚", "诉讼", "仲裁", "实控人", "控制权", "要约",
+]
+
+def _is_key_announcement(r: dict) -> bool:
+    t = r.get("type", "")
+    title = r.get("title", "")
+    combined = t + title
+    return any(kw in combined for kw in _ALPHA_SIGNALS)
+
 
 @with_retry(retries=2, delay=2.0, on_fail={})
 def _fetch_day(d: date) -> dict[str, list[dict]]:
@@ -46,21 +59,37 @@ def _flatten(day_map: dict[str, list[dict]], universe: set[str]) -> list[dict]:
 
 def _write_md(d: date, rows: list[dict], universe_size: int) -> Path:
     path = feed_md_path(SOURCE_NAME, d)
+    key = [r for r in rows if _is_key_announcement(r)]
+    routine = [r for r in rows if not _is_key_announcement(r)]
+
     buf = md_header("公告（自选+异动）", d, len(rows), universe_size)
+    header_note = f"> 关键 {len(key)} 条 + 常规 {len(routine)} 条（已过滤担保/理财/制度等非事件性公告）"
+    buf[2] = header_note
+
     if not rows:
         buf.append("_今日 universe 内无新公告。_")
-    else:
-        by_code: dict[str, list[dict]] = {}
-        for r in rows:
-            by_code.setdefault(r["code"], []).append(r)
-        buf.append("| 代码 | 标题 | 类型 | 链接 |")
-        buf.append("|------|------|------|------|")
-        for code in sorted(by_code.keys()):
-            for r in by_code[code]:
-                title = r["title"].replace("|", "丨")
-                url = r["url"] or ""
-                link = f"[查看]({url})" if url else ""
-                buf.append(f"| {code} | {title} | {r['type']} | {link} |")
+        path.write_text("\n".join(buf), encoding="utf-8")
+        return path
+
+    if key:
+        buf.append("## 关键公告")
+        buf.append("")
+        buf.append("| 代码 | 标题 | 类型 |")
+        buf.append("|------|------|------|")
+        for r in key:
+            title = r["title"].replace("|", "丨")
+            buf.append(f"| {r['code']} | {title} | {r['type']} |")
+
+    if routine:
+        buf.append("")
+        buf.append("## 常规公告")
+        buf.append("")
+        buf.append("| 代码 | 标题 | 类型 |")
+        buf.append("|------|------|------|")
+        for r in routine:
+            title = r["title"].replace("|", "丨")
+            buf.append(f"| {r['code']} | {title} | {r['type']} |")
+
     path.write_text("\n".join(buf), encoding="utf-8")
     return path
 

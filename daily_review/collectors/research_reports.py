@@ -31,17 +31,18 @@ def _write_md(d: date, rows: list[dict], universe_size: int) -> Path:
     if not rows:
         buf.append("_今日 universe 内无新研报。_")
     else:
-        buf.append("| 代码 | 名称 | 标题 | 评级 | 机构 | 目标价 | PDF |")
-        buf.append("|------|------|------|------|------|--------|-----|")
+        buf.append("| 代码 | 名称 | 标题 | 评级 | 机构 | 目标价 | EPS(今年/明年) |")
+        buf.append("|------|------|------|------|------|--------|----------------|")
         for r in rows:
             title = (r.get("title") or "").replace("|", "丨")
-            pdf = r.get("pdf_url") or ""
-            link = f"[PDF]({pdf})" if pdf else ""
             tp = r.get("target_price")
             tp_str = f"{tp:.2f}" if tp else ""
+            e1 = f"{r.get('eps_y1'):.2f}" if r.get("eps_y1") else ""
+            e2 = f"{r.get('eps_y2'):.2f}" if r.get("eps_y2") else ""
+            eps_str = f"{e1}/{e2}" if e1 or e2 else ""
             buf.append(
                 f"| {r.get('code','')} | {r.get('name','')} | {title} | "
-                f"{r.get('rating','')} | {r.get('institution','')} | {tp_str} | {link} |"
+                f"{r.get('rating','')} | {r.get('institution','')} | {tp_str} | {eps_str} |"
             )
     path.write_text("\n".join(buf), encoding="utf-8")
     return path
