@@ -33,6 +33,20 @@ SOURCES = {
     "唐史微博": "weibo",
 }
 
+_ZSXQ_ANALYSIS_PREFIX = "zsxq_analysis"
+
+
+def _read_zsxq(target_date: str) -> str:
+    """优先读星球两阶段分析结果，回退 raw feed。"""
+    analysis_path = FEEDS_DIR / f"{_ZSXQ_ANALYSIS_PREFIX}_{target_date}.md"
+    if analysis_path.exists():
+        return analysis_path.read_text(encoding="utf-8")[:MAX_CHARS_PER_SOURCE]
+    prev = date.fromisoformat(target_date) - timedelta(days=1)
+    analysis_path = FEEDS_DIR / f"{_ZSXQ_ANALYSIS_PREFIX}_{prev.isoformat()}.md"
+    if analysis_path.exists():
+        return analysis_path.read_text(encoding="utf-8")[:MAX_CHARS_PER_SOURCE]
+    return _read_source("zsxq", target_date)
+
 _PROMPT = """你是 A 股投研助手。以下是今日四份主要情报源的内容：
 
 {source_blocks}
@@ -237,7 +251,9 @@ def synthesise(target_date: str) -> str | None:
     source_blocks = []
 
     for label, stem in SOURCES.items():
-        if stem:
+        if label == "知识星球":
+            content = _read_zsxq(target_date)
+        elif stem:
             content = _read_source(stem, target_date)
         else:
             content = _read_wechat(target_date)

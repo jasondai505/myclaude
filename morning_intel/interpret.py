@@ -72,6 +72,11 @@ def _read_feeds(today: str) -> dict[str, str]:
             industry_parts.append(c)
     result["INDUSTRY_CONTENT"] = "\n\n".join(industry_parts)
 
+    # 优先用星球两阶段分析替代 raw feed
+    zsxq_analysis = _read_feed_smart("zsxq_analysis", today, FEEDS_LOOKBACK_DAYS)
+    if zsxq_analysis:
+        result["ZSXQ_CONTENT"] = zsxq_analysis
+
     _truncate_feeds(result)
     return result
 

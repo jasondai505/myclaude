@@ -45,6 +45,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
             {"id": "collect", "name": "数据采集(日更)", "cmd": "python daily_review/daily_collect.py --tier daily"},
             {"id": "collect_weekly", "name": "数据采集(低频)", "cmd": "python daily_review/daily_collect.py --tier weekly", "only_on": [5]},
             {"id": "wechat", "name": "公众号分析", "cmd": "python daily_review/analyze_wechat.py"},
+            {"id": "zsxq_analysis", "name": "星球分析", "cmd": "python daily_review/analyze_zsxq.py"},
             {"id": "summary", "name": "复盘摘要", "cmd": "python daily_review/review_summary.py"},
             {"id": "track", "name": "推荐追踪", "cmd": "python daily_review/track_recommendations.py"},
             {"id": "synthesis", "name": "四源交叉验证", "cmd": "python daily_review/primary_synthesis.py"},
