@@ -124,6 +124,13 @@ def _stock_board(code: str) -> str:
 _LIMIT_PCT = {"main": 0.10, "kcb": 0.20, "cyb": 0.20, "bj": 0.30}
 
 
+def _round_half_up(x: float, decimals: int = 2) -> float:
+    """四舍五入（非 Python 默认的银行家舍入）"""
+    import math
+    m = 10 ** decimals
+    return math.floor(x * m + 0.5) / m
+
+
 def calc_limit_price(prev_close: float, board: str, is_st: bool = False) -> tuple[float, float]:
     """返回 (涨停价, 跌停价)
     北交所: 不能超±30%，向内取2位小数（floor/ceil）
@@ -134,8 +141,8 @@ def calc_limit_price(prev_close: float, board: str, is_st: bool = False) -> tupl
         up = math.floor(prev_close * (1 + pct) * 100) / 100
         down = math.ceil(prev_close * (1 - pct) * 100) / 100
     else:
-        up = round(prev_close * (1 + pct), 2)
-        down = round(prev_close * (1 - pct), 2)
+        up = _round_half_up(prev_close * (1 + pct))
+        down = _round_half_up(prev_close * (1 - pct))
     return up, down
 
 
