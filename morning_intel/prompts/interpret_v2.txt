@@ -7,6 +7,15 @@
 ### 知识星球讨论
 %%ZSXQ_CONTENT%%
 
+### 微信公众号
+%%WECHAT_CONTENT%%
+
+### 唐史主任微博
+%%WEIBO_CONTENT%%
+
+### 韭研脱水研报
+%%JIUYANG_CONTENT%%
+
 ### 公告
 %%ANNOUNCEMENTS_CONTENT%%
 
@@ -16,7 +25,7 @@
 ### 行业研报
 %%INDUSTRY_CONTENT%%
 
-### 微信群/微博/公众号投放
+### 手动投放（drops/）
 %%DROPS_CONTENT%%
 
 ### 私有供应链数据库（已知映射）

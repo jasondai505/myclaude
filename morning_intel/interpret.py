@@ -57,6 +57,9 @@ def _read_feeds(today: str) -> dict[str, str]:
         "ZSXQ_CONTENT": "zsxq",
         "ANNOUNCEMENTS_CONTENT": "announcements",
         "NEWS_CONTENT": "news",
+        "WECHAT_CONTENT": "wechat",
+        "WEIBO_CONTENT": "weibo",
+        "JIUYANG_CONTENT": "jiuyang",
     }
     result: dict[str, str] = {}
     for varname, prefix in feed_map.items():
