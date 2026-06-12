@@ -18,15 +18,18 @@ from collections import defaultdict
 sys.path.insert(0, str(Path(__file__).parent))
 sys.stdout.reconfigure(encoding="utf-8")
 
-import redis
 from store import (
-    init_db, query_catalyst_by_date, query_catalyst_stocks, save_catalyst_signals,
+    init_db, query_catalyst_by_date, query_catalyst_stocks,
+    save_catalyst_signals, mark_catalyst_expired,
 )
-from config import (
-    REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, REDIS_DB, REDIS_MARKET_KEY,
-    STOCK_PRIMARY_CONCEPT, REPORT_DIR,
-)
-from data import _normalize_code, _market_prefix, calc_limit_price, _stock_board
+from config import REPORT_DIR
+from redis_quotes import fetch_redis_quotes
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "morning_intel"))
+try:
+    from notify import push as _push
+except ImportError:
+    def _push(title, content): return False
 
 FEEDS_DIR = REPORT_DIR / "feeds"
 FEEDS_DIR.mkdir(parents=True, exist_ok=True)
@@ -38,52 +41,6 @@ CONFIRM_LIMIT_UP = 3       # 涨停得分
 CONFIRM_STRONG_CHG = 2     # 涨>5%得分
 CONFIRM_VOL_SPIKE = 1      # 放量得分
 CONFIRM_THRESHOLD = 3       # 累计>=3分视为确认
-
-
-def _get_redis():
-    return redis.Redis(
-        host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD,
-        db=REDIS_DB, decode_responses=True, protocol=2,
-        socket_connect_timeout=5, socket_timeout=10,
-    )
-
-
-def fetch_redis_quotes() -> dict[str, dict]:
-    """Redis 实时行情 → {code6: {price, change_pct, is_limit_up, vol_ratio, ...}}"""
-    try:
-        r = _get_redis()
-        raw = r.hgetall(REDIS_MARKET_KEY)
-    except Exception as e:
-        print(f"  [WARN] Redis unavailable: {e}")
-        return {}
-
-    result = {}
-    for code, csv_line in raw.items():
-        parts = csv_line.split(",")
-        if len(parts) < 38:
-            continue
-        try:
-            price = float(parts[1]) if parts[1] else 0
-            prev_close = float(parts[2]) if parts[2] else 0
-            name = parts[0].strip() if parts[0] else ""
-            vol_ratio = float(parts[37]) if parts[37] else 0
-        except (ValueError, IndexError):
-            continue
-        if price <= 0 or prev_close <= 0:
-            continue
-
-        code6 = _normalize_code(code)
-        board = _stock_board(code6)
-        change_pct = round((price - prev_close) / prev_close * 100, 2)
-        is_st = "ST" in name.upper()
-        limit_up, _ = calc_limit_price(prev_close, board, is_st)
-        is_limit_up = price >= limit_up - 0.001
-
-        result[code6] = {
-            "name": name, "price": price, "change_pct": change_pct,
-            "is_limit_up": is_limit_up, "vol_ratio": vol_ratio,
-        }
-    return result
 
 
 def _check_pool_history(stock_codes: set[str], lookback: int = 3) -> dict[str, int]:
@@ -258,6 +215,26 @@ def track(today_str: str):
         c["validation_note"] = f"走势确认({today_str}): {c.get('confirm_score',0)}分"
     if confirmed_catalysts:
         save_catalyst_signals(confirmed_catalysts)
+
+    # 6. 标记过期：14天前未确认的催化 → expired
+    expiry_cutoff = (today_date - timedelta(days=LOOKBACK_DAYS)).isoformat()
+    n_expired = mark_catalyst_expired(expiry_cutoff)
+    if n_expired:
+        print(f"  Expired: {n_expired} catalysts older than {LOOKBACK_DAYS}d")
+
+    # 7. 推送通知（仅在有确认时）
+    if confirmed_catalysts:
+        push_title = f"✅ 催化走势确认 {len(confirmed_catalysts)}条" + (
+            f"（其中{len(old_reactivations)}条历史复活）" if old_reactivations else "")
+        push_lines = []
+        for c in old_reactivations[:3]:
+            days_ago = (today_date - date.fromisoformat(c["date"])).days
+            push_lines.append(f"🔄 [{days_ago}天前] **{c['catalyst_name']}** — 复活")
+        for c in new_confirms[:3]:
+            push_lines.append(f"🆕 **{c['catalyst_name']}** ({c.get('actionability',0)}分)")
+        if len(confirmed_catalysts) > 6:
+            push_lines.append(f"\n... 共 {len(confirmed_catalysts)} 条确认")
+        _push(push_title, "\n".join(push_lines))
 
     return confirmed_catalysts, old_reactivations
 

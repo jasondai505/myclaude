@@ -950,6 +950,10 @@ def init_feeds_tables():
             conn.execute("ALTER TABLE catalyst_signals ADD COLUMN price_confirm_date TEXT")
         except Exception:
             pass
+        try:
+            conn.execute("ALTER TABLE catalyst_signals ADD COLUMN expired INTEGER DEFAULT 0")
+        except Exception:
+            pass
 
 
 def save_announcements(rows: list[dict]) -> int:
@@ -1236,8 +1240,9 @@ def save_catalyst_signals(signals: list[dict]) -> int:
              catalyst_name, catalyst_type, magnitude_score, specificity_score,
              novelty_score, urgency_score, actionability, source_count,
              price_data, key_entities, mentioned_codes, suggested_concepts,
-             merged_from, thesis, time_horizon, validation_note, sonnet_validated)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             merged_from, thesis, time_horizon, validation_note, sonnet_validated,
+             price_confirmed, price_confirm_date, expired)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [(s.get("date"), s.get("signal_id"), s.get("source_type"), s.get("source_title"),
               s.get("source_text"), s.get("catalyst_name"), s.get("catalyst_type"),
               s.get("magnitude_score", 0), s.get("specificity_score", 0),
@@ -1249,7 +1254,9 @@ def save_catalyst_signals(signals: list[dict]) -> int:
               json.dumps(s.get("suggested_concepts", []), ensure_ascii=False),
               json.dumps(s.get("merged_from", []), ensure_ascii=False),
               s.get("thesis", ""), s.get("time_horizon", ""),
-              s.get("validation_note", ""), s.get("sonnet_validated", 0))
+              s.get("validation_note", ""), s.get("sonnet_validated", 0),
+              s.get("price_confirmed", 0), s.get("price_confirm_date", ""),
+              s.get("expired", 0))
              for s in signals],
         )
     return len(signals)
@@ -1276,10 +1283,21 @@ def query_catalyst_by_date(date_str: str, min_score: int = 20) -> list[dict]:
     with _conn() as conn:
         rows = conn.execute(
             "SELECT * FROM catalyst_signals WHERE date = ? AND actionability >= ? "
-            "ORDER BY actionability DESC",
+            "AND expired = 0 ORDER BY actionability DESC",
             (date_str, min_score),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def mark_catalyst_expired(date_str: str, older_than_days: int = 14) -> int:
+    """标记超过N天未确认且无动静的催化为过期"""
+    with _conn() as conn:
+        result = conn.execute(
+            "UPDATE catalyst_signals SET expired = 1 "
+            "WHERE date <= ? AND price_confirmed = 0 AND expired = 0",
+            (date_str,),
+        )
+        return result.rowcount
 
 
 def query_catalyst_stocks(date_str: str, catalyst_name: str) -> list[dict]:

@@ -1,6 +1,5 @@
-"""盘中流水线循环执行 — 每30分钟一次，9:30-15:00。
+"""盘中流水线循环执行 — 双频：监控5分钟 + 全管线30分钟，9:30-15:00。
 
-替代 Windows Task Scheduler 的 10:30/14:00 两次触发。
 用法:
     python run_intraday_loop.py
 """
@@ -12,7 +11,8 @@ from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8")
 
-INTERVAL_MINUTES = 30
+MONITOR_INTERVAL = 5   # 催化监控 快频
+FULL_INTERVAL = 30     # 全管线（健康+情报+验证）慢频
 START_TIME = dtime(9, 30)
 END_TIME = dtime(15, 0)
 PROJECT = Path(__file__).resolve().parent
@@ -23,44 +23,40 @@ def _in_trading_hours() -> bool:
     return START_TIME <= now <= END_TIME
 
 
-def _run_pipeline() -> bool:
-    print(f"\n{'='*50}")
-    print(f"[{datetime.now().strftime('%H:%M')}] 盘中流水线")
-    print(f"{'='*50}")
+def _run_step(name: str, cmd: list[str]) -> bool:
+    print(f"\n--- {name} ---")
+    try:
+        result = subprocess.run(
+            cmd, cwd=str(PROJECT),
+            capture_output=False, timeout=300,
+        )
+        ok = result.returncode == 0
+        print(f"  {'OK' if ok else f'FAIL({result.returncode})'}")
+        return ok
+    except subprocess.TimeoutExpired:
+        print("  TIMEOUT")
+        return False
+    except Exception as e:
+        print(f"  ERROR: {e}")
+        return False
 
-    steps = [
-        ("health", "系统健康检查",
-         ["python", "daily_review/health_check.py"]),
-        ("feeds", "盘中情报",
-         ["python", "morning_intel/intraday_feeds.py"]),
-        ("validate", "盘中验证",
-         ["python", "morning_intel/run_morning.py", "--phase", "intraday"]),
-    ]
 
-    ok = True
-    for sid, name, cmd in steps:
-        print(f"\n--- {name} ---")
-        try:
-            result = subprocess.run(
-                cmd, cwd=str(PROJECT),
-                capture_output=False, timeout=300,
-            )
-            status = "OK" if result.returncode == 0 else f"FAIL({result.returncode})"
-            print(f"  {status}")
-            if result.returncode != 0:
-                ok = False
-        except subprocess.TimeoutExpired:
-            print("  TIMEOUT")
-            ok = False
-        except Exception as e:
-            print(f"  ERROR: {e}")
-            ok = False
+# 慢频步骤（仅每 FULL_INTERVAL 分钟跑一次）
+FULL_STEPS = [
+    ("健康检查", ["python", "daily_review/health_check.py"]),
+    ("盘中情报", ["python", "morning_intel/intraday_feeds.py"]),
+    ("盘中验证", ["python", "morning_intel/run_morning.py", "--phase", "intraday"]),
+]
 
-    return ok
+# 快频步骤（每次循环都跑）
+FAST_STEPS = [
+    ("催化监控", ["python", "daily_review/catalyst_monitor.py"]),
+]
 
 
 def main():
-    print(f"盘中循环扫描 | 间隔 {INTERVAL_MINUTES} 分钟 | "
+    cycles_per_full = FULL_INTERVAL // MONITOR_INTERVAL
+    print(f"盘中双频扫描 | 监控 {MONITOR_INTERVAL}min + 全管线 {FULL_INTERVAL}min | "
           f"{START_TIME.strftime('%H:%M')}-{END_TIME.strftime('%H:%M')}")
     print("等待交易时间...")
 
@@ -80,14 +76,29 @@ def main():
                 time.sleep(min(wait_seconds, 300))
             continue
 
-        _run_pipeline()
+        is_full = run_count % cycles_per_full == 0
+        label = "全管线" if is_full else "快频监控"
+        print(f"\n{'='*50}")
+        print(f"[{now.strftime('%H:%M')}] 盘中 {label} (#{run_count+1})")
+        print(f"{'='*50}")
+
+        # 监控步骤 — 每次都跑
+        for name, cmd in FAST_STEPS:
+            _run_step(name, cmd)
+
+        # 全管线步骤 — 仅每 FULL_INTERVAL 分钟
+        if is_full:
+            for name, cmd in FULL_STEPS:
+                _run_step(name, cmd)
+
         run_count += 1
 
-        next_minute = ((now.minute // INTERVAL_MINUTES) + 1) * INTERVAL_MINUTES
+        # 对齐到下一个 MONITOR_INTERVAL 分钟边界
+        next_minute = ((now.minute // MONITOR_INTERVAL) + 1) * MONITOR_INTERVAL
         sleep_minutes = next_minute - now.minute
         if sleep_minutes <= 0:
-            sleep_minutes = INTERVAL_MINUTES
-        print(f"\n  下次扫描: ~{sleep_minutes} 分钟后")
+            sleep_minutes = MONITOR_INTERVAL
+        print(f"\n  下次: ~{sleep_minutes} 分钟后")
         time.sleep(sleep_minutes * 60)
 
 

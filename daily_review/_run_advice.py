@@ -979,7 +979,80 @@ def _tag_stock_sources(code: str, feeds: dict[str, str]) -> str:
     return "·".join(tags) if tags else "—"
 
 
-def _build_selection(output: str, feeds: dict[str, str]) -> str:
+def _enforce_catalyst_coverage(
+    today: str, top10_codes: set[str], candidate_map: dict[str, dict],
+    fev_map: dict, delta_map: dict,
+) -> str:
+    """CRITICAL 催化标的未进入精选池时，生成强制关注段落"""
+    path = FEEDS_DIR / f"catalyst_screen_{today}.json"
+    if not path.exists():
+        return ""
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+
+    catalysts = data.get("catalysts", [])
+    stock_maps = data.get("stock_maps", {})
+    critical = [c for c in catalysts if c.get("final_actionability", 0) >= 60]
+    if not critical:
+        return ""
+
+    # 收集所有 CRITICAL 映射标的，排除已在精选/候选中的
+    missing = []
+    seen = set()
+    for cat in critical:
+        for s in stock_maps.get(cat.get("catalyst_name", ""), []):
+            code = s.get("code", "")
+            if not code or code in seen:
+                continue
+            seen.add(code)
+            if code in top10_codes or code in candidate_map:
+                continue
+            missing.append({
+                "code": code,
+                "name": s.get("name", candidate_map.get(code, {}).get("name", "?")),
+                "catalyst": cat.get("catalyst_name", "?"),
+                "actionability": cat.get("final_actionability", 0),
+                "confidence": s.get("confidence", "?"),
+            })
+
+    if not missing:
+        return ""
+
+    # 补 FEVΔ
+    try:
+        import data
+        codes = [m["code"] for m in missing]
+        quotes = data.fetch_stock_quotes(codes, batch_size=30)
+        for m in missing:
+            q = quotes.get(m["code"], {})
+            if not m["name"] or m["name"] == "?":
+                m["name"] = q.get("name", "?")
+    except Exception:
+        pass
+
+    for m in missing:
+        fv = fev_map.get(m["code"], {})
+        d = delta_map.get(m["code"], {})
+        m["fev"] = fv.get("fev", 0)
+        m["fevd"] = m["fev"] + (d.get("delta_score", 0) if d else 0)
+
+    lines = ["", "## ⚡ 催化强制关注（CRITICAL 催化 → 标的未进精选）", "",
+             f"> CRITICAL 催化 {len(critical)} 条，{len(missing)} 只标的未进入精选池。催化行动性极高，须纳入关注。", "",
+             "| 标的 | 关联催化 | 行动性 | FEVΔ | 置信度 |",
+             "|------|---------|:------:|:-----:|:------:|"]
+    for m in sorted(missing, key=lambda x: -x["actionability"]):
+        lines.append(
+            f"| **{m['name']}({m['code']})** | {m['catalyst'][:30]} | "
+            f"{m['actionability']} | {m['fevd']} | {m['confidence']} |"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
     """解析 LLM 候选池 → 查 FEVΔ → 硬排名取前10 → 替换候选池为精选标的。"""
     # 找到候选池段落（兼容 LLM 可能的各种写法）
     pool_start = -1
@@ -1324,6 +1397,14 @@ def _build_selection(output: str, feeds: dict[str, str]) -> str:
                     f"{t['hold_period']} | {reason} |"
                 )
             lines.append("")
+
+    # 催化强制关注：CRITICAL 催化标的未进精选的补入
+    top10_codes = {c["code"] for c in top10}
+    candidate_map = {c["code"]: c for c in candidates}
+    enforced = _enforce_catalyst_coverage(
+        today, top10_codes, candidate_map, fev_map, delta_map)
+    if enforced:
+        lines.append(enforced)
 
     # 替换候选池段落
     before = output[:pool_start]
@@ -1949,7 +2030,7 @@ def main():
             idx = output.find(marker)
             nl = output.find("\n", idx)
             output = output[:nl + 1] + chokemap_diff + "\n" + output[nl + 1:]
-    output = _build_selection(output, feeds)
+    output = _build_selection(output, feeds, today)
     diff_section = _build_daily_diff(output, yesterday, today)
     if diff_section:
         # 插入到备选标的前面
