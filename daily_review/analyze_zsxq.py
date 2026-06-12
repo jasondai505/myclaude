@@ -354,7 +354,7 @@ def main():
         return
 
     from anthropic import Anthropic
-    client = Anthropic(api_key=key, timeout=TIMEOUT)
+    client = Anthropic(api_key=key, base_url="https://api.deepseek.com/anthropic", timeout=TIMEOUT)
 
     # 阶段一：Haiku 逐帖拆解
     print(f"  阶段一：Haiku 逐帖拆解...")
