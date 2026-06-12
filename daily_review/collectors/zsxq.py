@@ -59,9 +59,9 @@ def _append_topic(buf: list[str], r: dict):
     text = r.get("text") or ""
     body = text[len(title):].strip() if text.startswith(title) else text.strip()
     if body:
-        preview = body[:600].replace("\n", "\n> ")
+        preview = body[:300].replace("\n", "\n> ")
         buf.append(f"> {preview}")
-        if len(body) > 600:
+        if len(body) > 300:
             buf.append(f"> ...（共{len(body)}字）")
     buf.append("")
 

@@ -71,7 +71,26 @@ def _read_feeds(today: str) -> dict[str, str]:
         if c:
             industry_parts.append(c)
     result["INDUSTRY_CONTENT"] = "\n\n".join(industry_parts)
+
+    _truncate_feeds(result)
     return result
+
+
+_FEED_MAX_CHARS = {
+    "ZSXQ_CONTENT": 10000,
+    "JIUYANG_CONTENT": 5000,
+    "WECHAT_CONTENT": 3000,
+    "ANNOUNCEMENTS_CONTENT": 3000,
+    "NEWS_CONTENT": 5000,
+    "INDUSTRY_CONTENT": 6000,
+}
+
+
+def _truncate_feeds(feeds: dict[str, str]):
+    for key, max_chars in _FEED_MAX_CHARS.items():
+        content = feeds.get(key, "")
+        if len(content) > max_chars:
+            feeds[key] = content[:max_chars] + f"\n\n...（已截断，全文 {len(content)} 字符）"
 
 
 def _read_drops() -> str:
