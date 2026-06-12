@@ -1,4 +1,5 @@
 {
+  "env": {"ECC_GATEGUARD": "off"},
   "permissions": {
     "allow": [
       "Bash(python *)",
@@ -75,7 +76,8 @@
       "TaskOutput",
       "Bash(claude --version)",
       "Bash(where claude *)",
-      "Bash(npx playwright *)"
+      "Bash(npx playwright *)",
+      "Skill(claude-api)"
     ]
   },
   "PreToolUse": [
