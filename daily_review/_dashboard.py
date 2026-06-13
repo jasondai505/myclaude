@@ -305,7 +305,7 @@ def generate(today_str: str = "") -> str:
     w("| 个股档案 | `daily_review/reports/research_dossiers/` |")
     w("| 催化跟踪 | `daily_review/reports/feeds/catalyst_track_{date}.md` |")
     w("| Git 历史 | 终端: `git log --oneline` |")
-    w("| 会话转录 | `~/.claude/sessions/*.jsonl` (grep 关键词) |")
+    w("| 会话转录 | `~/.claude/projects/C--Users-daixin-myclaude/*.jsonl` (grep 关键词) |")
 
     content = "\n".join(L)
     DASHBOARD_PATH.write_text(content, encoding="utf-8")
