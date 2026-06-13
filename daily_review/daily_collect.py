@@ -44,6 +44,7 @@ _COLLECTOR_IMPORTS = {
     "interactions": "interactions",
     "earnings": "earnings",
     "surveys": "surveys",
+    "sentiment_track": "sentiment_track",
     "lockups": "lockups",
     "eps": "eps_forecast",
     "industry": "industry_research",
@@ -71,6 +72,7 @@ SOURCE_LABELS = {
     "interactions": "互动易",
     "earnings": "业绩预告快报",
     "surveys": "机构调研",
+    "sentiment_track": "调研+互动情绪",
     "lockups": "限售解禁",
     "eps": "一致预期EPS",
     "industry": "行业研报",
@@ -90,6 +92,7 @@ SOURCE_TABLE = {
     "interactions": ("interactions", "reply_time"),
     "earnings": ("earnings_forecast", "notice_date"),
     "surveys": ("inst_survey", "notice_date"),
+    "sentiment_track": ("inst_survey", "notice_date"),
     "lockups": ("lockups", "release_date"),
     "eps": ("eps_forecast", "fetched_at"),
     "industry": ("industry_research", "publish_date"),
@@ -101,8 +104,8 @@ SOURCE_TABLE = {
 
 SOURCE_TIERS = {
     "daily": {"zsxq", "announcements", "announcement_deep_read", "news", "research", "research_deep_read", "industry",
-              "wechat", "weibo", "jiuyang"},
-    "weekly": {"interactions", "earnings", "surveys", "lockups", "eps", "financials"},
+              "wechat", "weibo", "jiuyang", "interactions", "surveys", "sentiment_track"},
+    "weekly": {"earnings", "lockups", "eps", "financials"},
 }
 
 
