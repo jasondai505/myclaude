@@ -24,7 +24,7 @@ def _get_event_type(ann: dict) -> str:
     title = ann.get("ann_title", ann.get("title", ""))
     combined = f"{ann_type} {title}"
 
-    if any(kw in combined for kw in ["收购", "重组", "并购"]):
+    if any(kw in combined for kw in ["收购", "重组", "并购", "购买资产", "注入"]):
         if ann.get("chokepoint_key"):
             return "卡脖子收购"
         return "收购"
@@ -69,7 +69,7 @@ concepts: {json.dumps(concepts, ensure_ascii=False)}
 time_horizon: "{result.get('time_horizon', 'month')}"
 status: active
 tags: [deep_read, {result.get('hunting_domain', '')}, "{event_type}"]
-moc: "[[{moc_name}]]"
+moc: "[[{{moc_name}}]]"
 created: {date.today().isoformat()}
 ---"""
 

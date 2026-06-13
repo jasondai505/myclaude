@@ -167,7 +167,7 @@ def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> di
                 "total_score": total,
                 "investment_thesis": r.get("investment_thesis", ""),
                 "time_horizon": r.get("time_horizon", "month"),
-                "risk_factors": r.get("risk_factors", []),
+                "risk_factors": json.dumps(r.get("risk_factors", []) if isinstance(r.get("risk_factors"), list) else []),
                 "comparable_precedents": r.get("comparable_precedents", ""),
                 "haiku_extraction": r.get("haiku_extraction", ""),
                 "sonnet_scoring": r.get("sonnet_scoring", ""),
