@@ -226,3 +226,44 @@ AskUserQuestion 3 分钟无响应 → PushPlus 微信推送。4 个文件：`_ho
 **原因**：`sys.path.insert(0, str(BASE))` 在第 18 行，`from daily_review.roles import ...` 在第 12 行——path 操作在 import 之后。脚本直接运行时，Python 只用脚本目录 + cwd 搜索包，`daily_review` 作为包找不到。module 方式运行时 Python 自动加了父目录。
 
 **修复**：所有 `sys.path` 操作移到本地包 import 之前，用 `BASE.parent`（项目根目录）而非 `BASE`（脚本目录）。commit: `5d5cbe5`。
+
+## 五维信息源框架搭建（2026-06-13）
+
+**数据源踩坑：**
+- 东方财富研报 HTTP API（`reportapi.eastmoney.com/report/list`）一次 GET 拉全市场，比 akshare 逐只调快 100 倍
+- akshare `stock_research_report_em` 只能逐只调，无全市场接口
+- 互动易 72 只逐只调需 ~360s，超时设 600s
+- 公告采集：`akshare.stock_notice_report` 有 `symbol="全部"` 全市场模式，但 `stock_research_report_em` 没有
+
+**SQLite 踩坑：**
+- `risk_factors` Python list 需 `json.dumps` 序列化才能存 SQLite（Error binding parameter 17: type 'list' is not supported）
+- 公告表 `name` 字段全为空，需从 `data.fetch_stock_quotes` 补名称
+- f-string 中 `{moc_name}` 需双写 `{{moc_name}}` 转义，否则提前求值报 NameError
+
+**过滤规则迭代（4 轮）：**
+1. 初始 SKIP_TYPES 35 个关键词 → 通过率 22%
+2. 加 SKIP_PATTERNS 28 个正则（会议决议/可转债/套保/授信等）→ 12.8%
+3. 加"异常波动/权益分派/现金管理"→ 10.8%
+4. 综合收紧（减持/增持/回购结果 + 猎场分级）→ 6.1%
+   净效果：2,199 → 99（95.5% 降噪），同时净删 100 行代码
+
+**超时设置：**
+- 公告深研 33 条 LLM 调用需 ~15 分钟 → 设 1200s（300s 不够）
+- 互动易 72 只逐只调需 ~6 分钟 → 设 600s（300s 不够）
+- daily_collect 执行顺序：用 `sorted(key=lambda s: ...)` 确保公告→deep_read 顺序
+
+**公告深研 21 天全量统计：**
+- 2,775 条精读，37 条 ≥60（1.3%），3 条 ≥70
+- 领域分布：算力硬件 21(57%) + 机器人 7(19%) + 新能源 4 + 化工材料 4
+- ≥60 组 5 只后续走势全部跑输大盘（均值 -15.3% vs 上证 +2.3%），说明评分衡量"逻辑质量"非"短期涨跌"
+- 公告 ≥60 vs 研报档案：0% 重叠，两条腿完全互补
+
+**猎场分级效果：**
+- 一级（算力硬件+新能源）→ 1,031 只，跑完整 deep_read
+- 二级（机器人+化工材料）→ 省 37% LLM 成本，≥60 命中全部来自一级猎场
+- 机器人和化工材料的催化主要来自产业链调研而非公告
+
+**仪表盘：**
+- `_dashboard.py` 自动生成，中文标签 + emoji + 可操作警报
+- Obsidian Homepage 插件设为首页
+- 每日 daily_collect 末尾自动生成并同步到根目录
