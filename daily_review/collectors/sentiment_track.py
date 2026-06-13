@@ -1,7 +1,6 @@
-"""调研+互动易情绪跟踪采集器。
+"""五维情绪跟踪采集器（调研+互动易+业绩预告）。
 
-运行 survey_tracker 和 interaction_tracker，将信号追加到已有 Obsidian 档案。
-零 LLM 成本，纯机械规则。
+三条腿全部零LLM成本，纯机械规则。信号追加到 Obsidian 个股档案。
 """
 from __future__ import annotations
 
@@ -12,6 +11,7 @@ from typing import Callable
 import store
 from deep_read.survey_tracker import detect_survey_signals
 from deep_read.interaction_tracker import detect_interaction_signals
+from deep_read.earnings_tracker import detect_earnings_signals
 
 SOURCE_NAME = "sentiment_track"
 RESEARCH_DIR = Path("reports") / "research_dossiers"
@@ -41,23 +41,25 @@ def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> di
 
     survey_signals = detect_survey_signals(today_str)
     interaction_signals = detect_interaction_signals(today_str)
+    earnings_signals = detect_earnings_signals(today_str)
 
-    survey_appended = 0
-    for s in survey_signals:
-        if _append_to_dossier(s["code"], today_str, "调研信号", s["signals"]):
-            survey_appended += 1
+    updated = 0
+    for label, signals in [
+        ("调研信号", survey_signals),
+        ("互动易信号", interaction_signals),
+        ("业绩信号", earnings_signals),
+    ]:
+        for s in signals:
+            if _append_to_dossier(s["code"], today_str, label, s["signals"]):
+                updated += 1
 
-    interaction_appended = 0
-    for s in interaction_signals:
-        if _append_to_dossier(s["code"], today_str, "互动易信号", s["signals"]):
-            interaction_appended += 1
-
-    total = len(survey_signals) + len(interaction_signals)
+    total = len(survey_signals) + len(interaction_signals) + len(earnings_signals)
     return {
         "last_date": today_str,
         "status": "ok",
-        "message": f"调研{len(survey_signals)}只({survey_appended}存档) + 互动{len(interaction_signals)}只({interaction_appended}存档)",
+        "message": f"调研{len(survey_signals)}+互动{len(interaction_signals)}+业绩{len(earnings_signals)}={total}只({updated}存档)",
         "survey_count": len(survey_signals),
         "interaction_count": len(interaction_signals),
-        "dossier_updates": survey_appended + interaction_appended,
+        "earnings_count": len(earnings_signals),
+        "dossier_updates": updated,
     }

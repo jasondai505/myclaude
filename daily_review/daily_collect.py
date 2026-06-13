@@ -104,8 +104,8 @@ SOURCE_TABLE = {
 
 SOURCE_TIERS = {
     "daily": {"zsxq", "announcements", "announcement_deep_read", "news", "research", "research_deep_read", "industry",
-              "wechat", "weibo", "jiuyang", "interactions", "surveys", "sentiment_track"},
-    "weekly": {"earnings", "lockups", "eps", "financials"},
+              "wechat", "weibo", "jiuyang", "interactions", "surveys", "sentiment_track", "earnings"},
+    "weekly": {"lockups", "eps", "financials"},
 }
 
 
