@@ -272,6 +272,27 @@ def generate(today_str: str = "") -> str:
         w("_暂无数据_")
     w()
 
+    # === 最近提交 ===
+    w("## 📜 最近提交")
+    w()
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["git", "log", "--oneline", "-10"],
+            capture_output=True, text=True, timeout=5,
+            cwd=str(Path(__file__).parent.parent),
+            encoding="utf-8", errors="replace",
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split("\n"):
+                if line.strip():
+                    w(f"- `{line}`")
+        else:
+            w("_git 不可用_")
+    except Exception:
+        w("_git 不可用_")
+    w()
+
     # === 底部快速链接 ===
     w("---")
     w()
@@ -283,7 +304,8 @@ def generate(today_str: str = "") -> str:
     w("| 公告深研 | `daily_review/reports/deep_read/` |")
     w("| 个股档案 | `daily_review/reports/research_dossiers/` |")
     w("| 催化跟踪 | `daily_review/reports/feeds/catalyst_track_{date}.md` |")
-    w("| 采集日志 | `daily_review/dashboard/logs/` |")
+    w("| Git 历史 | 终端: `git log --oneline` |")
+    w("| 会话转录 | `~/.claude/sessions/*.jsonl` (grep 关键词) |")
 
     content = "\n".join(L)
     DASHBOARD_PATH.write_text(content, encoding="utf-8")
