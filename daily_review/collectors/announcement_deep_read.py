@@ -56,12 +56,23 @@ def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> di
             "message": f"当日 ({date_str}) 无公告数据",
         }
 
-    # 3. 转换为硬筛选需要的格式
+    # 3. 补全股票名称（公告表 name 字段为空）
+    codes_needed = list({str(a.get("code", "")).zfill(6) for a in announcements})
+    name_map = {}
+    try:
+        import data
+        quotes = data.fetch_stock_quotes(codes_needed, batch_size=50)
+        name_map = {c: q.get("name", "") for c, q in quotes.items()}
+    except Exception:
+        pass
+
+    # 4. 转换为硬筛选需要的格式
     raw_anns = []
     for a in announcements:
+        code = str(a.get("code", "")).zfill(6)
         raw_anns.append({
-            "code": a.get("code", ""),
-            "name": a.get("name", ""),
+            "code": code,
+            "name": name_map.get(code, a.get("name", "")),
             "ann_title": a.get("title", ""),
             "ann_type": a.get("type", ""),
             "ann_url": a.get("url", ""),
