@@ -1,7 +1,7 @@
-"""个股研报采集（东方财富）。
+"""个股研报采集（东方财富全市场API）。
 
-复用 research.fetch_research_reports（按代码拉最近N天），按 universe 遍历，
-存入既有的 research_reports 表，按日期范围切 md。
+一次 HTTP GET 拉全市场研报，不再逐只股票遍历。
+写入 research_reports 表，按日期范围切 md。
 """
 from __future__ import annotations
 
@@ -13,23 +13,18 @@ from typing import Callable
 import store
 import research as research_mod
 from .base import (
-    fmt_iso, with_retry, daterange,
+    fmt_iso, daterange,
     feed_md_path, md_header, progress, section,
 )
 
 SOURCE_NAME = "research"
 
 
-@with_retry(retries=1, delay=1.0, on_fail=[])
-def _fetch_code(code: str, days: int) -> list[dict]:
-    return research_mod.fetch_research_reports(code, days=days) or []
-
-
 def _write_md(d: date, rows: list[dict], universe_size: int) -> Path:
     path = feed_md_path(SOURCE_NAME, d)
-    buf = md_header("个股研报（自选+异动）", d, len(rows), universe_size)
+    buf = md_header("个股研报（全市场）", d, len(rows), universe_size)
     if not rows:
-        buf.append("_今日 universe 内无新研报。_")
+        buf.append("_今日无新研报。_")
     else:
         buf.append("| 代码 | 名称 | 标题 | 评级 | 机构 | 目标价 | EPS(今年/明年) |")
         buf.append("|------|------|------|------|------|--------|----------------|")
@@ -54,33 +49,24 @@ def run(since: date, until: date,
     store.init_feeds_tables()
 
     universe = universe_fn(until)
-    if not universe:
-        msg = "universe 为空"
-        store.upsert_collect_status(SOURCE_NAME, fmt_iso(until), "skip", msg, 0)
-        return {"last_date": fmt_iso(until), "added": 0, "status": "skip", "message": msg}
 
     since_str = fmt_iso(since)
-    days_lookback = max((until - since).days + 1, 7)
-    total_in = 0
-    fetched = 0
+    until_str = fmt_iso(until)
 
-    for code in sorted(universe):
-        rows = _fetch_code(code, days_lookback)
-        rows = [r for r in rows if str(r.get("report_date", ""))[:10] >= since_str]
-        if rows:
-            store.save_research_reports(rows)
-            total_in += len(rows)
-        fetched += 1
-        time.sleep(0.3)
+    # 全市场一次拉取
+    all_reports = research_mod.fetch_all_research_reports(since_str, until_str)
+    progress(f"全市场拉取 {len(all_reports)} 篇研报")
 
-    progress(f"遍历 {fetched}/{len(universe)} 只，命中 {total_in} 条")
+    # 全部入库
+    added = store.save_research_reports(all_reports) if all_reports else 0
 
+    # 按日切 MD（仍按 universe 过滤展示）
     for d in daterange(since, until):
-        day_rows = store.query_research_by_date(fmt_iso(d), universe)
-        _write_md(d, day_rows, len(universe))
+        day_str = fmt_iso(d)
+        day_rows = [r for r in all_reports if str(r.get("report_date", ""))[:10] == day_str]
+        _write_md(d, day_rows, len(universe) if universe else 5000)
 
-    last_str = fmt_iso(until)
-    status = "ok" if fetched > 0 else "error"
-    msg = f"{fetched}/{len(universe)} 只成功，命中 {total_in}"
-    store.upsert_collect_status(SOURCE_NAME, last_str, status, msg, total_in)
-    return {"last_date": last_str, "added": total_in, "status": status, "message": msg}
+    last_str = until_str
+    msg = f"全市场 {len(all_reports)} 篇，新增 {added}"
+    store.upsert_collect_status(SOURCE_NAME, last_str, "ok", msg, added)
+    return {"last_date": last_str, "added": added, "status": "ok", "message": msg}
