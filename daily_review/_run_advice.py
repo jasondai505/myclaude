@@ -25,6 +25,7 @@ FEED_FILES = [
     ("%%ZSXQ%%", "zsxq", True),
     ("%%NEWS%%", "news", True),
     ("%%ANNOUNCEMENTS%%", "announcements", True),
+    ("%%DEEP_READ%%", "deep_read", False),
     ("%%INDUSTRY%%", "industry", False),
     ("%%FINANCIALS%%", "financials", False),
     ("%%EARNINGS%%", "earnings", False),
@@ -290,6 +291,26 @@ def _inject_feeds(today: str, yesterday: str) -> dict[str, str]:
     return result
 
 
+def _inject_deep_read_summary(today: str) -> str:
+    """注入今日公告深度研读摘要（高分段标的）。"""
+    try:
+        import store
+        rows = store.query_deep_read_results(date_str=today, min_score=60)
+    except Exception:
+        return "（公告深度研读暂未生成）"
+
+    if not rows:
+        return "（今日无通过深度研读的公告标的）"
+
+    lines = []
+    for r in rows[:3]:  # 最多 3 条
+        lines.append(
+            f"- **{r.get('name', '?')}** ({r.get('code', '?')}): "
+            f"总分 {r.get('total_score', 0)} | {r.get('investment_thesis', '')[:150]}"
+        )
+    return "\n".join(lines)
+
+
 def _inject_wechat_analysis(today: str) -> str:
     """注入公众号分析报告；若为空则回退到原始 feed 摘要。"""
     path = BASE / "reports" / f"wechat_analysis_{today}.md"
@@ -398,10 +419,22 @@ def _inject_stock_context(codes: set[str]) -> str:
     except Exception:
         pass
 
+    # 深度研读数据
+    dr_map = {}
+    try:
+        import store
+        for r in store.get_active_deep_reads(min_score=60, lookback_days=30):
+            code = r.get("code", "")
+            if code and code not in dr_map or r.get("total_score", 0) > dr_map.get(code, {}).get("total_score", 0):
+                dr_map[code] = r
+    except Exception:
+        pass
+
     ctx = {}
     for code, q in quotes.items():
         fv = fev_map.get(code, {})
         d = delta_map.get(code, {})
+        dr = dr_map.get(code, {})
         ctx[code] = {
             "name": q.get("name", ""),
             "mcap_yi": round(q.get("mcap_yi", 0) or 0),
@@ -415,6 +448,9 @@ def _inject_stock_context(codes: set[str]) -> str:
             "delta_signal": d.get("signal", "") if d else "",
             "serenity_chain": fv.get("chain", ""),
             "fev_source": fv.get("source", ""),
+            "deep_read_score": dr.get("total_score", 0),
+            "deep_read_thesis": dr.get("investment_thesis", ""),
+            "deep_read_date": dr.get("date", ""),
         }
     return json.dumps(ctx, ensure_ascii=False, indent=2)
 
@@ -1207,7 +1243,25 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
             c["continuity_bonus"] = 2  # 旧格式无持有期标签，默认+2
         else:
             c["continuity_bonus"] = 0
-        c["fevd_adjusted"] = c["fevd"] + c["continuity_bonus"]
+        # 深度研读加分
+        dr_code = c.get("code", "")
+        dr_score = 0
+        try:
+            import store
+            recent = store.get_recent_deep_reads_for_code(dr_code, days=30)
+            if recent:
+                dr_score = max(r.get("total_score", 0) for r in recent)
+        except Exception:
+            pass
+        if dr_score >= 80:
+            c["deep_read_bonus"] = 5
+        elif dr_score >= 70:
+            c["deep_read_bonus"] = 3
+        elif dr_score >= 60:
+            c["deep_read_bonus"] = 1
+        else:
+            c["deep_read_bonus"] = 0
+        c["fevd_adjusted"] = c["fevd"] + c["continuity_bonus"] + c["deep_read_bonus"]
 
     candidates.sort(key=lambda x: -x["fevd_adjusted"])
 

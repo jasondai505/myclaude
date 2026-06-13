@@ -37,6 +37,7 @@ from collectors import universe
 _COLLECTOR_IMPORTS = {
     "zsxq": "zsxq",
     "announcements": "announcements",
+    "announcement_deep_read": "announcement_deep_read",
     "news": "news",
     "research": "research_reports",
     "interactions": "interactions",
@@ -62,6 +63,7 @@ for _key, _mod_name in _COLLECTOR_IMPORTS.items():
 SOURCE_LABELS = {
     "zsxq": "知识星球",
     "announcements": "公告",
+    "announcement_deep_read": "公告深度研读",
     "news": "个股新闻",
     "research": "个股研报",
     "interactions": "互动易",
@@ -79,6 +81,7 @@ SOURCE_LABELS = {
 SOURCE_TABLE = {
     "zsxq": ("zsxq_topics", "create_time"),
     "announcements": ("announcements", "date"),
+    "announcement_deep_read": ("deep_read_results", "date"),
     "news": ("stock_news", "publish_time"),
     "research": ("research_reports", "report_date"),
     "interactions": ("interactions", "reply_time"),
@@ -94,7 +97,7 @@ SOURCE_TABLE = {
 }
 
 SOURCE_TIERS = {
-    "daily": {"zsxq", "announcements", "news", "research", "industry",
+    "daily": {"zsxq", "announcements", "announcement_deep_read", "news", "research", "industry",
               "wechat", "weibo", "jiuyang"},
     "weekly": {"interactions", "earnings", "surveys", "lockups", "eps", "financials"},
 }
@@ -206,7 +209,8 @@ def _write_index():
 
 
 COLLECTOR_TIMEOUTS = {
-    "zsxq": 300, "announcements": 180, "news": 180, "research": 240,
+    "zsxq": 300, "announcements": 180, "announcement_deep_read": 300,
+    "news": 180, "research": 240,
     "interactions": 300, "earnings": 120, "surveys": 240, "lockups": 120,
     "eps": 240, "industry": 120, "financials": 180, "wechat": 120,
     "jiuyang": 600, "weibo": 180,

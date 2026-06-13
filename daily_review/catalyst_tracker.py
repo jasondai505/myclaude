@@ -21,6 +21,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 from store import (
     init_db, query_catalyst_by_date, query_catalyst_stocks,
     save_catalyst_signals, mark_catalyst_expired,
+    get_active_deep_reads, mark_deep_read_price_confirmed,
 )
 from config import REPORT_DIR
 from redis_quotes import fetch_redis_quotes
@@ -41,6 +42,7 @@ CONFIRM_LIMIT_UP = 3       # 涨停得分
 CONFIRM_STRONG_CHG = 2     # 涨>5%得分
 CONFIRM_VOL_SPIKE = 1      # 放量得分
 CONFIRM_THRESHOLD = 3       # 累计>=3分视为确认
+DR_CONFIRM_THRESHOLD = 2   # 深度研读标的确认阈值（更低，因深度研读代表高确信度）
 
 
 def _check_pool_history(stock_codes: set[str], lookback: int = 3) -> dict[str, int]:
@@ -151,6 +153,41 @@ def track(today_str: str):
             confirmed_catalysts.append(sig)
         all_stock_signals[cname] = stock_details
 
+    # 3b. 深度研读标的专项跟踪（确认阈值更低）
+    dr_confirmed = []
+    try:
+        active_dr = get_active_deep_reads(min_score=60, lookback_days=14)
+        for dr in active_dr:
+            code = dr.get("code", "")
+            if dr.get("price_confirmed", 0):
+                continue
+            q = quotes.get(code, {})
+            if not q:
+                continue
+            pd = _check_pool_history({code}, 3).get(code, 0)
+            score = _score_stock_signal(q, pd)
+            if score >= DR_CONFIRM_THRESHOLD:
+                dr["confirm_score"] = score
+                dr["confirm_stock"] = {
+                    "code": code, "name": q.get("name", "?"),
+                    "chg": q.get("change_pct", 0),
+                    "limit_up": q.get("is_limit_up", False),
+                    "score": score,
+                }
+                # 计算延迟天数
+                dr_date = date.fromisoformat(dr.get("date", today_str))
+                days_lag = (today_date - dr_date).days
+                dr["days_lag"] = days_lag
+                dr["delayed"] = days_lag > 3
+                dr_confirmed.append(dr)
+                # 更新数据库
+                try:
+                    mark_deep_read_price_confirmed(code, dr.get("date", ""))
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"  [WARN] deep_read tracking failed: {e}")
+
     # 4. 输出
     new_confirms = [c for c in confirmed_catalysts
                     if c.get("date", "") == today_str]
@@ -203,6 +240,18 @@ def track(today_str: str):
             w(f"- [{s.get('catalyst_type','?')}] **{s['catalyst_name']}** "
               f"({days_ago}d ago, {s.get('actionability',0)}分) "
               f"最佳标的{days_ago}日涨幅{best_chg:+.1f}%")
+
+    if dr_confirmed:
+        w("\n## 深度研读标的走势确认\n")
+        for dr in dr_confirmed[:10]:
+            cs = dr.get("confirm_stock", {})
+            delay_tag = f" ⚠️延迟{(dr.get('days_lag', 0))}日确认" if dr.get("delayed") else ""
+            w(f"- [{dr.get('hunting_domain','?')}] **{dr.get('name','?')}** ({dr.get('code','?')}) "
+              f"研读{dr.get('total_score',0)}分 | {cs.get('name','?')} +{cs.get('chg',0):.1f}% "
+              f"(得分{dr.get('confirm_score',0)}){delay_tag}")
+            w(f"  > {dr.get('investment_thesis','')[:120]}")
+        if any(dr.get("delayed") for dr in dr_confirmed):
+            w("\n> ⚠️ 部分标的在深度研读后超过3日才被市场确认，说明逻辑领先于价格。")
 
     out = FEEDS_DIR / f"catalyst_track_{today_str}.md"
     out.write_text("\n".join(L), encoding="utf-8")

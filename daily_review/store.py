@@ -954,6 +954,77 @@ def init_feeds_tables():
             conn.execute("ALTER TABLE catalyst_signals ADD COLUMN expired INTEGER DEFAULT 0")
         except Exception:
             pass
+        try:
+            conn.execute("ALTER TABLE catalyst_signals ADD COLUMN expired INTEGER DEFAULT 0")
+        except Exception:
+            pass
+
+        # 公告深度研读表
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS deep_read_queue (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                date            TEXT NOT NULL,
+                code            TEXT NOT NULL,
+                name            TEXT,
+                ann_title       TEXT NOT NULL,
+                ann_type        TEXT,
+                ann_url         TEXT,
+                ann_full_text   TEXT,
+                stage1_passed   INTEGER DEFAULT 0,
+                stage1_details  TEXT,
+                hunting_domain  TEXT,
+                chokepoint_key  TEXT,
+                stage2_status   TEXT DEFAULT 'pending',
+                created_at      TEXT DEFAULT (datetime('now','localtime')),
+                UNIQUE(date, code, ann_title)
+            );
+            CREATE INDEX IF NOT EXISTS idx_drq_date ON deep_read_queue(date);
+            CREATE INDEX IF NOT EXISTS idx_drq_code ON deep_read_queue(code);
+
+            CREATE TABLE IF NOT EXISTS deep_read_results (
+                id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                date                    TEXT NOT NULL,
+                code                    TEXT NOT NULL,
+                name                    TEXT,
+                ann_title               TEXT,
+                ann_type                TEXT,
+                event_type              TEXT,
+                hunting_domain          TEXT,
+                chokepoint_key          TEXT,
+                core_contradiction_score INTEGER DEFAULT 0,
+                info_delta_score        INTEGER DEFAULT 0,
+                interest_alignment_score INTEGER DEFAULT 0,
+                governance_signal_score INTEGER DEFAULT 0,
+                scenario_calibration_score INTEGER DEFAULT 0,
+                total_score             INTEGER DEFAULT 0,
+                investment_thesis       TEXT,
+                time_horizon            TEXT,
+                risk_factors            TEXT,
+                comparable_precedents   TEXT,
+                haiku_extraction        TEXT,
+                sonnet_scoring          TEXT,
+                obsidian_path           TEXT,
+                catalyst_signal_id      TEXT,
+                price_confirmed         INTEGER DEFAULT 0,
+                price_confirm_date      TEXT,
+                expired                 INTEGER DEFAULT 0,
+                created_at              TEXT DEFAULT (datetime('now','localtime')),
+                UNIQUE(date, code, ann_title)
+            );
+            CREATE INDEX IF NOT EXISTS idx_drr_date ON deep_read_results(date);
+            CREATE INDEX IF NOT EXISTS idx_drr_code ON deep_read_results(code);
+            CREATE INDEX IF NOT EXISTS idx_drr_score ON deep_read_results(date, total_score);
+
+            CREATE TABLE IF NOT EXISTS hunting_ground_stocks (
+                code                   TEXT PRIMARY KEY,
+                name                   TEXT,
+                primary_concept        TEXT,
+                domain                 TEXT,
+                chokepoint_categories  TEXT,
+                updated_at             TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_hgs_domain ON hunting_ground_stocks(domain);
+        """)
 
 
 def save_announcements(rows: list[dict]) -> int:
@@ -1577,3 +1648,183 @@ def get_feed_cache(source: str, date_str: str) -> str | None:
         return row["content"] if row else None
     except Exception:
         return None
+
+
+# ============================================================
+# 公告深度研读 — 队列 / 结果 / 猎场缓存
+# ============================================================
+
+def save_deep_read_queue(rows: list[dict]) -> int:
+    """保存 Stage 1 通过的公告到队列。返回新增数。"""
+    if not rows:
+        return 0
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    with _conn() as conn:
+        before = conn.execute("SELECT COUNT(*) FROM deep_read_queue").fetchone()[0]
+        conn.executemany(
+            "INSERT OR IGNORE INTO deep_read_queue "
+            "(date, code, name, ann_title, ann_type, ann_url, ann_full_text, "
+            " stage1_passed, stage1_details, hunting_domain, chokepoint_key, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            [
+                (
+                    r.get("date", ""), r.get("code", ""), r.get("name", ""),
+                    r.get("ann_title", ""), r.get("ann_type", ""), r.get("ann_url", ""),
+                    r.get("ann_full_text", ""), 1,
+                    r.get("stage1_details", "{}"), r.get("hunting_domain", ""),
+                    r.get("chokepoint_key", ""), now,
+                )
+                for r in rows
+            ],
+        )
+        after = conn.execute("SELECT COUNT(*) FROM deep_read_queue").fetchone()[0]
+    return after - before
+
+
+def get_pending_deep_reads(date_str: str) -> list[dict]:
+    """获取待 Stage 2 处理的公告（当天通过 Stage 1 的）。"""
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM deep_read_queue "
+            "WHERE date = ? AND stage1_passed = 1 AND stage2_status = 'pending' "
+            "ORDER BY id",
+            (date_str,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def save_deep_read_results(results: list[dict]) -> int:
+    """保存 Stage 2 LLM 精读结果。返回新增数。"""
+    if not results:
+        return 0
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    with _conn() as conn:
+        before = conn.execute("SELECT COUNT(*) FROM deep_read_results").fetchone()[0]
+        conn.executemany(
+            "INSERT OR REPLACE INTO deep_read_results "
+            "(date, code, name, ann_title, ann_type, event_type, hunting_domain, "
+            " chokepoint_key, "
+            " core_contradiction_score, info_delta_score, interest_alignment_score, "
+            " governance_signal_score, scenario_calibration_score, total_score, "
+            " investment_thesis, time_horizon, risk_factors, comparable_precedents, "
+            " haiku_extraction, sonnet_scoring, obsidian_path, catalyst_signal_id, "
+            " created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            [
+                (
+                    r.get("date", ""), r.get("code", ""), r.get("name", ""),
+                    r.get("ann_title", ""), r.get("ann_type", ""), r.get("event_type", ""),
+                    r.get("hunting_domain", ""), r.get("chokepoint_key", ""),
+                    r.get("core_contradiction_score", 0), r.get("info_delta_score", 0),
+                    r.get("interest_alignment_score", 0), r.get("governance_signal_score", 0),
+                    r.get("scenario_calibration_score", 0), r.get("total_score", 0),
+                    r.get("investment_thesis", ""), r.get("time_horizon", ""),
+                    r.get("risk_factors", json.dumps(r.get("risk_factors", []))),
+                    r.get("comparable_precedents", ""),
+                    r.get("haiku_extraction", ""), r.get("sonnet_scoring", ""),
+                    r.get("obsidian_path", ""), r.get("catalyst_signal_id", ""),
+                    now,
+                )
+                for r in results
+            ],
+        )
+        after = conn.execute("SELECT COUNT(*) FROM deep_read_results").fetchone()[0]
+    return after - before
+
+
+def query_deep_read_results(date_str: str = "", min_score: int = 60,
+                            lookback_days: int = 0) -> list[dict]:
+    """查询深度研读结果。可按日期、最低分、回溯天数过滤。"""
+    conditions = ["total_score >= ?"]
+    params = [min_score]
+    if date_str:
+        conditions.append("date = ?")
+        params.append(date_str)
+    if lookback_days > 0 and not date_str:
+        conditions.append("date >= ?")
+        params.append((datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d"))
+    sql = f"SELECT * FROM deep_read_results WHERE {' AND '.join(conditions)} ORDER BY date DESC, total_score DESC"
+    with _conn() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_active_deep_reads(min_score: int = 60, lookback_days: int = 30) -> list[dict]:
+    """获取活跃的深度研读标的（未过期且有足够分数）。"""
+    cutoff = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM deep_read_results "
+            "WHERE total_score >= ? AND date >= ? AND expired = 0 "
+            "ORDER BY total_score DESC",
+            (min_score, cutoff),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_recent_deep_reads_for_code(code: str, days: int = 30) -> list[dict]:
+    """获取某只股票的近期深度研读记录。"""
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM deep_read_results "
+            "WHERE code = ? AND date >= ? ORDER BY date DESC",
+            (str(code).zfill(6), cutoff),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_deep_read_price_confirmed(code: str, date_str: str) -> None:
+    """标记深度研读标的已被价格确认。"""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    with _conn() as conn:
+        conn.execute(
+            "UPDATE deep_read_results SET price_confirmed = 1, "
+            "price_confirm_date = ? WHERE code = ? AND date = ?",
+            (now, str(code).zfill(6), date_str),
+        )
+
+
+def mark_deep_read_expired(code: str, date_str: str) -> None:
+    """标记深度研读标的已过期。"""
+    with _conn() as conn:
+        conn.execute(
+            "UPDATE deep_read_results SET expired = 1 "
+            "WHERE code = ? AND date = ?",
+            (str(code).zfill(6), date_str),
+        )
+
+
+def rebuild_hunting_ground_cache(codes_by_domain: dict[str, list[dict]]) -> int:
+    """重建猎场股票缓存表。"""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    with _conn() as conn:
+        conn.execute("DELETE FROM hunting_ground_stocks")
+        count = 0
+        for domain, stocks in codes_by_domain.items():
+            for s in stocks:
+                conn.execute(
+                    "INSERT OR REPLACE INTO hunting_ground_stocks "
+                    "(code, name, primary_concept, domain, chokepoint_categories, updated_at) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (
+                        s.get("code", ""), s.get("name", ""),
+                        s.get("primary_concept", ""), domain,
+                        json.dumps(s.get("chokepoint_categories", [])), now,
+                    ),
+                )
+                count += 1
+    return count
+
+
+def query_hunting_ground_stocks(domain: str = "") -> list[dict]:
+    """查询猎场股票。可按领域过滤。"""
+    if domain:
+        with _conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM hunting_ground_stocks WHERE domain = ?", (domain,),
+            ).fetchall()
+    else:
+        with _conn() as conn:
+            rows = conn.execute("SELECT * FROM hunting_ground_stocks").fetchall()
+    return [dict(r) for r in rows]
