@@ -221,7 +221,7 @@ def _write_index():
 COLLECTOR_TIMEOUTS = {
     "zsxq": 300, "announcements": 180, "announcement_deep_read": 1200,
     "news": 180, "research": 240, "research_deep_read": 120,
-    "interactions": 300, "earnings": 120, "surveys": 240, "lockups": 120,
+    "interactions": 600, "earnings": 120, "surveys": 240, "lockups": 120,
     "eps": 240, "industry": 120, "financials": 180, "wechat": 120,
     "jiuyang": 600, "weibo": 180,
 }
