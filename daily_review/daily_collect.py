@@ -131,7 +131,10 @@ def _resolve_sources(arg: str, tier: str = "all") -> list[str]:
     if arg.strip():
         items = [s.strip() for s in arg.split(",") if s.strip()]
     elif tier in SOURCE_TIERS:
-        items = sorted(SOURCE_TIERS[tier])
+        items = sorted(SOURCE_TIERS[tier], key=lambda s: (
+            # 公告必须第一，deep_read 必须在公告之后
+            s != "announcements", s != "announcement_deep_read", s,
+        ))
     else:
         items = list(ALL_SOURCES.keys())
     bad = [s for s in items if s not in ALL_SOURCES]
