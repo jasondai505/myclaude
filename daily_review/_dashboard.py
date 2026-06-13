@@ -1,178 +1,213 @@
-"""每日仪表盘 — 自动生成五维状态+采集管线+异常警报+趋势。
+"""每日仪表盘 — 五维状态+采集管线+可操作警报+趋势。
 
-在 daily_collect 末尾调用，产出 reports/Dashboard.md。
+在 daily_collect 末尾调用，产出 reports/Dashboard.md 并同步到根目录。
+Obsidian 中可用 Homepage 插件设为首页，或固定标签页。
 """
 from __future__ import annotations
 
-import json
 from datetime import date, timedelta
 from pathlib import Path
-from collections import defaultdict
 
 import store
 from config import REPORT_DIR
 
 DASHBOARD_PATH = REPORT_DIR / "Dashboard.md"
 
-# 五维 → collector 映射
-DIMENSIONS = {
-    "① 公告深研": {
+# === 五维 → collector 映射 ===
+DIMENSIONS = [
+    {
+        "name": "① 公告深研",
+        "icon": "📄",
         "collector": "announcement_deep_read",
         "data_source": "announcements",
-        "signal_table": "deep_read_results",
-        "signal_condition": "total_score >= 60",
         "cost": "$9/天",
+        "desc": "全市场公告 → 四层筛选 → LLM五维评分 → Obsidian存档",
+        "signal_query": "announce_signal",
     },
-    "② 研报跟踪": {
+    {
+        "name": "② 研报跟踪",
+        "icon": "📊",
         "collector": "research_deep_read",
         "data_source": "research_reports",
-        "signal_dir": "reports/research_dossiers",
         "cost": "$1/天",
+        "desc": "东方财富全市场API → 信号检测 → LLM分析 → 累积档案",
+        "signal_query": "dossier",
     },
-    "③ 调研情绪": {
+    {
+        "name": "③ 调研情绪",
+        "icon": "🔍",
         "collector": "sentiment_track",
         "data_source": "inst_survey",
-        "signal_dir": "reports/research_dossiers",
         "cost": "$0",
+        "desc": "机构调研 → 密集/首次/升温检测 → 追加到档案",
+        "signal_query": "dossier",
     },
-    "④ 互动易": {
+    {
+        "name": "④ 互动易",
+        "icon": "💬",
         "collector": "interactions",
         "data_source": "interactions",
-        "signal_dir": "reports/research_dossiers",
         "cost": "$0",
+        "desc": "深交所+上交所互动易 → 关键词检测 → 追加到档案",
+        "signal_query": "dossier",
     },
-    "⑤ 业绩预告": {
+    {
+        "name": "⑤ 业绩预告",
+        "icon": "📈",
         "collector": "earnings",
         "data_source": "earnings_forecast",
         "cost": "$0",
+        "desc": "全市场业绩预告/快报 → 暴增/扭亏/暴雷检测 → 追加到档案",
+        "signal_query": "none",
+    },
+]
+
+# === 采集管线中文名 ===
+SOURCE_LABELS = {
+    "announcements": "📄 公告采集",
+    "announcement_deep_read": "📄 公告深研",
+    "research": "📊 研报采集",
+    "research_deep_read": "📊 研报跟踪",
+    "surveys": "🔍 机构调研",
+    "sentiment_track": "🔍 调研+互动情绪",
+    "interactions": "💬 互动易",
+    "earnings": "📈 业绩预告",
+    "news": "📰 个股新闻",
+    "industry": "🏭 行业研报",
+    "wechat": "💚 微信公众号",
+    "weibo": "🐦 唐史主任微博",
+    "zsxq": "⭐ 知识星球",
+    "jiuyang": "📝 韭研脱水研报",
+}
+
+# === 可操作警报：异常 → 排查指引 ===
+ALERT_ACTIONS = {
+    "announcement_deep_read": {
+        "超时": "检查 DeepSeek API 是否正常 → 减少 --days 范围 → 或等下次重试",
+        "无公告数据": "检查 akshare.stock_notice_report 接口 → 确认交易日历",
+    },
+    "research": {
+        "从未运行": "手动执行 python daily_collect.py --source research 验证 API",
+    },
+    "research_deep_read": {
+        "从未运行": "手动执行 python daily_collect.py --source research_deep_read",
+    },
+    "wechat": {
+        "RSS数据陈旧": "打开 http://111.231.44.12:4000/dash 检查 WeWe-RSS 是否需要重新登录",
+    },
+    "interactions": {
+        "超时": "日频72只逐只调约需6分钟 → 检查网络 → 或降为周频",
+    },
+    "zsxq": {
+        "从未运行": "检查知识星球 cookie 是否过期 → 需手动更新",
     },
 }
 
-# 采集管线 — 监控所有 collector
-PIPELINE_SOURCES = [
-    "announcements", "announcement_deep_read",
-    "research", "research_deep_read",
-    "surveys", "sentiment_track",
-    "interactions", "earnings",
-    "news", "industry", "wechat", "weibo", "zsxq", "jiuyang",
-]
 
 def _status_icon(status: str) -> str:
-    if status == "ok":
-        return "✅"
-    if status in ("error", "timeout"):
-        return "❌"
-    if status == "skip":
-        return "➖"
-    return "⚠️"
-
-
-def _dossier_count() -> int:
-    d = Path("reports/research_dossiers")
-    if not d.exists():
-        return 0
-    return len(list(d.glob("*.md")))
-
-
-def _deep_read_count(days: int = 7) -> dict:
-    try:
-        with store._conn() as conn:
-            rows = conn.execute(
-                "SELECT date, COUNT(*) as cnt, SUM(CASE WHEN total_score>=60 THEN 1 ELSE 0 END) as a60 "
-                "FROM deep_read_results "
-                "WHERE date >= ? GROUP BY date ORDER BY date",
-                ((date.today() - timedelta(days=days)).isoformat(),),
-            ).fetchall()
-        total = sum(r["cnt"] or 0 for r in rows)
-        a60 = sum(r["a60"] or 0 for r in rows)
-        daily = {r["date"]: (r["cnt"] or 0, r["a60"] or 0) for r in rows}
-        return {"total": total, "a60": a60, "daily": daily}
-    except Exception:
-        return {"total": 0, "a60": 0, "daily": {}}
+    return {"ok": "✅", "error": "❌", "timeout": "⏰", "skip": "➖"}.get(status, "⚠️")
 
 
 def _collector_status() -> list[dict]:
     rows = []
     try:
         with store._conn() as conn:
-            for src in PIPELINE_SOURCES:
+            for src in SOURCE_LABELS:
                 r = conn.execute(
                     "SELECT * FROM collect_status WHERE source = ? ORDER BY last_run_at DESC LIMIT 1",
                     (src,),
                 ).fetchone()
-                if r:
-                    rows.append(dict(r))
-                else:
-                    rows.append({"source": src, "status": "unknown", "last_date": "", "message": "从未运行"})
+                rows.append(dict(r) if r else {
+                    "source": src, "status": "unknown", "last_date": "",
+                    "last_run_at": "", "message": "从未运行", "added_count": 0,
+                })
     except Exception:
         pass
     return rows
 
 
-def _data_freshness(source: str) -> str:
-    """检查数据源的新鲜度。"""
+def _deep_read_weekly() -> dict:
     try:
         with store._conn() as conn:
-            tbl = {
-                "announcements": "date", "research_reports": "report_date",
-                "inst_survey": "notice_date", "interactions": "reply_time",
-                "earnings_forecast": "notice_date",
-            }
-            if source in tbl:
-                col = tbl[source]
-                r = conn.execute(
-                    f"SELECT MAX({col}) FROM (SELECT {col} FROM {source} LIMIT 1000)"
-                ).fetchone()[0]
-                if r:
-                    days_ago = (date.today() - date.fromisoformat(str(r)[:10])).days
-                    if days_ago <= 1:
-                        return f"新鲜(≤1天)"
-                    elif days_ago <= 3:
-                        return f"{days_ago}天前"
-                    else:
-                        return f"⚠️ {days_ago}天前"
+            rows = conn.execute(
+                "SELECT date, COUNT(*) as cnt, SUM(CASE WHEN total_score>=60 THEN 1 ELSE 0 END) as a60 "
+                "FROM deep_read_results WHERE date >= ? GROUP BY date ORDER BY date",
+                ((date.today() - timedelta(days=7)).isoformat(),),
+            ).fetchall()
+        daily = {r["date"]: (r["cnt"] or 0, r["a60"] or 0) for r in rows}
+        total_a60 = sum(v[1] for v in daily.values())
+        return {"daily": daily, "total_a60": total_a60}
+    except Exception:
+        return {"daily": {}, "total_a60": 0}
+
+
+def _dossier_count() -> int:
+    d = Path("reports/research_dossiers")
+    return len(list(d.glob("*.md"))) if d.exists() else 0
+
+
+def _data_freshness(source: str) -> tuple[str, str]:
+    """(新鲜度文字, 天数)"""
+    col_map = {
+        "announcements": "date", "research_reports": "report_date",
+        "inst_survey": "notice_date", "interactions": "reply_time",
+        "earnings_forecast": "notice_date",
+    }
+    if source not in col_map:
+        return "—", ""
+    try:
+        with store._conn() as conn:
+            col = col_map[source]
+            r = conn.execute(
+                f"SELECT MAX({col}) FROM {source} LIMIT 1"
+            ).fetchone()[0]
+            if r:
+                days = (date.today() - date.fromisoformat(str(r)[:10])).days
+                if days <= 1:
+                    return "🟢 新鲜", str(days)
+                elif days <= 3:
+                    return f"🟡 {days}天前", str(days)
+                else:
+                    return f"🔴 {days}天前", str(days)
     except Exception:
         pass
-    return "未知"
+    return "—", ""
 
 
 def generate(today_str: str = "") -> str:
-    """生成每日仪表盘。返回 markdown 内容。"""
     today = today_str or date.today().isoformat()
     yesterday = (date.today() - timedelta(days=1)).isoformat()
-
     L = []
     def w(s=""): L.append(s)
 
-    w(f"# 每日仪表盘 {today}")
+    w(f"# 📊 每日仪表盘 {today}")
     w()
-    w(f"> 自动生成于 {today} | [复盘报告](review_{yesterday}.md) | [盘前建议](advice_{today}.md)")
+    w(f"> 自动生成 | [复盘](daily_review/reports/review_{yesterday}.md) | [建议](daily_review/reports/advice_{today}.md) | [深研档案](daily_review/reports/deep_read/) | [个股档案](daily_review/reports/research_dossiers/)")
     w()
 
     # === 五维状态 ===
-    w("## 五维状态")
+    w("## 五维信息源")
     w()
-    w("| 维度 | 采集状态 | 数据新鲜度 | 本周信号 | 成本 | 备注 |")
-    w("|------|:------:|:---------:|--------:|:----:|------|")
+    w("| 维度 | 采集 | 数据 | 信号 | 成本 |")
+    w("|------|:---:|------|-----:|:----:|")
     collectors = {r["source"]: r for r in _collector_status()}
-    dr = _deep_read_count(7)
+    dr = _deep_read_weekly()
+    dc = _dossier_count()
 
-    for dim_name, dim_cfg in DIMENSIONS.items():
-        col = dim_cfg["collector"]
-        cs = collectors.get(col, {})
+    for dim in DIMENSIONS:
+        cs = collectors.get(dim["collector"], {})
         icon = _status_icon(cs.get("status", "unknown"))
+        freshness, _ = _data_freshness(dim["data_source"])
 
-        # 信号数
-        signal_text = "—"
-        if "signal_table" in dim_cfg:
-            signal_text = f">=60: {dr['a60']}条"
-        elif "signal_dir" in dim_cfg:
-            signal_text = f"{_dossier_count()}份"
+        # 信号
+        if dim["signal_query"] == "announce_signal":
+            sig = f">=60: {dr['total_a60']}条"
+        elif dim["signal_query"] == "dossier":
+            sig = f"{dc}份档案"
+        else:
+            sig = "—"
 
-        # 新鲜度
-        freshness = _data_freshness(dim_cfg["data_source"])
-
-        w(f"| {dim_name} | {icon} | {freshness} | {signal_text} | {dim_cfg['cost']} | {cs.get('message','')[:40]} |")
+        w(f"| {dim['icon']} {dim['name']} | {icon} | {freshness} | {sig} | {dim['cost']} |")
 
     w()
 
@@ -183,27 +218,46 @@ def generate(today_str: str = "") -> str:
     w("|----|:----:|---------|-----:|------|")
     for cs in _collector_status():
         icon = _status_icon(cs.get("status", "unknown"))
+        label = SOURCE_LABELS.get(cs["source"], cs["source"])
         last = cs.get("last_date", "") or "—"
         added = cs.get("added_count", 0) or 0
-        msg = (cs.get("message", "") or "")[:50]
-        w(f"| {cs['source']} | {icon} | {last} | {added} | {msg} |")
+        msg = (cs.get("message", "") or "")[:40]
+        if cs.get("status") == "timeout":
+            msg += " ⏰"
+        w(f"| {label} | {icon} | {last} | {added} | {msg} |")
     w()
 
-    # === 异常警报 ===
+    # === 异常警报（可操作） ===
     alerts = []
     for cs in _collector_status():
-        if cs.get("status") in ("error", "timeout"):
-            alerts.append(f"- ❌ **{cs['source']}** 异常: {cs.get('message', '')}")
-    if not alerts:
-        alerts.append("- ✅ 全部采集源正常")
+        if cs.get("status") in ("error", "timeout", "unknown"):
+            label = SOURCE_LABELS.get(cs["source"], cs["source"])
+            msg = cs.get("message", "无详情")
+            actions = ALERT_ACTIONS.get(cs["source"], {})
+            # 匹配排查指引
+            hint = ""
+            for kw, action in actions.items():
+                if kw in msg:
+                    hint = action
+                    break
+            if not hint and cs["status"] == "timeout":
+                hint = "调大 daily_collect.COLLECTOR_TIMEOUTS 或检查网络"
+            elif not hint and cs["status"] == "unknown":
+                hint = "检查 collector 是否在 SOURCE_TIERS 中正确注册"
+            action_link = f" → {hint}" if hint else ""
+            alerts.append(f"- {label}: {msg}{action_link}")
+
     w("## ⚠️ 异常警报")
     w()
-    for a in alerts:
-        w(a)
+    if alerts:
+        for a in alerts:
+            w(a)
+    else:
+        w("✅ 全部采集源正常，无异常。")
     w()
 
     # === 本周趋势 ===
-    w("## 📊 本周公告深研趋势")
+    w("## 📈 本周公告深研趋势")
     w()
     daily = dr.get("daily", {})
     if daily:
@@ -214,7 +268,22 @@ def generate(today_str: str = "") -> str:
             bar = "█" * bar_len
             a60_flag = f"  **{a60}条≥60**" if a60 > 0 else ""
             w(f"- {d_sorted}: {bar} {cnt}条{a60_flag}")
+    else:
+        w("_暂无数据_")
     w()
+
+    # === 底部快速链接 ===
+    w("---")
+    w()
+    w("### 🔗 快速链接")
+    w("| 页面 | 路径 |")
+    w("|------|------|")
+    w("| 复盘报告 | `daily_review/reports/review_{date}.md` |")
+    w("| 盘前建议 | `daily_review/reports/advice_{date}.md` |")
+    w("| 公告深研 | `daily_review/reports/deep_read/` |")
+    w("| 个股档案 | `daily_review/reports/research_dossiers/` |")
+    w("| 催化跟踪 | `daily_review/reports/feeds/catalyst_track_{date}.md` |")
+    w("| 采集日志 | `daily_review/dashboard/logs/` |")
 
     content = "\n".join(L)
     DASHBOARD_PATH.write_text(content, encoding="utf-8")
