@@ -18,10 +18,27 @@ RESEARCH_DIR = Path("reports") / "research_dossiers"
 
 
 def _append_to_dossier(code: str, today: str, section_title: str, signals: list[dict]) -> bool:
-    """将信号追加到已有 Obsidian 个股档案。"""
+    """将信号追加到 Obsidian 个股档案（无档案则新建）。"""
     path = RESEARCH_DIR / f"{code}.md"
+
     if not path.exists():
-        return False
+        # 新建轻量档案
+        sig_lines = "\n".join(
+            f"- [{s.get('type','')}] {s.get('desc', str(s))}" for s in signals
+        )
+        path.write_text(f"""---
+code: {code}
+created: {today}
+tags: [research_dossier]
+---
+
+# {code} — 情绪跟踪档案
+
+## {section_title} ({today})
+
+{sig_lines}
+""", encoding="utf-8")
+        return True
 
     content = path.read_text(encoding="utf-8")
 
