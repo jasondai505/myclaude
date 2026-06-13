@@ -310,6 +310,17 @@ def main():
 
     _build_theme_index()
 
+    # 生成每日仪表盘（复制到根目录方便 Obsidian 首页打开）
+    try:
+        from _dashboard import generate, DASHBOARD_PATH
+        generate()
+        import shutil
+        root_dashboard = Path(__file__).parent.parent / "Dashboard.md"
+        shutil.copy(str(DASHBOARD_PATH), str(root_dashboard))
+        print("📊 仪表盘: reports/Dashboard.md (已同步到根目录)")
+    except Exception as e:
+        print(f"  [WARN] 仪表盘生成失败: {e}")
+
     print("\n✅ 全部完成")
 
 
