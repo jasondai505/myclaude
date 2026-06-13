@@ -117,13 +117,16 @@ def run(since: date, until: date,
             time.sleep(0.5)
             continue
         universe = universe_fn(d)
-        rows = _flatten(day_map, universe)
-        added = store.save_announcements(rows)
+        # DB 保存全市场公告（供 deep_read 等下游消费）
+        full_rows = _flatten(day_map, set())
+        added = store.save_announcements(full_rows)
         total_added += added
+        # MD feed 仍按 universe 过滤（兼容现有复盘流程）
+        md_rows = [r for r in full_rows if not universe or r["code"] in universe]
         last_ok = d
         ok_days += 1
-        _write_md(d, rows, len(universe))
-        progress(f"  {fmt_iso(d)}: 命中 {len(rows)} 条，新增 {added}")
+        _write_md(d, md_rows, len(universe))
+        progress(f"  {fmt_iso(d)}: 全市场 {len(full_rows)} 条, universe {len(md_rows)} 条, 新增 {added}")
         time.sleep(0.3)
 
     last_str = fmt_iso(last_ok) if last_ok else fmt_iso(until)
