@@ -40,6 +40,7 @@ _COLLECTOR_IMPORTS = {
     "announcement_deep_read": "announcement_deep_read",
     "news": "news",
     "research": "research_reports",
+    "research_deep_read": "research_deep_read",
     "interactions": "interactions",
     "earnings": "earnings",
     "surveys": "surveys",
@@ -66,6 +67,7 @@ SOURCE_LABELS = {
     "announcement_deep_read": "公告深度研读",
     "news": "个股新闻",
     "research": "个股研报",
+    "research_deep_read": "研报深度跟踪",
     "interactions": "互动易",
     "earnings": "业绩预告快报",
     "surveys": "机构调研",
@@ -84,6 +86,7 @@ SOURCE_TABLE = {
     "announcement_deep_read": ("deep_read_results", "date"),
     "news": ("stock_news", "publish_time"),
     "research": ("research_reports", "report_date"),
+    "research_deep_read": ("deep_read_results", "date"),
     "interactions": ("interactions", "reply_time"),
     "earnings": ("earnings_forecast", "notice_date"),
     "surveys": ("inst_survey", "notice_date"),
@@ -97,7 +100,7 @@ SOURCE_TABLE = {
 }
 
 SOURCE_TIERS = {
-    "daily": {"zsxq", "announcements", "announcement_deep_read", "news", "research", "industry",
+    "daily": {"zsxq", "announcements", "announcement_deep_read", "news", "research", "research_deep_read", "industry",
               "wechat", "weibo", "jiuyang"},
     "weekly": {"interactions", "earnings", "surveys", "lockups", "eps", "financials"},
 }
@@ -132,8 +135,9 @@ def _resolve_sources(arg: str, tier: str = "all") -> list[str]:
         items = [s.strip() for s in arg.split(",") if s.strip()]
     elif tier in SOURCE_TIERS:
         items = sorted(SOURCE_TIERS[tier], key=lambda s: (
-            # 公告必须第一，deep_read 必须在公告之后
-            s != "announcements", s != "announcement_deep_read", s,
+            # 公告第一，deep_read在源后，研报在deep_read前
+            s != "announcements", s != "research",
+            s != "announcement_deep_read", s != "research_deep_read", s,
         ))
     else:
         items = list(ALL_SOURCES.keys())
@@ -213,7 +217,7 @@ def _write_index():
 
 COLLECTOR_TIMEOUTS = {
     "zsxq": 300, "announcements": 180, "announcement_deep_read": 1200,
-    "news": 180, "research": 240,
+    "news": 180, "research": 240, "research_deep_read": 120,
     "interactions": 300, "earnings": 120, "surveys": 240, "lockups": 120,
     "eps": 240, "industry": 120, "financials": 180, "wechat": 120,
     "jiuyang": 600, "weibo": 180,
