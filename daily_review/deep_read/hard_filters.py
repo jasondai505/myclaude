@@ -7,8 +7,6 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
-from typing import Optional
 
 import store
 from .knowledge_base import (
@@ -46,6 +44,11 @@ SKIP_TYPES = {
     "公司章程修订", "公司章程修正",
     # 债券/融资配套文件
     "信用评级报告", "跟踪评级报告",
+    # 已验证零产出的高噪声公告（8天476条中0条>=60）
+    "业绩说明会",
+    "质押", "解除质押", "股份质押",
+    "股权激励调整",
+    "回购注销",
 }
 
 # 正则跳过模式：标题匹配任一模式则跳过
@@ -94,22 +97,27 @@ SKIP_PATTERNS = [
     # 注册/备案
     r"变更.*注册资本.*工商登记",
     r"公司章程.*备案",
+    # 已验证零产出（8天476条无人>=60）→ 直接拦截
+    r"(?:减持|增持).{0,5}(?:结果|完成|实施|届满|完毕)",
+    r"(?:减持|增持).{0,5}(?:计划|股份).{0,15}(?:完成|届满|实施完毕)",
+    r"回购.{0,5}(?:实施|结果|进展|完成)",
+    r"股权激励.{0,10}(?:调整|修订|变更|实施完成)",
+    r"限制性股票.{0,10}(?:调整|回购注销|作废)",
+    r"(?:业绩说明会|投资者关系活动记录|投资者接待)",
+    r"(?:诉讼|仲裁).{0,10}(?:进展|结果|判决书)",
+    r"权益变动.{0,5}(?:报告书|提示性|完成)",
+    r"控股股东变更",
 ]
 
 PRIORITY_TYPES = {
     "收购", "资产重组", "重大资产重组", "要约收购",
     "吸收合并", "对外投资",
-    "回购", "回购股份", "回购报告书", "回购实施",
     "股权激励", "员工持股计划",
     "定向增发", "非公开发行", "配股",
     "业绩预告", "业绩快报", "业绩修正",
     "立案调查", "立案告知", "行政处罚", "行政监管",
     "监管函", "问询函", "关注函",
-    "诉讼", "仲裁", "财产保全",
-    "实控人变更", "控股股东变更", "权益变动",
-    "控制权变更", "一致行动人",
-    "减持计划", "减持结果", "减持股份",
-    "增持计划", "增持结果", "增持股份",
+    "实控人变更", "控制权变更",
     "重大合同", "战略合作", "战略合作协议", "框架协议",
     "停牌", "复牌", "退市风险", "风险警示",
 }
@@ -168,90 +176,11 @@ def _pass_domain_filter(ann: dict, hunting_codes: set[str]) -> bool:
 
 # ============================================================
 # 第三层：硬门槛一刀切
+# 当前仅商誉黑名单生效（金额/盈利提取因缺少公告全文数据暂不可用）
 # ============================================================
-
-def _extract_amount(text: str) -> Optional[float]:
-    """从公告文本中提取交易金额（亿元或万元）。"""
-    if not text:
-        return None
-    # 优先匹配含「交易金额」「作价」「对价」的上下文
-    patterns = [
-        r"(?:交易金额|交易作价|作价|对价|转让价款|收购价款)[^\d]{0,10}?([\d,]+\.?\d*)\s*(?:亿|万)?元?",
-        r"(?:标的.*?(?:作价|估值|交易金额))[^\d]{0,20}?([\d,]+\.?\d*)\s*(?:亿|万)?元?",
-        r"([\d,]+\.?\d*)\s*(?:亿|万)\s*(?:元|人民币).{0,10}(?:收购|购买|受让)",
-    ]
-    for pat in patterns:
-        m = re.search(pat, text)
-        if m:
-            try:
-                val = float(m.group(1).replace(",", ""))
-                # 判断单位
-                context = text[max(0, m.start() - 5):m.end() + 10]
-                if "万" in context and "亿" not in context[:m.start() - max(0, m.start() - 5)]:
-                    val = val / 10000  # 万元 → 亿元
-                return val
-            except ValueError:
-                continue
-    return None
-
-
-def _extract_committed_profit(text: str) -> Optional[float]:
-    """提取标的公司承诺的首年净利润（亿元或万元）。"""
-    if not text:
-        return None
-    patterns = [
-        r"(?:承诺|预计|保证).{0,10}(?:净利润|扣非.{0,5}净利润)[^\d]{0,5}?([\d,]+\.?\d*)\s*(?:亿|万)?元?",
-        r"(?:业绩承诺|利润承诺|业绩对赌).{0,20}(?:首年|第一年|202[56]年)[^\d]{0,10}?([\d,]+\.?\d*)\s*(?:亿|万)?元?",
-        r"([\d,]+\.?\d*)\s*(?:亿|万)\s*(?:元|人民币).{0,15}(?:净利润|扣非净利润)",
-    ]
-    for pat in patterns:
-        m = re.search(pat, text)
-        if m:
-            try:
-                val = float(m.group(1).replace(",", ""))
-                if "万" in text[max(0, m.start() - 5):m.end() + 10]:
-                    val = val / 10000
-                return val
-            except ValueError:
-                continue
-    return None
-
-
-def _get_net_assets(code: str) -> Optional[float]:
-    """从 financial_indicators 表获取最新一期净资产（亿元）。"""
-    try:
-        rows = store.query_valuation_cache(code, "financial_indicators")
-        if rows and isinstance(rows, dict):
-            bv = rows.get("bv_per_share")  # 每股净资产
-            total = rows.get("total_asset_growth")  # 这不是总资产..
-            # 实际上需要总资产和负债来计算净资产，这里先用简化方式
-            pass
-    except Exception:
-        pass
-    # financial_indicators 表没有直接的总资产/净资产字段
-    # 使用 store 查询代替
-    return None
-
-
-def _get_acquirer_profit(code: str) -> Optional[float]:
-    """从 financial_indicators 表获取最新一期净利润（亿元）。"""
-    try:
-        with store._conn() as conn:
-            row = conn.execute(
-                "SELECT profit_yoy, report_date FROM financial_indicators "
-                "WHERE code = ? ORDER BY report_date DESC LIMIT 1",
-                (str(code).zfill(6),),
-            ).fetchone()
-        # profit_yoy 是同比增长率，不是净利润绝对值
-        # 需要其他数据源获取绝对值
-    except Exception:
-        pass
-    return None
-
 
 def _has_recent_goodwill_impairment(code: str, lookback_years: int = 3) -> bool:
     """检查过去 N 年是否有商誉暴雷记录。"""
-    # 从公告历史中搜索商誉减值相关公告
     try:
         with store._conn() as conn:
             rows = conn.execute(
@@ -266,39 +195,10 @@ def _has_recent_goodwill_impairment(code: str, lookback_years: int = 3) -> bool:
 
 
 def _pass_hard_gates(ann: dict) -> tuple[bool, dict]:
-    """硬门槛一刀切。返回 (通过?, 提取的数据)。
-
-    原则：数据提取失败时放行（不确定时不拦截）。
-    """
-    text = ann.get("ann_full_text", "")
-    details = {}
-
-    if len(text) < 100:
-        return True, {"pass": True, "reason": "text_too_short_to_judge"}
-
-    # 金额关
-    amount = _extract_amount(text)
-    if amount is not None:
-        details["extracted_amount_yi"] = round(amount, 2)
-        net_assets = _get_net_assets(ann["code"])
-        if net_assets and net_assets > 0 and amount / net_assets < 0.05:
-            details["pass"] = False
-            details["reason"] = "amount_too_small"
-            return False, details
-
-    # 盈利关
-    committed = _extract_committed_profit(text)
-    if committed is not None:
-        details["extracted_committed_profit_yi"] = round(committed, 2)
-
-    # 治理关：商誉暴雷
-    if _has_recent_goodwill_impairment(ann["code"]):
-        details["pass"] = False
-        details["reason"] = "goodwill_blacklist"
-        return False, details
-
-    details["pass"] = True
-    return True, details
+    """硬门槛一刀切。返回 (通过?, 详情)。"""
+    if _has_recent_goodwill_impairment(ann.get("code", "")):
+        return False, {"pass": False, "reason": "goodwill_blacklist"}
+    return True, {"pass": True}
 
 
 # ============================================================
