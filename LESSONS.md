@@ -302,3 +302,17 @@ text = download_report_pdf(pdf_url, info_code)
 - 正文缓存到 DB：`store.save_announcement_content` / `store.save_report_body_text`
 - DB 表变更：`announcements` 加 `art_code`+`content`，`research_reports` 加 `body_text`+`info_code`，`industry_reports` 加 `body_text`
 - 31910 条历史公告已回填 `art_code`
+
+## 标题党验证 & 后续修复（2026-06-14）
+
+**HTML 降级是生命线**：实测 10 篇个股研报 PDF 全挂（东财 `h3_base64` 新格式 404），HTML 降级 100% 救回，每篇 652-2488 字。HTML 降级不是 nice-to-have，没了它个股研报管线直接归零。改 `pdf_utils.py` 时绝对不能动 HTML 降级路径。
+
+**正文生效效果对比**：
+- 修复前（仅有标题）："原因**可能**在于…" — LLM 在用常识猜
+- 修复后（有正文）："AI收入突破1.3亿同比+90%" / "资产负债率6.62%、经营性现金流1.06亿" — 具体数字做论据
+
+**`sqlite3.Row` 陷阱**：`conn.row_factory = sqlite3.Row` 返回的 Row 对象没有 `.get()` 方法。写脚本时用 `[dict(r) for r in conn.execute(...)]` 统一转换最安全。
+
+**`obsidian_research.py` upsert bug**：`new_sig` 字符串拼接了 `## AI 投资逻辑`，同时 `## AI 投资逻辑` 段又单独 replace，导致每次 upsert 多一个标题（15 个档案受影响，最多重复 4 次）。修复：`new_sig` 不拼接投资逻辑标题，让单独 replace 段处理。
+
+**测试脚本模式**：`_test_pdf_body.py` 四段式 — DB 覆盖率统计 → 三管线逐一抽样 → 区分缓存/下载/降级来源 → 汇总。不调 LLM、不改 DB，纯验证数据链路。后续新增信息源可用同样模式。
