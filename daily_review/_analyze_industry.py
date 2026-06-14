@@ -72,8 +72,18 @@ def main():
 
     conn.close()
 
-    # 3. LLM analysis: top 15 industries
-    top_industries = sorted(by_industry.items(), key=lambda x: -len(x[1]))[:15]
+    # 3. LLM analysis: all industries covering 90%+ of reports
+    top_industries = sorted(by_industry.items(), key=lambda x: -len(x[1]))
+    total_reports = sum(len(v) for _, v in top_industries)
+    cum = 0
+    cutoff = 0
+    for i, (_, reports) in enumerate(top_industries):
+        cum += len(reports)
+        if cum * 100 / total_reports >= 90:
+            cutoff = i + 1
+            break
+    top_industries = top_industries[:cutoff]
+    print(f"覆盖 90%+ 需 {cutoff}/{len(by_industry)} 个行业 ({cum}/{total_reports} 篇)")
     
     client = get_client("deep", timeout=60)
     model = get_model("deep")
