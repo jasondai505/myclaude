@@ -628,6 +628,41 @@ def save_research_reports(reports: list[dict]):
             )
 
 
+def save_industry_reports(reports: list[dict]):
+    """入库行业/策略/宏观研报（统一表，subtype 区分）。"""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    with _conn() as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS industry_reports ("
+            "  info_code TEXT PRIMARY KEY,"
+            "  title TEXT, report_date TEXT, institution TEXT,"
+            "  industry_name TEXT, industry_code TEXT,"
+            "  researcher TEXT, pdf_url TEXT, encode_url TEXT,"
+            "  report_subtype TEXT, attach_pages INTEGER, org_code TEXT,"
+            "  fetched_at TEXT)"
+        )
+        added = 0
+        for r in reports:
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO industry_reports "
+                "(info_code, title, report_date, institution, industry_name, "
+                " industry_code, researcher, pdf_url, encode_url, "
+                " report_subtype, attach_pages, org_code, fetched_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    r.get("info_code", ""), r.get("title", ""),
+                    r.get("report_date", ""), r.get("institution", ""),
+                    r.get("industry_name", ""), r.get("industry_code", ""),
+                    r.get("researcher", ""), r.get("pdf_url", ""),
+                    r.get("encode_url", ""), r.get("report_subtype", ""),
+                    r.get("attach_pages") or 0, r.get("org_code", ""), now,
+                ),
+            )
+            if cur.rowcount > 0:
+                added += 1
+    return added
+
+
 def load_latest_scan_codes() -> list[str]:
     with _conn() as conn:
         try:
