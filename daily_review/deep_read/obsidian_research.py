@@ -132,7 +132,7 @@ tags: [research_dossier, {domain}]
         next_section = content.find("\n## ", sig_start + len(sig_marker))
         if next_section < 0:
             next_section = len(content)
-        new_sig = f"## 最新信号 ({today})\n\n{_build_signal_log(signals)}"
+        new_sig = f"## 最新信号 ({today})\n\n{_build_signal_log(signals)}\n"
         content = content[:sig_start] + new_sig + content[next_section:]
 
     # 更新投资逻辑（如果LLM给了新的）
@@ -146,9 +146,10 @@ tags: [research_dossier, {domain}]
             new_logic = f"## AI 投资逻辑\n\n{llm_thesis} (评分: {llm_score})\n\n"
             content = content[:logic_start] + new_logic + content[next_section:]
 
-    # 追加信号日志
-    sig_log = f"\n### {today}\n{_build_signal_log(signals)}\n"
-    content += sig_log
+    # 追加信号日志（避免同日重复）
+    if f"### {today}" not in content:
+        sig_log = f"\n### {today}\n{_build_signal_log(signals)}\n"
+        content += sig_log
 
     path.write_text(content, encoding="utf-8")
     return str(path)
