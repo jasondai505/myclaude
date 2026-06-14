@@ -62,12 +62,12 @@ class ReportInfo:
 def _find_reports(report_type: str, limit: int = 30) -> list[ReportInfo]:
     """查找各类报告文件"""
     patterns = {
-        "review": "daily_review/reports/review_????-??-??.md",
-        "advice": "daily_review/reports/advice_????-??-??.md",
-        "wechat": "daily_review/reports/wechat_analysis_????-??-??.md",
+        "review": "daily_review/reports/review/review_????-??-??.md",
+        "advice": "daily_review/reports/advice/advice_????-??-??.md",
+        "wechat": "daily_review/reports/wechat/wechat_analysis_????-??-??.md",
         "bom": "bom_analyzer/reports/bom_*.md",
         "deep": "stock_deep/reports/deep_*.md",
-        "marginal": "daily_review/reports/marginal_????-??-??.md",
+        "marginal": "daily_review/reports/marginal/marginal_????-??-??.md",
     }
     glob_pat = patterns.get(report_type)
     if not glob_pat:
@@ -169,15 +169,15 @@ def get_report_content(report_type: str, date_str: str = "") -> dict[str, Any]:
     """获取指定报告的完整内容"""
     if date_str:
         if report_type == "review":
-            path = PROJECT_ROOT / f"daily_review/reports/review_{date_str}.md"
+            path = PROJECT_ROOT / f"daily_review/reports/review/review_{date_str}.md"
         elif report_type == "advice":
-            path = PROJECT_ROOT / f"daily_review/reports/advice_{date_str}.md"
+            path = PROJECT_ROOT / f"daily_review/reports/advice/advice_{date_str}.md"
         elif report_type == "wechat":
-            path = PROJECT_ROOT / f"daily_review/reports/wechat_analysis_{date_str}.md"
+            path = PROJECT_ROOT / f"daily_review/reports/wechat/wechat_analysis_{date_str}.md"
         elif report_type == "bom":
             return _get_bom_content(date_str)
         elif report_type == "marginal":
-            path = PROJECT_ROOT / f"daily_review/reports/marginal_{date_str}.md"
+            path = PROJECT_ROOT / f"daily_review/reports/marginal/marginal_{date_str}.md"
         else:
             return {"error": f"未知报告类型: {report_type}", "content": ""}
     else:
@@ -239,7 +239,7 @@ def get_marginal_summary(date_str: str = "") -> dict[str, Any]:
     """获取边际变化日报摘要：方向计数 + 重点变化条目"""
     if not date_str:
         date_str = _today_str()
-    path = PROJECT_ROOT / f"daily_review/reports/marginal_{date_str}.md"
+    path = PROJECT_ROOT / f"daily_review/reports/marginal/marginal_{date_str}.md"
     if not path.exists():
         return {"error": f"边际变化日报 {date_str} 尚未生成", "exists": False}
 
@@ -517,8 +517,8 @@ def get_pipeline_status() -> list[dict[str, Any]]:
 def _infer_from_reports(name: str) -> dict[str, Any] | None:
     """从报告文件时间推断上次运行"""
     report_globs = {
-        "review": "daily_review/reports/review_????-??-??.md",
-        "advice": "daily_review/reports/advice_????-??-??.md",
+        "review": "daily_review/reports/review/review_????-??-??.md",
+        "advice": "daily_review/reports/advice/advice_????-??-??.md",
         "bom": "bom_analyzer/reports/bom_*.md",
         "collect": "daily_review/reports/feeds/news_????-??-??.md",
     }

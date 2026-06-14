@@ -334,7 +334,7 @@ def _fmt_code(c: str, nm: dict[str, str]) -> str:
 def _write_report(data: dict, single_results: list[dict],
                   today: str, fetched: int, failed: int):
     nm = _build_name_map(single_results, data)
-    path = REPORT_DIR / f"wechat_analysis_{today}.md"
+    path = REPORT_DIR / "wechat" / f"wechat_analysis_{today}.md"
     n_feeds = len(set(a.get("feed", "") for a in single_results if a))
     now_ts = datetime.now().strftime("%Y-%m-%d %H:%M")
     buf = [
@@ -510,6 +510,7 @@ def _write_report(data: dict, single_results: list[dict],
                 buf.append(f"> {oneliner}")
                 buf.append("")
 
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(buf), encoding="utf-8")
     print(f"\n  报告: {path}")
     return path

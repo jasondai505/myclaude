@@ -1,88 +1,72 @@
-# 复盘仪表盘
+# 📊 每日仪表盘 2026-06-14
 
-> Dataview 插件驱动，自动汇总全时段报告（晨间情报 → 盘中验证 → 盘后复盘）
+> 自动生成 | [复盘](daily_review/reports/review_2026-06-13.md) | [建议](daily_review/reports/advice_2026-06-14.md) | [深研档案](daily_review/reports/deep_read/) | [个股档案](daily_review/reports/research_dossiers/)
 
-## 晨间情报 — 催化事件与标的假设
+## 五维信息源
 
-```dataview
-TABLE events_count AS "事件数", stocks_count AS "标的数", summary AS "主题摘要"
-FROM "morning_intel/reports"
-WHERE type = "晨间情报"
-SORT date DESC
-LIMIT 5
-```
+| 维度 | 采集 | 数据 | 信号 | 成本 |
+|------|:---:|------|-----:|:----:|
+| 📄 ① 公告深研 | ⏰ | 🟡 2天前 | >=60: 12条 | $9/天 |
+| 📊 ② 研报跟踪 | ⚠️ | 🟢 新鲜 | 0份档案 | $1/天 |
+| 🔍 ③ 调研情绪 | ⚠️ | 🟡 2天前 | 0份档案 | $0 |
+| 💬 ④ 互动易 | ✅ | — | 0份档案 | $0 |
+| 📈 ⑤ 业绩预告 | ✅ | 🔴 26天前 | — | $0 |
 
-## 盘中验证 — 假设命中率
+## 采集管线
 
-```dataview
-TABLE total AS "标的数", hit AS "命中", miss AS "背离", pending AS "待定", hit_rate AS "命中率%"
-FROM "morning_intel/reports"
-WHERE type = "盘中验证"
-SORT date DESC
-LIMIT 5
-```
+| 源 | 状态 | 上次成功 | 新增 | 备注 |
+|----|:----:|---------|-----:|------|
+| 📄 公告采集 | ✅ | 2026-06-12 | 0 | 成功5/5天 |
+| 📄 公告深研 | ⏰ | 2026-06-13 | 0 | 超时(300s) ⏰ |
+| 📊 研报采集 | ✅ | 2026-06-13 | 0 | 全市场 88 篇，新增 None |
+| 📊 研报跟踪 | ⚠️ | — | 0 | 从未运行 |
+| 🔍 机构调研 | ✅ | 2026-06-13 | 0 | 命中0，新增0 |
+| 🔍 调研+互动情绪 | ⚠️ | — | 0 | 从未运行 |
+| 💬 互动易 | ✅ | 2026-06-13 | 0 | 132 只成功，新增 0 |
+| 📈 业绩预告 | ✅ | 2026-06-13 | 0 | 预告0+快报0，新增0 |
+| 📰 个股新闻 | ✅ | 2026-06-13 | 0 | 137/137 只成功，新增 0 |
+| 🏭 行业研报 | ✅ | 2026-06-13 | 0 | 命中318，新增0 |
+| 💚 微信公众号 | ✅ | 2026-06-13 | 0 | 拉取 200 篇，新增 0 |
+| 🐦 唐史主任微博 | ➖ | 2026-06-13 | 0 | 无新帖 |
+| ⭐ 知识星球 | ✅ | 2026-06-13 | 0 | sync 新增 0 条 |
+| 📝 韭研脱水研报 | ➖ | 2026-06-13 | 0 | PDF 采集 0 份 |
 
-## 今日交易流水线
+## ⚠️ 异常警报
 
-- 晨间情报: `morning_intel/reports/morning_{{date}}.md`
-- 盘中验证: `morning_intel/reports/validation_{{date}}.md`
-- 盘后复盘: `daily_review/reports/review_{{date}}.md`
+- 📄 公告深研: 超时(300s) → 检查 DeepSeek API 是否正常 → 减少 --days 范围 → 或等下次重试
+- 📊 研报跟踪: 从未运行 → 手动执行 python daily_collect.py --source research_deep_read
+- 🔍 调研+互动情绪: 从未运行 → 检查 collector 是否在 SOURCE_TIERS 中正确注册
+
+## 📈 本周公告深研趋势
+
+- 2026-06-08: █████ 71条  **3条≥60**
+- 2026-06-09: ████████████████████ 281条  **4条≥60**
+- 2026-06-10: █ 22条
+- 2026-06-11: ██████████████ 206条  **4条≥60**
+- 2026-06-12: ██ 33条  **1条≥60**
+
+## 📜 最近提交
+
+- `b3e3388 fix: Dashboard会话转录路径更正(projects/C--Users-daixin-myclaude,非sessions)`
+- `c7552fd feat: 仪表盘加Git最近提交+会话转录链接(Obsidian内可看代码历史)`
+- `858a7bd docs: 五维框架方法论写入CLAUDE.md + LESSONS.md踩坑复盘(4轮过滤迭代/API踩坑/SQLite坑)`
+- `460da05 refactor: 仪表盘中文标签+emoji+可操作警报(异常→排查指引)`
+- `7d0335c feat: 每日仪表盘—五维状态+采集管线+异常警报+趋势图(自动生成+Obsidian首页)`
+- `00fad28 fix: sentiment_track无档案时自动新建(调研/互动信号不再丢失)`
+- `a7610c8 fix: 互动易超时从300s→600s(72只逐只调需~360s)`
+- `50a828b feat: 五维框架—加业绩预告(日频),sentiment_track合并调研+互动+业绩三合一`
+- `c14c925 feat: 调研+互动易情绪跟踪系统(零LLM成本)+两者调为日频`
+- `2d64665 refactor: 研报采集从akshare逐只遍历改为东方财富全市场API(1次HTTP vs 120次)`
 
 ---
 
-## 近期复盘总览
-
-```dataview
-TABLE sentiment AS "情绪", amount_yi AS "成交(亿)", limit_up AS "涨停", northbound AS "北向(亿)", nvda AS "NVDA"
-FROM ""
-WHERE type = "每日复盘"
-SORT date DESC
-LIMIT 10
-```
-
-## 主线题材追踪
-
-```dataview
-TABLE mainline AS "主线/加速题材", emerging AS "新兴题材", fading AS "退潮题材"
-FROM ""
-WHERE type = "每日复盘"
-SORT date DESC
-LIMIT 10
-```
-
-## FEV高分标的
-
-```dataview
-TABLE fev_top AS "FEV Top5"
-FROM ""
-WHERE type = "每日复盘"
-SORT date DESC
-LIMIT 10
-```
-
-## 筛选：情绪偏多的交易日
-
-```dataview
-TABLE sentiment AS "情绪", amount_yi AS "成交(亿)", limit_up AS "涨停", northbound AS "北向"
-FROM ""
-WHERE sentiment = "偏多" OR sentiment = "强势"
-SORT date DESC
-```
-
-## 筛选：北向大幅流入（>30亿）
-
-```dataview
-TABLE sentiment AS "情绪", northbound AS "北向(亿)"
-FROM ""
-WHERE northbound > 30
-SORT date DESC
-```
-
-## 筛选：NVDA大跌日（关注A股联动）
-
-```dataview
-TABLE sentiment AS "情绪", nvda AS "NVDA", amount_yi AS "成交"
-FROM ""
-WHERE contains(nvda, "-")
-SORT date DESC
-```
+### 🔗 快速链接
+| 页面 | 路径 |
+|------|------|
+| 复盘报告 | `daily_review/reports/review_{date}.md` |
+| 盘前建议 | `daily_review/reports/advice_{date}.md` |
+| 公告深研 | `daily_review/reports/deep_read/` |
+| 个股档案 | `daily_review/reports/research_dossiers/` |
+| 催化跟踪 | `daily_review/reports/feeds/catalyst_track_{date}.md` |
+| Git 历史 | 终端: `git log --oneline` |
+| 会话转录 | `~/.claude/projects/C--Users-daixin-myclaude/*.jsonl` (grep 关键词) |

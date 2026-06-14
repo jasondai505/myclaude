@@ -182,7 +182,7 @@ def generate(today_str: str = "") -> str:
 
     w(f"# 📊 每日仪表盘 {today}")
     w()
-    w(f"> 自动生成 | [复盘](daily_review/reports/review_{yesterday}.md) | [建议](daily_review/reports/advice_{today}.md) | [深研档案](daily_review/reports/deep_read/) | [个股档案](daily_review/reports/research_dossiers/)")
+    w(f"> 自动生成 | [复盘](daily_review/reports/review/review_{yesterday}.md) | [建议](daily_review/reports/advice/advice_{today}.md) | [深研档案](daily_review/reports/deep_read/) | [个股档案](daily_review/reports/research_dossiers/)")
     w()
 
     # === 五维状态 ===
@@ -299,8 +299,8 @@ def generate(today_str: str = "") -> str:
     w("### 🔗 快速链接")
     w("| 页面 | 路径 |")
     w("|------|------|")
-    w("| 复盘报告 | `daily_review/reports/review_{date}.md` |")
-    w("| 盘前建议 | `daily_review/reports/advice_{date}.md` |")
+    w("| 复盘报告 | `daily_review/reports/review/review_{date}.md` |")
+    w("| 盘前建议 | `daily_review/reports/advice/advice_{date}.md` |")
     w("| 公告深研 | `daily_review/reports/deep_read/` |")
     w("| 个股档案 | `daily_review/reports/research_dossiers/` |")
     w("| 催化跟踪 | `daily_review/reports/feeds/catalyst_track_{date}.md` |")

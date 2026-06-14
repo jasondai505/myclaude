@@ -186,12 +186,12 @@ if __name__ == "__main__":
         target = date.fromisoformat(sys.argv[2])
 
     advice_date = target.isoformat()
-    advice_path = REPORT_DIR / f"advice_{advice_date}.md"
+    advice_path = REPORT_DIR / "advice" / f"advice_{advice_date}.md"
     if not advice_path.exists():
         print(f"  [WARN] {advice_path} 不存在，尝试前一日")
         for i in range(1, 4):
             d = target - timedelta(days=i)
-            p = REPORT_DIR / f"advice_{d.isoformat()}.md"
+            p = REPORT_DIR / "advice" / f"advice_{d.isoformat()}.md"
             if p.exists():
                 advice_path = p
                 advice_date = d.isoformat()

@@ -65,8 +65,8 @@ def check_db_articles():
 def check_reports():
     today = date.today()
     reports = {
-        "复盘报告": f"daily_review/reports/review_{today.isoformat()}.md",
-        "公众号分析": f"daily_review/reports/wechat_analysis_{today.isoformat()}.md",
+        "复盘报告": f"daily_review/reports/review/review_{today.isoformat()}.md",
+        "公众号分析": f"daily_review/reports/wechat/wechat_analysis_{today.isoformat()}.md",
     }
     for label, rel in reports.items():
         p = PROJECT / rel
@@ -141,7 +141,7 @@ def check_placeholder_leaks():
     if not reports_dir.exists():
         return
     today = date.today().isoformat()
-    for pattern in [f"advice_{today}.md", f"wechat_analysis_{today}.md"]:
+    for pattern in [f"advice/advice_{today}.md", f"wechat/wechat_analysis_{today}.md"]:
         path = reports_dir / pattern
         if not path.exists():
             continue

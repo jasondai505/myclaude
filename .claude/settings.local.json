@@ -38,6 +38,7 @@
       "Bash(schtasks /query *)",
       "Bash(Test-Path *)",
       "Bash(mkdir *)",
+      "Bash(rm *)",
       "PowerShell(Get-*)",
       "PowerShell(Test-*)",
       "PowerShell(New-Item *)",
@@ -81,7 +82,20 @@
       "Bash(npx playwright *)",
       "Skill(claude-api)",
       "PowerShell(pip install *)",
-      "Read(//c/Users/daixin/AppData/Local/Temp/2/claude/C--Users-daixin-myclaude/21180ac1-ef41-4205-81ee-b4a9eae2a41b/tasks/**)"
+      "Read(//c/Users/daixin/AppData/Local/Temp/2/claude/C--Users-daixin-myclaude/21180ac1-ef41-4205-81ee-b4a9eae2a41b/tasks/**)",
+      "Bash(mv zsxq_analysis_*.md zsxq_analysis_*.json zsxq/)",
+      "Bash(mv fe_zsxq_analysis_*.md zsxq/)",
+      "Bash(mv earnings_*.md earnings_*.xlsx earnings/)",
+      "Bash(mv fe_earnings_analysis_*.md earnings/)",
+      "Bash(mv marginal_*.md marginal/)",
+      "Bash(mv *.log logs/)",
+      "Bash(mv _bat_test_*.txt _cron_*.log logs/)",
+      "Bash(mv scan_*.md factor_shrink_high_*.md scan/)",
+      "Bash(mv morning_advice_*.md advice/)",
+      "Bash(mkdir -p advice review)",
+      "Bash(mv advice_*.md advice/)",
+      "Bash(mv review_*.md review_*.xlsx review_*.bak review/)",
+      "Bash(mv review_*修改建议.xlsx review/)"
     ]
   },
   "PreToolUse": [

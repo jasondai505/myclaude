@@ -983,7 +983,8 @@ def _save_and_report(trade_date, market_result, style_result, sector_result,
         limit_up_data=limit_up_data,
     )
 
-    report_path = REPORT_DIR / f"review_{trade_date}.md"
+    report_path = REPORT_DIR / "review" / f"review_{trade_date}.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(md, encoding="utf-8")
 
     elapsed = time.time() - t0

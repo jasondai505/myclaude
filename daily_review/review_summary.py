@@ -134,7 +134,7 @@ if __name__ == "__main__":
     if len(sys.argv) >= 3 and sys.argv[1] == "--date":
         target = date.fromisoformat(sys.argv[2])
 
-    review_path = REPORT_DIR / f"review_{target.isoformat()}.md"
+    review_path = REPORT_DIR / "review" / f"review_{target.isoformat()}.md"
     md = generate(review_path, target.isoformat())
 
     out = FEEDS_DIR / f"review_summary_{target.isoformat()}.md"

@@ -121,7 +121,7 @@ def render_report(
 
     prev_date = _prev_trade_date(trade_date)
     if prev_date:
-        lines.append(f"\n---\n← [[review_{prev_date}|前一交易日]] ")
+        lines.append(f"\n---\n← [[review/review_{prev_date}|前一交易日]] ")
 
     return "\n".join(lines)
 

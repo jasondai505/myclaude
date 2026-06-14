@@ -313,7 +313,7 @@ def _inject_deep_read_summary(today: str) -> str:
 
 def _inject_wechat_analysis(today: str) -> str:
     """注入公众号分析报告；若为空则回退到原始 feed 摘要。"""
-    path = BASE / "reports" / f"wechat_analysis_{today}.md"
+    path = BASE / "reports" / "wechat" / f"wechat_analysis_{today}.md"
     if not path.exists():
         return _inject_wechat_raw(today)
 
@@ -610,7 +610,7 @@ def _inject_primary_synthesis(today: str) -> str:
 
 def _inject_marginal(today: str) -> str:
     """读取当日边际变化日报，注入 prompt 供 LLM 识别拐点信号。"""
-    path = BASE / "reports" / f"marginal_{today}.md"
+    path = BASE / "reports" / "marginal" / f"marginal_{today}.md"
     if not path.exists():
         return "（边际变化日报暂未生成。请从其他 feed 中自行判断边际变化信号。）"
     try:
@@ -671,7 +671,7 @@ def _inject_must_consider() -> str:
 
 def _inject_yesterday_logic(yesterday: str) -> str:
     """提取昨日 advice 中候选池的 W1-W5 逻辑，供 LLM 判断是否延续。"""
-    path = BASE / "reports" / f"advice_{yesterday}.md"
+    path = BASE / "reports" / "advice" / f"advice_{yesterday}.md"
     if not path.exists():
         return f"（{yesterday} advice 不存在）"
     try:
@@ -1209,7 +1209,7 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
     # 连续性加分：昨日精选中催化仍成立的标的，防一日游
     from datetime import date as _dt, timedelta as _td
     _yesterday = (_dt.today() - _td(days=1)).isoformat()
-    y_path = BASE / "reports" / f"advice_{_yesterday}.md"
+    y_path = BASE / "reports" / "advice" / f"advice_{_yesterday}.md"
     yesterday_holds: dict[str, str] = {}  # code -> hold_period
     if y_path.exists():
         try:
@@ -1449,7 +1449,7 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
 
 def _build_daily_diff(today_output: str, yesterday: str, today: str) -> str:
     """比较今日与昨日精选标的，生成日间变化说明。"""
-    path = BASE / "reports" / f"advice_{yesterday}.md"
+    path = BASE / "reports" / "advice" / f"advice_{yesterday}.md"
     if not path.exists():
         return ""
 
@@ -1600,7 +1600,7 @@ def _backtrack_labels(today: str) -> str:
     all_stocks: dict[str, dict] = {}  # code -> {label, rec_date, name}
     for label, dates in check_dates.items():
         for d in dates:
-            path = BASE / "reports" / f"advice_{d}.md"
+            path = BASE / "reports" / "advice" / f"advice_{d}.md"
             if not path.exists():
                 continue
             try:
@@ -1898,7 +1898,7 @@ def _scan_recurring_themes(today: str) -> str:
 
 def _diff_chokemap(new_output: str, today: str) -> str:
     """当日重跑时，对比新旧 ChokeMap 主题变化。"""
-    path = BASE / "reports" / f"advice_{today}.md"
+    path = BASE / "reports" / "advice" / f"advice_{today}.md"
     if not path.exists():
         return ""
 
@@ -2029,7 +2029,7 @@ def main():
     for key, val in feeds.items():
         prompt = prompt.replace(key, val)
 
-    advice_path = BASE / "reports" / f"advice_{today}.md"
+    advice_path = BASE / "reports" / "advice" / f"advice_{today}.md"
 
     try:
         client = _rc("deep", timeout=600)
@@ -2092,6 +2092,7 @@ def main():
     if output.strip() and len(output) > 500:
         now_ts = datetime.now().strftime("%Y-%m-%d %H:%M")
         output = f"# 盘前建议 {today} {datetime.now().strftime('%H:%M')}\n\n> 生成时间: {now_ts}\n\n{output}"
+        advice_path.parent.mkdir(parents=True, exist_ok=True)
         advice_path.write_text(output, encoding="utf-8")
         print("[INFO] advice saved from stdout")
     elif output.strip():

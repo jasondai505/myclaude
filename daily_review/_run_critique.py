@@ -32,7 +32,7 @@ def _load_api_key() -> str:
 
 
 def _read_report(trade_date: str) -> str | None:
-    path = REPORT_DIR / f"review_{trade_date}.md"
+    path = REPORT_DIR / "review" / f"review_{trade_date}.md"
     if path.exists():
         return path.read_text(encoding="utf-8")
     return None
@@ -162,7 +162,7 @@ def main():
 
     report = _read_report(trade_date)
     if not report:
-        print(f"复盘报告不存在: reports/review_{trade_date}.md")
+        print(f"复盘报告不存在: reports/review/review_{trade_date}.md")
         sys.exit(1)
 
     prompt = build_prompt(report, trade_date)

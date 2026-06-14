@@ -419,7 +419,7 @@ def run(today: str | None = None, dry_run: bool = False) -> list[dict]:
     changes = detect_changes(today, dry_run=dry_run)
     report = render_marginal_report(changes, today)
     if not dry_run and changes:
-        out = Path("daily_review/reports") / f"marginal_{today}.md"
+        out = Path("daily_review/reports/marginal") / f"marginal_{today}.md"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(report, encoding="utf-8")
         print(f"  → {out} ({len(changes)} 条)")

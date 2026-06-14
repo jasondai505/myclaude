@@ -448,7 +448,8 @@ def render_earnings_excel(
     concentrated.sort(key=lambda x: x["股东比值"])
     df_conc = pd.DataFrame(concentrated) if concentrated else pd.DataFrame()
 
-    xlsx_path = REPORT_DIR / f"earnings_{trade_date}.xlsx"
+    xlsx_path = REPORT_DIR / "earnings" / f"earnings_{trade_date}.xlsx"
+    xlsx_path.parent.mkdir(parents=True, exist_ok=True)
     with pd.ExcelWriter(xlsx_path, engine="openpyxl") as writer:
         df_main.to_excel(writer, sheet_name="筛选结果", index=False)
         if not df_conc.empty:
@@ -522,7 +523,8 @@ def run_earnings_screen(trade_date: str = None) -> str:
     # 生成报告
     elapsed = time.time() - t0
     md = render_earnings_report(trade_date, hits, shareholder_map, funnel, elapsed)
-    report_path = REPORT_DIR / f"earnings_{trade_date}.md"
+    report_path = REPORT_DIR / "earnings" / f"earnings_{trade_date}.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(md, encoding="utf-8")
 
     xlsx_path = render_earnings_excel(trade_date, hits, shareholder_map)

@@ -236,7 +236,7 @@ def run_cross(trade_date=None):
     date_range = f"{dates[0]} ~ {dates[-1]}" if len(dates) > 1 else dates[0]
     print(f"  ✓ {len(topics)} 条帖子（{date_range}）")
 
-    earnings_path = REPORT_DIR / f"earnings_{trade_date}.xlsx"
+    earnings_path = REPORT_DIR / "earnings" / f"earnings_{trade_date}.xlsx"
     if not earnings_path.exists():
         print(f"  ✗ 未找到盈利预测报告: {earnings_path}")
         print("  请先运行: python run.py --earnings")

@@ -423,7 +423,7 @@ def score_delta_from_feeds(date_str: str = "") -> list[dict]:
             except Exception:
                 pass
 
-    wechat_path = BASE / "reports" / f"wechat_analysis_{d}.md"
+    wechat_path = BASE / "reports" / "wechat" / f"wechat_analysis_{d}.md"
     if wechat_path.exists():
         try:
             text = wechat_path.read_text(encoding="utf-8")

@@ -195,7 +195,7 @@ def _sonnet_synthesize(client, articles: list[dict], today: str) -> dict:
 # ============================================================
 
 def _write_report(data: dict, single_results: list[dict], today: str, total_posts: int):
-    path = REPORT_DIR / f"zsxq_analysis_{today}.md"
+    path = REPORT_DIR / "zsxq" / f"zsxq_analysis_{today}.md"
     now_ts = datetime.now().strftime("%Y-%m-%d %H:%M")
     buf = [
         f"# 知识星球深度分析 {today}",
@@ -315,6 +315,7 @@ def _write_report(data: dict, single_results: list[dict], today: str, total_post
                     )
                 buf.append("")
 
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(buf), encoding="utf-8")
     return path
 
@@ -374,7 +375,8 @@ def main():
     path = _write_report(data, all_results, today, len(signal_rows))
     print(f"  -> {path}")
 
-    json_path = REPORT_DIR / f"zsxq_analysis_{today}.json"
+    json_path = REPORT_DIR / "zsxq" / f"zsxq_analysis_{today}.json"
+    json_path.parent.mkdir(parents=True, exist_ok=True)
     json_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"  -> {json_path}")
 
