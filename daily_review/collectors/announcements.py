@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import re
 import time
 from datetime import date
 from pathlib import Path
@@ -45,13 +46,16 @@ def _flatten(day_map: dict[str, list[dict]], universe: set[str]) -> list[dict]:
         if universe and code6 not in universe:
             continue
         for it in items:
+            url = it.get("url", "")
+            m = re.search(r'/(AN\d+)\.html', url)
             rows.append({
                 "code": code6,
                 "name": "",
                 "title": it.get("title", ""),
                 "type": it.get("type", ""),
                 "date": it.get("date", "")[:10],
-                "url": it.get("url", ""),
+                "url": url,
+                "art_code": m.group(1) if m else "",
                 "source": "em",
             })
     return rows

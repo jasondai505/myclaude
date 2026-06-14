@@ -1,16 +1,18 @@
 """行业/策略/宏观研报 LLM 分析 — 快速主题提炼"""
-import json, sqlite3, sys
+import json, sqlite3, sys, time
 from pathlib import Path
 from collections import defaultdict
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from daily_review.config import REPORT_DIR
 from daily_review.roles import get_client, get_model
+from daily_review.pdf_utils import download_report_pdf
+import daily_review.store as store
 
 DB = Path(__file__).parent / "data" / "review.db"
 OUT = REPORT_DIR / "feeds" / "industry_analysis_2026-05-15_06-14.md"
 
-PROMPT = """你是A股行业分析师。以下是过去一个月某行业的所有研报标题和机构。
+PROMPT = """你是A股行业分析师。以下是过去一个月某行业的所有研报标题、机构和正文摘要。
 
 请用100字以内提炼：
 1. 这个行业近一个月的核心议题和变化趋势是什么？
@@ -47,7 +49,7 @@ def main():
 
     # 1. Get industry report groups
     rows = conn.execute("""
-        SELECT industry_name, title, institution, report_date
+        SELECT industry_name, title, institution, report_date, pdf_url, body_text
         FROM industry_reports
         WHERE report_subtype='industry' AND report_date >= ? AND report_date <= ?
         ORDER BY industry_name, report_date DESC
@@ -90,10 +92,24 @@ def main():
     
     analyses = []
     for ind_name, ind_reports in top_industries:
-        titles_text = "\n".join(
-            f"[{r['report_date']}] {r['institution']}: {r['title']}"
-            for r in ind_reports[:10]
-        )
+        report_lines = []
+        for r in ind_reports[:10]:
+            line = f"[{r['report_date']}] {r['institution']}: {r['title']}"
+            body = r.get("body_text", "")
+            pdf_url = r.get("pdf_url", "")
+            if not body and pdf_url:
+                try:
+                    body = download_report_pdf(pdf_url) or ""
+                    if body:
+                        store.save_report_body_text(
+                            "industry_reports", "pdf_url", pdf_url, body)
+                except Exception:
+                    pass
+                time.sleep(0.5)
+            if body:
+                line += f"\n  > {body[:300]}"
+            report_lines.append(line)
+        titles_text = "\n".join(report_lines)
         inst_count = len(set(r["institution"] for r in ind_reports))
         prompt = PROMPT + f"\n\n行业: {ind_name}\n篇数: {len(ind_reports)}\n\n{titles_text}"
 

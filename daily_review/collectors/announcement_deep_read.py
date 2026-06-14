@@ -66,17 +66,25 @@ def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> di
     except Exception:
         pass
 
-    # 4. 转换为硬筛选需要的格式
+    # 4. 转换为硬筛选需要的格式（优先从缓存读取 PDF 正文）
+    from pdf_utils import download_announcement_pdf
+
     raw_anns = []
     for a in announcements:
         code = str(a.get("code", "")).zfill(6)
+        content = a.get("content", "")
+        art_code = a.get("art_code", "")
+        if not content and art_code:
+            content = download_announcement_pdf(art_code) or ""
+            if content:
+                store.save_announcement_content(art_code, content)
         raw_anns.append({
             "code": code,
             "name": name_map.get(code, a.get("name", "")),
             "ann_title": a.get("title", ""),
             "ann_type": a.get("type", ""),
             "ann_url": a.get("url", ""),
-            "ann_full_text": a.get("title", ""),  # SQLite 未存全文，用标题代替
+            "ann_full_text": content or a.get("title", ""),
             "date": a.get("date", ""),
         })
 

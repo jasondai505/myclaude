@@ -733,6 +733,8 @@ def init_feeds_tables():
                 type        TEXT,
                 date        TEXT NOT NULL,
                 url         TEXT,
+                art_code    TEXT,
+                content     TEXT,
                 source      TEXT,
                 fetched_at  TEXT,
                 PRIMARY KEY (code, date, title)
@@ -1065,6 +1067,23 @@ def init_feeds_tables():
             );
             CREATE INDEX IF NOT EXISTS idx_hgs_domain ON hunting_ground_stocks(domain);
         """)
+        # 迁移：旧表加新列（忽略已存在的列）
+        _migrate_columns(conn)
+
+
+def _migrate_columns(conn):
+    """增量迁移：为旧表增加缺失的列。"""
+    migrations = [
+        ("announcements", "art_code", "TEXT"),
+        ("announcements", "content", "TEXT"),
+        ("research_reports", "body_text", "TEXT"),
+        ("industry_reports", "body_text", "TEXT"),
+    ]
+    for table, col, col_type in migrations:
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+        except Exception:
+            pass  # 列已存在
 
 
 def save_announcements(rows: list[dict]) -> int:
@@ -1075,20 +1094,42 @@ def save_announcements(rows: list[dict]) -> int:
         before = conn.execute("SELECT COUNT(*) FROM announcements").fetchone()[0]
         conn.executemany(
             "INSERT OR IGNORE INTO announcements "
-            "(code, name, title, type, date, url, source, fetched_at) "
-            "VALUES (?,?,?,?,?,?,?,?)",
+            "(code, name, title, type, date, url, art_code, source, fetched_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
             [
                 (
                     r.get("code", ""), r.get("name", ""),
                     r.get("title", ""), r.get("type", ""),
                     r.get("date", ""), r.get("url", ""),
-                    r.get("source", ""), now,
+                    r.get("art_code", ""), r.get("source", ""), now,
                 )
                 for r in rows
             ],
         )
         after = conn.execute("SELECT COUNT(*) FROM announcements").fetchone()[0]
     return after - before
+
+
+def save_announcement_content(art_code: str, content: str):
+    """回存公告 PDF 正文到 announcements.content（避免重复下载）。"""
+    if not art_code or not content:
+        return
+    with _conn() as conn:
+        conn.execute(
+            "UPDATE announcements SET content = ? WHERE art_code = ?",
+            (content, art_code),
+        )
+
+
+def save_report_body_text(table: str, key_col: str, key_val: str, body_text: str):
+    """回存研报 PDF 正文到 research_reports 或 industry_reports（避免重复下载）。"""
+    if not key_val or not body_text:
+        return
+    with _conn() as conn:
+        conn.execute(
+            f"UPDATE {table} SET body_text = ? WHERE {key_col} = ?",
+            (body_text, key_val),
+        )
 
 
 def save_stock_news(rows: list[dict]) -> int:
