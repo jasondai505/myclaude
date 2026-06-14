@@ -219,7 +219,7 @@ def score_batch(stocks: list[dict]) -> list[dict]:
         return []
 
     from daily_review.roles import get_client as _rc2, get_model as _rm2
-client = _rc2("synthesis", timeout=120)
+    client = _rc2("synthesis", timeout=120)
 
     all_results = []
     for i in range(0, len(stocks), BATCH_SIZE):
