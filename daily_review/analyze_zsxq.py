@@ -324,9 +324,13 @@ def _write_report(data: dict, single_results: list[dict], today: str, total_post
 # 主流程
 # ============================================================
 
-def main():
-    today = date.today().isoformat()
-    since = (date.today() - timedelta(days=7)).isoformat()
+def main(target_date: str = ""):
+    if target_date:
+        t = date.fromisoformat(target_date)
+    else:
+        t = date.today()
+    today = t.isoformat()
+    since = (t - timedelta(days=7)).isoformat()
 
     print(f"知识星球深度分析（两阶段）| {since} ~ {today}")
 
