@@ -49,7 +49,7 @@ def main():
 
     # 1. Get industry report groups
     rows = conn.execute("""
-        SELECT industry_name, title, institution, report_date, pdf_url, body_text
+        SELECT industry_name, title, institution, report_date, pdf_url, info_code, body_text
         FROM industry_reports
         WHERE report_subtype='industry' AND report_date >= ? AND report_date <= ?
         ORDER BY industry_name, report_date DESC
@@ -99,7 +99,8 @@ def main():
             pdf_url = r.get("pdf_url", "")
             if not body and pdf_url:
                 try:
-                    body = download_report_pdf(pdf_url) or ""
+                    ic = r.get("info_code", "")
+                    body = download_report_pdf(pdf_url, ic) or ""
                     if body:
                         store.save_report_body_text(
                             "industry_reports", "pdf_url", pdf_url, body)
