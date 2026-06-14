@@ -160,6 +160,31 @@ FEVAL_PROMPT = """你是A股基本面分析师。对以下标的分别给出 F/E
 注意: F/E/V 必须填整数 0-10, FEV=F+E+V 不填由程序计算。如果标的数据不足无法评分, 各项填 0 并标注 "数据不足"。
 """
 
+# 增强版 prompt（注入财务+行业+估值+信号数据）
+FEVAL_PROMPT_ENRICHED = """你是A股基本面分析师。对以下标的分别给出 F/E/V 评分（每项 0-10 分，整数），附一句话理由。
+
+评分标准:
+  F (护城河) 0-10: 品牌/专利/牌照/规模/网络效应/转换成本/成本优势 — 参考行业地位和概念标签
+  E (盈利)   0-10: ROE/毛利率/营收增速/现金流/盈利确定性 — 参考提供的财务数据
+  V (估值)   0-10: PE分位/PB分位/PEG/市值空间 (10=极度低估, 0=泡沫) — 参考PE分位
+
+数据解读提示:
+  - ROE趋势: 连续上升=护城河增强, 连续下降=竞争加剧
+  - 毛利率: >40%=强定价权, <15%=同质化竞争
+  - 负债率: >70%=财务风险高, <30%=保守或轻资产
+  - 营收增速+利润增速同向=确定性高, 背离=结构性问题
+  - PE分位: <20%=低估, >80%=高估
+  - 深研评分: >=60=重大催化, 40-60=一般信号
+  - 研报覆盖: >=5篇=机构高度关注, 0篇=市场忽视
+
+输出格式 (JSON):
+```json
+[{"code":"xxxxxx","name":"xxx","F":x,"F_note":"xxx","E":x,"E_note":"xxx","V":x,"V_note":"xxx"}]
+```
+
+注意: F/E/V 必须填整数 0-10, FEV=F+E+V 不填由程序计算。如果标的数据不足无法评分, 各项填 0 并标注 "数据不足"。
+"""
+
 
 def _build_batch_prompt(stocks: list[dict]) -> str:
     lines = ["标的列表:\n"]
@@ -170,6 +195,180 @@ def _build_batch_prompt(stocks: list[dict]) -> str:
             f" | 涨跌:{s.get('chg_pct',0):+.1f}%"
         )
     return "\n".join(lines)
+
+
+def _build_batch_prompt_enriched(stocks: list[dict]) -> str:
+    """增强版 prompt 构建 — 注入财务/行业/估值/信号数据。"""
+    lines = ["标的列表 (含多维数据):\n"]
+    for s in stocks:
+        parts = [f"- {s['code']} {s.get('name','?')}"]
+
+        # 基本面
+        roe = s.get("roe")
+        gm = s.get("gross_margin")
+        dr = s.get("debit_ratio")
+        ry = s.get("revenue_yoy")
+        py = s.get("profit_yoy")
+        if roe is not None:
+            parts.append(f"ROE:{roe:.1f}%")
+            if gm: parts.append(f"毛利率:{gm:.1f}%")
+            if dr: parts.append(f"负债率:{dr:.1f}%")
+            if ry: parts.append(f"营收YoY:{ry:+.1f}%")
+            if py: parts.append(f"净利YoY:{py:+.1f}%")
+
+        # 行业
+        industry = s.get("industry", "")
+        if industry:
+            parts.append(f"行业:{industry}")
+
+        # 估值
+        mcap = s.get("mcap_yi", 0)
+        pe = s.get("pe_ttm")
+        pe_pct = s.get("pe_pct_5y")
+        if mcap:
+            parts.append(f"市值:{mcap}亿")
+        if pe and pe > 0:
+            parts.append(f"PE:{pe:.1f}")
+            if pe_pct is not None:
+                parts.append(f"PE分位:{pe_pct:.0f}%")
+
+        # 信号
+        ds = s.get("deep_read_max", 0)
+        rc = s.get("research_count", 0)
+        cc = s.get("catalyst_count", 0)
+        sig_parts = []
+        if ds >= 50: sig_parts.append(f"深研{ds}分")
+        if rc > 0: sig_parts.append(f"研报{rc}篇")
+        if cc > 0: sig_parts.append(f"催化{cc}个")
+        if sig_parts:
+            parts.append("信号:" + " ".join(sig_parts))
+
+        lines.append(" | ".join(parts))
+
+    return "\n".join(lines)
+
+
+def _enrich_stocks(codes: list[str]) -> list[dict]:
+    """从多数据源增强股票数据，返回可投入 LLM 的 dict 列表。
+
+    数据源: 腾讯行情 + 财务指标 + 行业概念 + 估值分位 + 深研/研报/催化信号
+    """
+    import sqlite3
+    from config import STOCK_PRIMARY_CONCEPT
+
+    # 1. 行情
+    try:
+        import data
+        quotes = data.fetch_stock_quotes(codes, batch_size=30)
+    except Exception as e:
+        print(f"  [WARN] 行情获取失败: {e}")
+        quotes = {}
+
+    # 2. DB 连接 (review.db + serenity.db)
+    review_db = BASE / "data" / "review.db"
+    conn_r = sqlite3.connect(str(review_db))
+    conn_r.row_factory = sqlite3.Row
+
+    # 3. 财务指标
+    fin_map = {}
+    for c in codes:
+        row = conn_r.execute(
+            "SELECT roe, gross_margin, debt_ratio, revenue_yoy, profit_yoy "
+            "FROM financial_indicators WHERE code=? ORDER BY report_date DESC LIMIT 1",
+            (c,)
+        ).fetchone()
+        if row:
+            fin_map[c] = dict(row)
+
+    # 4. 估值数据（从行情获取 PE/PB/市值, 分位暂用估值缓存 JSON 提取）
+    val_map = {}
+    for c in codes:
+        try:
+            row = conn_r.execute(
+                "SELECT data_json FROM valuation_cache WHERE code=? AND data_type='percentile' LIMIT 1", (c,)
+            ).fetchone()
+            if row:
+                data = json.loads(row["data_json"])
+                val_map[c] = {
+                    "pe_pct_5y": data.get("pe_pct_5y") if isinstance(data, dict) else None,
+                    "pe_current": None,
+                }
+        except Exception:
+            val_map[c] = {}
+
+    # 5. 深研信号 (30天)
+    deep_map = {}
+    thirty_d = (date.today() - timedelta(days=30)).isoformat()
+    for c in codes:
+        row = conn_r.execute(
+            "SELECT MAX(total_score) as ms FROM deep_read_results "
+            "WHERE code=? AND date >= ?", (c, thirty_d)
+        ).fetchone()
+        if row and row["ms"]:
+            deep_map[c] = row["ms"]
+
+    # 6. 研报覆盖 (90天)
+    ninety_d = (date.today() - timedelta(days=90)).isoformat()
+    research_map = {}
+    for c in codes:
+        row = conn_r.execute(
+            "SELECT COUNT(*) as cnt FROM research_reports "
+            "WHERE code=? AND report_date >= ?", (c, ninety_d)
+        ).fetchone()
+        if row:
+            research_map[c] = row["cnt"]
+
+    # 7. 催化数量
+    catalyst_map = {}
+    for c in codes:
+        row = conn_r.execute(
+            "SELECT COUNT(*) as cnt FROM catalyst_signals "
+            "WHERE mentioned_codes LIKE ?", (f"%{c}%",)
+        ).fetchone()
+        if row:
+            catalyst_map[c] = row["cnt"]
+
+    conn_r.close()
+
+    # 组装
+    stocks = []
+    for code in codes:
+        q = quotes.get(code, {})
+        fin = fin_map.get(code, {})
+        val = val_map.get(code, {})
+
+        s = {
+            "code": code,
+            "name": q.get("name", ""),
+            "mcap_yi": round(q.get("mcap_yi", 0) or 0),
+            "pe_ttm": round(q.get("pe_ttm", 0) or 0, 1),
+            "chg_pct": round(q.get("change_pct", 0) or 0, 2),
+            # 财务
+            "roe": fin.get("roe"),
+            "gross_margin": fin.get("gross_margin"),
+            "debit_ratio": fin.get("debt_ratio"),
+            "revenue_yoy": fin.get("revenue_yoy"),
+            "profit_yoy": fin.get("profit_yoy"),
+            # 行业
+            "industry": STOCK_PRIMARY_CONCEPT.get(code, ""),
+            # 估值
+            "pe_pct_5y": val.get("pe_pct_5y"),
+            "pe_current": val.get("pe_current"),
+            # 信号
+            "deep_read_max": deep_map.get(code, 0),
+            "research_count": research_map.get(code, 0),
+            "catalyst_count": catalyst_map.get(code, 0),
+        }
+        stocks.append(s)
+
+    return stocks
+
+
+def score_codes_enriched(codes: list[str]) -> list[dict]:
+    """增强版批量评分：自动补全多维数据后调用 LLM。"""
+    print(f"  feval enriched: {len(codes)} 只标的，开始数据增强...")
+    stocks = _enrich_stocks(codes)
+    return _score_batch_internal(stocks, enriched=True)
 
 
 def _parse_response(text: str, stocks: list[dict]) -> list[dict]:
@@ -211,8 +410,8 @@ def _parse_response(text: str, stocks: list[dict]) -> list[dict]:
     return results
 
 
-def score_batch(stocks: list[dict]) -> list[dict]:
-    """对一批标的一次 LLM 调用评分。stocks: [{code, name, mcap_yi, pe_ttm, chg_pct}]"""
+def _score_batch_internal(stocks: list[dict], enriched: bool = False) -> list[dict]:
+    """内部评分函数 — 接受已组装好的 stocks，调 LLM 评分。"""
     api_key = _load_api_key()
     if not api_key:
         print("  [WARN] feval: 无 API key，跳过评分")
@@ -220,11 +419,13 @@ def score_batch(stocks: list[dict]) -> list[dict]:
 
     from daily_review.roles import get_client as _rc2, get_model as _rm2
     client = _rc2("synthesis", timeout=120)
+    prompt_template = FEVAL_PROMPT_ENRICHED if enriched else FEVAL_PROMPT
+    build_fn = _build_batch_prompt_enriched if enriched else _build_batch_prompt
 
     all_results = []
     for i in range(0, len(stocks), BATCH_SIZE):
         batch = stocks[i:i + BATCH_SIZE]
-        prompt = FEVAL_PROMPT + "\n" + _build_batch_prompt(batch)
+        prompt = prompt_template + "\n" + build_fn(batch)
 
         for attempt in range(1, MAX_RETRIES + 1):
             try:
@@ -246,7 +447,8 @@ def score_batch(stocks: list[dict]) -> list[dict]:
                     all_results.extend(parsed)
                     codes_str = ",".join(s["code"] for s in parsed)
                     fevs = "/".join(str(s["fev_total"]) for s in parsed)
-                    print(f"  feval batch {i//BATCH_SIZE+1}: {codes_str} -> FEV {fevs}")
+                    tag = "enriched" if enriched else "basic"
+                    print(f"  feval[{tag}] batch {i//BATCH_SIZE+1}: {codes_str} -> FEV {fevs}")
                 else:
                     print(f"  feval batch {i//BATCH_SIZE+1}: parse failed, retry {attempt}")
                     if attempt < MAX_RETRIES:
@@ -258,6 +460,11 @@ def score_batch(stocks: list[dict]) -> list[dict]:
                     continue
 
     return all_results
+
+
+def score_batch(stocks: list[dict]) -> list[dict]:
+    """对一批标的一次 LLM 调用评分（基础版）。stocks: [{code, name, mcap_yi, pe_ttm, chg_pct}]"""
+    return _score_batch_internal(stocks, enriched=False)
 
 
 # ============================================================
@@ -533,6 +740,7 @@ def _main():
     p = argparse.ArgumentParser(description="独立 FEV 评分器")
     p.add_argument("--init", action="store_true", help="初始化数据库")
     p.add_argument("--codes", type=str, help="逗号分隔代码列表，如 301373,688300")
+    p.add_argument("--enriched", action="store_true", help="增强模式: 注入财务+行业+估值+信号数据")
     p.add_argument("--from-feeds", type=str, nargs="?", const=_today(),
                    help="从当天 feeds 提取代码并评分 (日期可选)")
     p.add_argument("--list", type=str, nargs="?", const=_today(),
@@ -550,23 +758,26 @@ def _main():
 
     if args.codes:
         codes = [c.strip() for c in args.codes.split(",") if c.strip()]
-        try:
-            import data
-            quotes = data.fetch_stock_quotes(codes, batch_size=30)
-        except Exception:
-            print("行情获取失败")
-            return
-        stocks = []
-        for code in codes:
-            q = quotes.get(code, {})
-            stocks.append({
-                "code": code,
-                "name": q.get("name", ""),
-                "mcap_yi": round(q.get("mcap_yi", 0) or 0),
-                "pe_ttm": round(q.get("pe_ttm", 0) or 0, 1),
-                "chg_pct": round(q.get("change_pct", 0) or 0, 2),
-            })
-        results = score_batch(stocks)
+        if args.enriched:
+            results = score_codes_enriched(codes)
+        else:
+            try:
+                import data
+                quotes = data.fetch_stock_quotes(codes, batch_size=30)
+            except Exception:
+                print("行情获取失败")
+                return
+            stocks = []
+            for code in codes:
+                q = quotes.get(code, {})
+                stocks.append({
+                    "code": code,
+                    "name": q.get("name", ""),
+                    "mcap_yi": round(q.get("mcap_yi", 0) or 0),
+                    "pe_ttm": round(q.get("pe_ttm", 0) or 0, 1),
+                    "chg_pct": round(q.get("change_pct", 0) or 0, 2),
+                })
+            results = score_batch(stocks)
         if results:
             save_scores(results)
             for s in results:
