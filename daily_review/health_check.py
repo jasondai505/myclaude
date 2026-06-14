@@ -141,7 +141,7 @@ def check_placeholder_leaks():
     if not reports_dir.exists():
         return
     today = date.today().isoformat()
-    for pattern in [f"advice/advice_{today}.md", f"wechat/wechat_analysis_{today}.md"]:
+    for pattern in [f"advice/advice_{today}.md", f"wechat_analysis/wechat_analysis_{today}.md"]:
         path = reports_dir / pattern
         if not path.exists():
             continue

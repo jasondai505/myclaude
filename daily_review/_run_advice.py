@@ -314,7 +314,7 @@ def _inject_deep_read_summary(today: str) -> str:
 
 def _inject_wechat_analysis(today: str) -> str:
     """注入公众号分析报告；若为空则回退到原始 feed 摘要。"""
-    path = BASE / "reports" / "wechat" / f"wechat_analysis_{today}.md"
+    path = BASE / "reports" / "wechat_analysis" / f"wechat_analysis_{today}.md"
     if not path.exists():
         return _inject_wechat_raw(today)
 

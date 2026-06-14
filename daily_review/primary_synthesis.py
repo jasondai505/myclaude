@@ -127,7 +127,7 @@ def _read_source(stem: str, target_date: str) -> str:
 
 
 def _read_wechat(target_date: str) -> str:
-    path = REPORT_DIR / "wechat" / f"wechat_analysis_{target_date}.md"
+    path = REPORT_DIR / "wechat_analysis" / f"wechat_analysis_{target_date}.md"
     if path.exists():
         text = path.read_text(encoding="utf-8")
         marker = "## 逐篇拆解"
