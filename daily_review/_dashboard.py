@@ -146,6 +146,73 @@ def _dossier_count() -> int:
     return len(list(d.glob("*.md"))) if d.exists() else 0
 
 
+def _generate_dossier_index():
+    """生成研报档案索引 README → reports/research_dossiers/README.md"""
+    import re
+    d = REPORT_DIR / "research_dossiers"
+    today = date.today()
+    week_ago = today - timedelta(days=7)
+
+    dossiers = []
+    for fp in sorted(d.glob("*.md")):
+        if fp.name == "README.md":
+            continue
+        try:
+            text = fp.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        dates = re.findall(r"### (\d{4}-\d{2}-\d{2})", text)
+        dates += re.findall(r"## .+ \((\d{4}-\d{2}-\d{2})\)", text)
+        latest = max(dates) if dates else fp.stat().st_mtime
+        if isinstance(latest, float):
+            from datetime import datetime
+            latest = datetime.fromtimestamp(latest).strftime("%Y-%m-%d")
+        nm = re.search(r'^name:\s*"?(.+?)"?\s*$', text, re.MULTILINE)
+        name = nm.group(1).strip() if nm else ""
+        display = f"{name} ({fp.stem[:6]})" if name else fp.stem[:6]
+        sigs = re.findall(r"- \[(\w+)\]\s*(.+?)(?:\s*\([+-]?\d+分\))?\s*$", text, re.MULTILINE)
+        sig_type, sig_desc = sigs[-1] if sigs else ("", "")
+        dossiers.append({
+            "display": display, "code": fp.stem[:6],
+            "latest_date": latest,
+            "sig_type": sig_type, "sig_desc": sig_desc,
+        })
+
+    dossiers.sort(key=lambda x: x["latest_date"], reverse=True)
+
+    today_list = [x for x in dossiers if x["latest_date"] == today.isoformat()]
+    week_list = [x for x in dossiers if today.isoformat() > x["latest_date"] >= week_ago.isoformat()]
+    older_list = [x for x in dossiers if x["latest_date"] < week_ago.isoformat()]
+
+    buf = [
+        f"# 研报档案索引",
+        "",
+        f"> 自动生成于 {today.isoformat()} | 共 {len(dossiers)} 份档案",
+        "",
+    ]
+
+    sections = [
+        (f"## 🔥 今日更新 ({len(today_list)})", today_list),
+        (f"## 📅 近7天更新 ({len(week_list)})", week_list),
+        (f"## 📦 更早 ({len(older_list)})", older_list),
+    ]
+    for heading, items in sections:
+        buf.append(heading)
+        buf.append("")
+        if items:
+            buf.append("| 标的 | 代码 | 最后信号日 | 最新信号 |")
+            buf.append("|------|:----:|:----------:|----------|")
+            for x in items:
+                sig = f"{x['sig_type']}: {x['sig_desc'][:30]}" if x["sig_type"] else "—"
+                buf.append(f"| {x['display']} | {x['code']} | {x['latest_date']} | {sig} |")
+        else:
+            buf.append("_暂无_")
+        buf.append("")
+
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "README.md").write_text("\n".join(buf), encoding="utf-8")
+
+
 def _data_freshness(source: str) -> tuple[str, str]:
     """(新鲜度文字, 天数)"""
     col_map = {
@@ -193,6 +260,7 @@ def generate(today_str: str = "") -> str:
     collectors = {r["source"]: r for r in _collector_status()}
     dr = _deep_read_weekly()
     dc = _dossier_count()
+    _generate_dossier_index()
 
     for dim in DIMENSIONS:
         cs = collectors.get(dim["collector"], {})
