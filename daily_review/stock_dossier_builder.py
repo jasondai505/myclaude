@@ -62,34 +62,40 @@ def _load_name_map(codes: list[str]) -> dict[str, str]:
 
 
 def _load_fev(codes: list[str]) -> dict[str, dict]:
-    """加载最新 FEV 评分（从 feval DB 表，如不可用则标记待补充）。"""
-    conn = _conn()
+    """加载最新 FEV 评分（从 serenity.db 的 feval_scores 表）。"""
+    serenity_db = BASE / "data" / "serenity.db"
     result = {}
+    if not serenity_db.exists():
+        return {c: {"f": 0, "e": 0, "v": 0, "total": 0, "delta": 0, "trend": "待补充"} for c in codes}
+    conn_s = sqlite3.connect(str(serenity_db))
+    conn_s.row_factory = sqlite3.Row
     for c in codes:
-        try:
-            row = conn.execute(
-                "SELECT f_score, e_score, v_score, total_score, date FROM feval_scores "
-                "WHERE code=? ORDER BY date DESC LIMIT 1", (c,)
-            ).fetchone()
-            if row:
-                # 趋势
-                d_row = conn.execute(
-                    "SELECT delta_score FROM stock_delta WHERE code=? ORDER BY date DESC LIMIT 1", (c,)
-                ).fetchone()
-                delta = d_row["delta_score"] if d_row else 0
-                result[c] = {
-                    "f": round(row["f_score"], 1) if row["f_score"] else 0,
-                    "e": round(row["e_score"], 1) if row["e_score"] else 0,
-                    "v": round(row["v_score"], 1) if row["v_score"] else 0,
-                    "total": round(row["total_score"], 1) if row["total_score"] else 0,
-                    "delta": round(delta, 1),
-                    "trend": "up" if delta > 2 else "down" if delta < -2 else "flat",
-                }
-            else:
-                result[c] = {"f": 0, "e": 0, "v": 0, "total": 0, "delta": 0, "trend": "待补充"}
-        except Exception:
+        row = conn_s.execute(
+            "SELECT f_score, e_score, v_score, fev_total, f_note, e_note, v_note, date "
+            "FROM feval_scores WHERE code=? ORDER BY date DESC LIMIT 1", (c,)
+        ).fetchone()
+        if row:
+            # 趋势：比较最近两期
+            rows2 = conn_s.execute(
+                "SELECT fev_total FROM feval_scores WHERE code=? ORDER BY date DESC LIMIT 2", (c,)
+            ).fetchall()
+            delta = 0
+            if len(rows2) >= 2:
+                delta = (rows2[0]["fev_total"] or 0) - (rows2[1]["fev_total"] or 0)
+            result[c] = {
+                "f": round(row["f_score"], 1) if row["f_score"] else 0,
+                "e": round(row["e_score"], 1) if row["e_score"] else 0,
+                "v": round(row["v_score"], 1) if row["v_score"] else 0,
+                "total": round(row["fev_total"], 1) if row["fev_total"] else 0,
+                "f_note": row["f_note"] or "",
+                "e_note": row["e_note"] or "",
+                "v_note": row["v_note"] or "",
+                "delta": round(delta, 1),
+                "trend": "up" if delta > 2 else "down" if delta < -2 else "flat",
+            }
+        else:
             result[c] = {"f": 0, "e": 0, "v": 0, "total": 0, "delta": 0, "trend": "待补充"}
-    conn.close()
+    conn_s.close()
     return result
 
 
