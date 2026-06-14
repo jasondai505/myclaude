@@ -1147,11 +1147,14 @@ def fetch_stock_news(code: str, limit: int = 5) -> list[dict]:
         if df is not None and not df.empty:
             rows = []
             for _, row in df.head(limit).iterrows():
+                title = _s(row.get("新闻标题"))
+                if not title or any(p.search(title) for p in _NEWS_TITLE_BLACKLIST):
+                    continue
                 rows.append({
-                    "title": str(row.get("新闻标题", "")),
-                    "content": _clean_html(str(row.get("新闻内容", "")))[:200],
-                    "time": str(row.get("发布时间", "")),
-                    "source": str(row.get("文章来源", "")),
+                    "title": title,
+                    "content": _clean_html(_s(row.get("新闻内容")))[:200],
+                    "time": _s(row.get("发布时间")),
+                    "source": _s(row.get("文章来源")),
                 })
             return rows
     except Exception:
@@ -1194,13 +1197,15 @@ def _fetch_stock_news_direct(code: str, limit: int = 5) -> list[dict]:
         items = data.get("result", {}).get("cmsArticleWebOld", [])
         rows = []
         for item in items[:limit]:
-            title = _clean_html(str(item.get("title", "")))
-            content = _clean_html(str(item.get("content", "")))[:200]
+            title = _clean_html(_s(item.get("title")))
+            if not title or any(p.search(title) for p in _NEWS_TITLE_BLACKLIST):
+                continue
+            content = _clean_html(_s(item.get("content")))[:200]
             rows.append({
                 "title": title,
                 "content": content,
-                "time": str(item.get("date", "")),
-                "source": str(item.get("mediaName", "")),
+                "time": _s(item.get("date")),
+                "source": _s(item.get("mediaName")),
             })
         return rows
     except Exception:
@@ -1313,10 +1318,10 @@ def fetch_irm_szse(code: str, limit: int = 3) -> list[dict]:
         rows = []
         for _, row in df.head(limit).iterrows():
             rows.append({
-                "question": str(row.get("问题", ""))[:200],
-                "answer": str(row.get("回答内容", ""))[:300],
-                "ask_time": str(row.get("提问时间", ""))[:16],
-                "reply_time": str(row.get("更新时间", ""))[:16],
+                "question": _s(row.get("问题"))[:200],
+                "answer": _s(row.get("回答内容"))[:300],
+                "ask_time": _s(row.get("提问时间"))[:16],
+                "reply_time": _s(row.get("更新时间"))[:16],
             })
         return rows
     except Exception:
@@ -1343,9 +1348,9 @@ def fetch_irm_sse(code: str, limit: int = 3) -> list[dict]:
         rows = []
         for _, row in df.head(limit).iterrows():
             rows.append({
-                "question": str(row.get(q_col, ""))[:200],
-                "answer": str(row.get(a_col, ""))[:300] if a_col else "",
-                "ask_time": str(row.get(t_col, ""))[:16] if t_col else "",
+                "question": _s(row.get(q_col))[:200],
+                "answer": _s(row.get(a_col))[:300] if a_col else "",
+                "ask_time": _s(row.get(t_col))[:16] if t_col else "",
                 "reply_time": "",
             })
         return rows
@@ -1366,6 +1371,21 @@ def _num(v):
         return None if pd.isna(f) else f
     except Exception:
         return None
+
+
+def _s(v, default: str = "") -> str:
+    """安全转 str，NaN/None → default。"""
+    if v is None:
+        return default
+    try:
+        if pd.isna(v):
+            return default
+    except Exception:
+        pass
+    return str(v)
+
+
+_NEWS_TITLE_BLACKLIST = [re.compile(r"龙虎榜数据\s*\d{2}-\d{2}")]
 
 
 def recent_report_periods(until: str | None = None, n: int = 2) -> list[str]:
