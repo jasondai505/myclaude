@@ -279,6 +279,15 @@ def main():
             print(f"  ⏰ {src} 超时({timeout}s)，跳过")
             store.upsert_collect_status(src, fmt_iso(until), "timeout", f"超时({timeout}s)", 0)
 
+    # 星球深度分析（依赖 zsxq 采集完成，LLM 加工）
+    if "zsxq" in sources:
+        try:
+            from daily_review.analyze_zsxq import main as analyze_zsxq_main
+            print("\n[星球深度分析] 开始...")
+            analyze_zsxq_main()
+        except Exception as e:
+            print(f"  [WARN] 星球深度分析失败: {e}")
+
     # 每日刷新行业估值分位（全市场计算，独立于数据源采集）
     try:
         from daily_review import valuation
