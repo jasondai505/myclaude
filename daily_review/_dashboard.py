@@ -184,11 +184,20 @@ def _score_dossier(text: str, latest_date: str) -> tuple[int, str]:
         except Exception:
             pass
 
-    if score >= 70: return (score, "★★★★★")
-    if score >= 50: return (score, "★★★★")
-    if score >= 30: return (score, "★★★")
-    if score >= 15: return (score, "★★")
-    return (score, "★")
+    STAR_COLORS = {
+        5: ("★★★★★", "#FFD700"),
+        4: ("★★★★",   "#4CAF50"),
+        3: ("★★★",    "#2196F3"),
+        2: ("★★",     "#FF9800"),
+        1: ("★",      "#9E9E9E"),
+    }
+    if score >= 70: n = 5
+    elif score >= 50: n = 4
+    elif score >= 30: n = 3
+    elif score >= 15: n = 2
+    else: n = 1
+    stars, color = STAR_COLORS[n]
+    return (score, f'<span style="color:{color}">{stars}</span>', stars)
 
 
 def _generate_dossier_index():
@@ -217,12 +226,12 @@ def _generate_dossier_index():
         display = f"{name} ({fp.stem[:6]})" if name else fp.stem[:6]
         sigs = re.findall(r"- \[(\w+)\]\s*(.+?)(?:\s*\([+-]?\d+分\))?\s*$", text, re.MULTILINE)
         sig_type, sig_desc = sigs[-1] if sigs else ("", "")
-        raw_score, stars = _score_dossier(text, latest)
+        raw_score, html_stars, plain_stars = _score_dossier(text, latest)
         dossiers.append({
             "display": display, "code": fp.stem[:6],
             "latest_date": latest,
             "sig_type": sig_type, "sig_desc": sig_desc,
-            "stars": stars, "score": raw_score,
+            "stars": html_stars, "score": raw_score,
         })
 
     # 按日期倒序, 同日期按星级降序
