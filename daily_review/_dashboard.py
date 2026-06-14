@@ -146,6 +146,51 @@ def _dossier_count() -> int:
     return len(list(d.glob("*.md"))) if d.exists() else 0
 
 
+def _score_dossier(text: str, latest_date: str) -> tuple[int, str]:
+    """计算研报档案星级评分 (1-5).
+
+    维度: 信号强度(30) + LLM评分(30) + 机构数(15) + 信号频率(15) + 新鲜度(10)
+    """
+    import re
+    score = 0
+
+    # 1. 信号强度 (绝对值加总, max 30)
+    weights = re.findall(r"\(([+-]?\d+)分\)", text)
+    signal_sum = sum(abs(int(w)) for w in weights)
+    score += min(signal_sum * 2, 30)
+
+    # 2. LLM评分 (max 30)
+    llm_m = re.search(r"评分:\s*(\d+)", text)
+    if llm_m:
+        score += min(int(llm_m.group(1)) * 0.3, 30)
+
+    # 3. 机构覆盖 (评级表行数, max 15)
+    inst_count = len(re.findall(r"^\| \d{4}-\d{2}-\d{2} \|", text, re.MULTILINE))
+    score += min(inst_count * 3, 15)
+
+    # 4. 信号频次 (不同日期数, max 15)
+    sig_dates = set(re.findall(r"### (\d{4}-\d{2}-\d{2})", text))
+    sig_dates |= set(re.findall(r"## .+ \((\d{4}-\d{2}-\d{2})\)", text))
+    score += min(len(sig_dates) * 5, 15)
+
+    # 5. 新鲜度 (max 10)
+    if latest_date:
+        try:
+            days = (date.today() - date.fromisoformat(latest_date)).days
+            if days <= 1: score += 10
+            elif days <= 3: score += 6
+            elif days <= 7: score += 3
+            elif days <= 14: score += 1
+        except Exception:
+            pass
+
+    if score >= 70: return (score, "★★★★★")
+    if score >= 50: return (score, "★★★★")
+    if score >= 30: return (score, "★★★")
+    if score >= 15: return (score, "★★")
+    return (score, "★")
+
+
 def _generate_dossier_index():
     """生成研报档案索引 README → reports/research_dossiers/README.md"""
     import re
@@ -172,13 +217,16 @@ def _generate_dossier_index():
         display = f"{name} ({fp.stem[:6]})" if name else fp.stem[:6]
         sigs = re.findall(r"- \[(\w+)\]\s*(.+?)(?:\s*\([+-]?\d+分\))?\s*$", text, re.MULTILINE)
         sig_type, sig_desc = sigs[-1] if sigs else ("", "")
+        raw_score, stars = _score_dossier(text, latest)
         dossiers.append({
             "display": display, "code": fp.stem[:6],
             "latest_date": latest,
             "sig_type": sig_type, "sig_desc": sig_desc,
+            "stars": stars, "score": raw_score,
         })
 
-    dossiers.sort(key=lambda x: x["latest_date"], reverse=True)
+    # 按日期倒序, 同日期按星级降序
+    dossiers.sort(key=lambda x: (x["latest_date"], x["score"]), reverse=True)
 
     today_list = [x for x in dossiers if x["latest_date"] == today.isoformat()]
     week_list = [x for x in dossiers if today.isoformat() > x["latest_date"] >= week_ago.isoformat()]
@@ -200,11 +248,11 @@ def _generate_dossier_index():
         buf.append(heading)
         buf.append("")
         if items:
-            buf.append("| 标的 | 代码 | 最后信号日 | 最新信号 |")
-            buf.append("|------|:----:|:----------:|----------|")
+            buf.append("| 评级 | 标的 | 代码 | 最后信号日 | 最新信号 |")
+            buf.append("|:----:|------|:----:|:----------:|----------|")
             for x in items:
                 sig = f"{x['sig_type']}: {x['sig_desc'][:30]}" if x["sig_type"] else "—"
-                buf.append(f"| {x['display']} | {x['code']} | {x['latest_date']} | {sig} |")
+                buf.append(f"| {x['stars']} | {x['display']} | {x['code']} | {x['latest_date']} | {sig} |")
         else:
             buf.append("_暂无_")
         buf.append("")
