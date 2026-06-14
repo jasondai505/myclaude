@@ -267,3 +267,38 @@ AskUserQuestion 3 分钟无响应 → PushPlus 微信推送。4 个文件：`_ho
 - `_dashboard.py` 自动生成，中文标签 + emoji + 可操作警报
 - Obsidian Homepage 插件设为首页
 - 每日 daily_collect 末尾自动生成并同步到根目录
+
+## 标题党事故（2026-06-14 审计发现并修复）
+
+**问题**：audit 发现 `announcement_deep_read` / `research_deep_read` / `_analyze_industry` 三条 LLM 管线，LLM 实际只读到标题+元数据，从未见到原文正文。
+
+**根因**：`ann_full_text = a.get("title", "")` 把标题当全文。东财 API 只返回元数据，正文在 PDF 里，系统没有 PDF→文本提取层。
+
+**修复**（3 个 commit，233 行新增）：
+1. `d42cf90` — 新建 `pdf_utils.py`（pdfplumber 提取 + UA 池 + 清洗），三条管线接入 PDF 正文
+2. `492a89b` — 研报 PDF 新格式 (`h3_base64`) 部分 404 → 加 HTML 详情页降级 + URL 修复
+3. `e898e2f` — `_analyze_industry` SQL 漏选+漏传 `info_code` 导致双降级全失败
+
+**验证**：重跑 33 条 deep_read，Haiku 提取从全 None → 具体数字；53 行业月报 435/800 篇缓存正文 (54%)。
+
+**教训**：
+- 代码正确 ≠ 数据正确。必须抽查 LLM 实际收到的 prompt 内容
+- 共享层缺失（PDF→文本）会导致所有下游管线同时出问题
+- 多级降级的每个参数必须在所有调用点传齐，缺一个 = 降级链断裂
+- 输出有数字 = 正文生效，全是定性描述 = 大概率标题党
+
+**pdf_utils.py 使用方式**：
+```python
+from pdf_utils import download_announcement_pdf, download_report_pdf
+
+# 公告 PDF（需 art_code，从 URL 提取 ANxxxx）
+text = download_announcement_pdf(art_code)
+
+# 研报 PDF（需 pdf_url + info_code，支持 PDF→HTML 降级）
+text = download_report_pdf(pdf_url, info_code)
+```
+- 公告截断 4000 字（取头尾各 2000），研报 3000 字
+- 扫描件 PDF 自动返回 None（pdfplumber 对图片返回空）
+- 正文缓存到 DB：`store.save_announcement_content` / `store.save_report_body_text`
+- DB 表变更：`announcements` 加 `art_code`+`content`，`research_reports` 加 `body_text`+`info_code`，`industry_reports` 加 `body_text`
+- 31910 条历史公告已回填 `art_code`
