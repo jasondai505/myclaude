@@ -617,13 +617,14 @@ def save_research_reports(reports: list[dict]):
             conn.execute(
                 "INSERT OR REPLACE INTO research_reports "
                 "(code, report_date, institution, name, title, rating, "
-                " target_price, eps_y1, eps_y2, eps_y3, industry, pdf_url, fetched_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " target_price, eps_y1, eps_y2, eps_y3, industry, pdf_url, info_code, fetched_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     r["code"], r["report_date"], r["institution"],
                     r.get("name", ""), r.get("title", ""), r.get("rating", ""),
                     r.get("target_price"), r.get("eps_y1"), r.get("eps_y2"), r.get("eps_y3"),
-                    r.get("industry", ""), r.get("pdf_url", ""), now,
+                    r.get("industry", ""), r.get("pdf_url", ""),
+                    r.get("info_code", ""), now,
                 ),
             )
 
@@ -1076,6 +1077,7 @@ def _migrate_columns(conn):
     migrations = [
         ("announcements", "art_code", "TEXT"),
         ("announcements", "content", "TEXT"),
+        ("research_reports", "info_code", "TEXT"),
         ("research_reports", "body_text", "TEXT"),
         ("industry_reports", "body_text", "TEXT"),
     ]

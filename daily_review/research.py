@@ -98,6 +98,7 @@ def fetch_all_research_reports(begin: str, end: str) -> list[dict]:
                 "target_price": target_price,
                 "industry": str(item.get("indvInduName", "") or item.get("industryName", "")),
                 "pdf_url": pdf_url,
+                "info_code": str(item.get("infoCode", "")),
             })
 
         total = data.get("hits", 0)

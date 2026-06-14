@@ -102,21 +102,25 @@ def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> di
                 for rep in r.get("reports", [])[:5]
             )
 
-            # 下载研报 PDF 正文
+            # 下载研报正文（PDF → HTML 降级）
             report_text = "（研报正文暂不可用）"
             reports = r.get("reports", [])
             if reports:
-                pdf_url = reports[0].get("pdf_url", "")
+                rep = reports[0]
+                pdf_url = rep.get("pdf_url", "")
+                info_code = rep.get("info_code", "")
                 if pdf_url:
                     try:
                         from pdf_utils import download_report_pdf
-                        body = download_report_pdf(pdf_url) or ""
+                        body = download_report_pdf(pdf_url, info_code) or ""
                         if body:
                             report_text = body
                             store.save_report_body_text(
                                 "research_reports", "pdf_url", pdf_url, body)
-                    except Exception:
-                        pass
+                        else:
+                            print(f"  [WARN] 研报正文不可用 {r.get('code','')}")
+                    except Exception as e:
+                        print(f"  [WARN] 研报下载失败 {r.get('code','')}: {e}")
 
             prompt = _RESEARCH_LLM_PROMPT.format(
                 name=r.get("name", ""),
