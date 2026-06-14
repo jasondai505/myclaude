@@ -1,4 +1,4 @@
-"""行业/策略/宏观研报 LLM 分析 — 快速主题提炼"""
+"""行业/策略/宏观研报 LLM 分析 — 深度主题解读"""
 import json, sqlite3, sys, time
 from pathlib import Path
 from collections import defaultdict
@@ -14,13 +14,21 @@ OUT = REPORT_DIR / "feeds" / "industry_analysis_2026-05-15_06-14.md"
 
 PROMPT = """你是A股行业分析师。以下是过去一个月某行业的所有研报标题、机构和正文摘要。
 
-请用100字以内提炼：
-1. 这个行业近一个月的核心议题和变化趋势是什么？
-2. 机构共识方向（看多什么？担心什么？）
-3. 如果有分歧，分歧在哪？
+请完成两项任务：
+
+一、表格摘要（各一行）：
+- core_theme：近一个月核心议题和变化趋势
+- consensus：机构共识方向（看多什么？担心什么？）
+- divergence：分歧在哪（无则空）
+
+二、深度解读（deep_analysis，200-300字）：
+基于研报正文中的具体数据（盈利预测、产能、价格、政策细节），展开分析：
+1. 这个月发生了哪些具体事件/数据变化推动机构关注？
+2. 龙头/核心标的的盈利趋势和估值逻辑有什么变化？
+3. 当前市场对这个行业的定价是否存在系统性偏差？
 
 只返回JSON：
-{"industry": "行业名", "core_theme": "核心议题", "consensus": "共识方向", "divergence": "分歧(无则空)", "hot_level": "🔥/📌/👀"}"""
+{"industry": "行业名", "hot_level": "🔥/📌/👀", "core_theme": "核心议题", "consensus": "共识方向", "divergence": "分歧(无则空)", "deep_analysis": "200-300字深度解读"}"""
 
 START = "2026-05-15"
 END = "2026-06-14"
@@ -116,7 +124,7 @@ def main():
 
         try:
             resp = client.messages.create(
-                model=model, max_tokens=300,
+                model=model, max_tokens=800,
                 messages=[{"role": "user", "content": prompt}],
                 thinking={"type": "disabled"},
             )
@@ -171,6 +179,20 @@ def main():
             f"{a.get('inst_count','')} | "
             f"{a.get('core_theme','')[:40]} | {a.get('consensus','')[:40]} |"
         )
+
+    # 深度解读（★★★★ 及以上）
+    deep_items = [a for a in analyses if a.get("deep_analysis", "").strip()]
+    if deep_items:
+        buf.extend(["", "## 重点行业深度解读", ""])
+        for a in deep_items:
+            hot = a.get("hot_level", "👀")
+            stars = _industry_stars(a.get("count", 0), hot, a.get("inst_count", 0))
+            buf.extend([
+                f"### {stars} {a['industry']} ({a.get('count', 0)}篇 · {a.get('inst_count', 0)}家机构)",
+                "",
+                a.get("deep_analysis", "").strip(),
+                "",
+            ])
     
     buf.extend([
         "",
