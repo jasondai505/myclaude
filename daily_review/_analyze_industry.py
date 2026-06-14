@@ -10,7 +10,7 @@ from daily_review.pdf_utils import download_report_pdf
 import daily_review.store as store
 
 DB = Path(__file__).parent / "data" / "review.db"
-OUT = REPORT_DIR / "feeds" / "industry_analysis_2026-05-15_06-14.md"
+OUT = REPORT_DIR / "industry" / "industry_monthly_2026-05-15_06-14.md"
 
 PROMPT = """你是A股行业分析师。以下是过去一个月某行业的所有研报标题、机构和正文摘要。
 

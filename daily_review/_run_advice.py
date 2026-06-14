@@ -19,6 +19,7 @@ from anthropic import Anthropic
 MODEL = "claude-sonnet-4-6-20250514"
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
 FEEDS_DIR = BASE / "reports" / "feeds"
+CATALYST_DIR = BASE / "reports" / "catalyst"
 MAX_DIRECT_CHARS = 6000
 
 FEED_FILES = [
@@ -196,7 +197,7 @@ def _summarize_feed(content: str, source_name: str) -> str:
 
 def _inject_catalyst_screen(today: str) -> str:
     """读取催化筛查报告，压缩为 advice prompt 可用的紧凑格式"""
-    path = FEEDS_DIR / f"catalyst_screen_{today}.json"
+    path = CATALYST_DIR / f"catalyst_screen_{today}.json"
     if not path.exists():
         return "（今日催化筛查报告暂未生成）"
 
@@ -237,7 +238,7 @@ def _inject_catalyst_screen(today: str) -> str:
 
 def _inject_catalyst_track(today: str) -> str:
     """读取催化剂走势跟踪报告"""
-    path = FEEDS_DIR / f"catalyst_track_{today}.md"
+    path = CATALYST_DIR / f"catalyst_track_{today}.md"
     if not path.exists():
         return "（今日催化剂走势跟踪暂未生成）"
     try:
@@ -1273,7 +1274,7 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
     catalyst_picks = []
     try:
         cat_data = json.loads(
-            (FEEDS_DIR / f"catalyst_screen_{today}.json").read_text(encoding="utf-8"))
+            (CATALYST_DIR / f"catalyst_screen_{today}.json").read_text(encoding="utf-8"))
         cat_candidates = cat_data.get("catalysts", [])
         cat_maps = cat_data.get("stock_maps", {})
         # 按行动性排序，取不在 top7 中的标的

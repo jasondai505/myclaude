@@ -421,7 +421,8 @@ def generate(today_str: str = "") -> str:
     w("| 盘前建议 | `daily_review/reports/advice/advice_{date}.md` |")
     w("| 公告深研 | `daily_review/reports/deep_read/` |")
     w("| 个股档案 | `daily_review/reports/research_dossiers/` |")
-    w("| 催化跟踪 | `daily_review/reports/feeds/catalyst_track_{date}.md` |")
+    w("| 催化筛查 | `daily_review/reports/catalyst/` |")
+    w("| 行业研报 | `daily_review/reports/industry/` |")
     w("| Git 历史 | 终端: `git log --oneline` |")
     w("| 会话转录 | `~/.claude/projects/C--Users-daixin-myclaude/*.jsonl` (grep 关键词) |")
 

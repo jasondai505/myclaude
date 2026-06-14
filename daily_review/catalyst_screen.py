@@ -22,8 +22,8 @@ from roles import get_client, get_model
 from config import REPORT_DIR, CONCEPT_HIERARCHY
 
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
-FEEDS_DIR = REPORT_DIR / "feeds"
-FEEDS_DIR.mkdir(parents=True, exist_ok=True)
+CATALYST_DIR = REPORT_DIR / "catalyst"
+CATALYST_DIR.mkdir(parents=True, exist_ok=True)
 
 MULTI_MAP_PATH = Path(__file__).parent / "data" / "multi_concept_map.json"
 
@@ -497,12 +497,12 @@ def _generate_report(catalysts: list[dict], stock_maps: dict, today: str) -> Pat
     w(f"\n**今日综判**: {json_cat.get('summary','') or '（无高行动性催化）'}")
     w(f"\n**盘面影响**: {json_cat.get('market_implication','') or '—'}")
 
-    out = FEEDS_DIR / f"catalyst_screen_{today}.md"
+    out = CATALYST_DIR / f"catalyst_screen_{today}.md"
     out.write_text("\n".join(L), encoding="utf-8")
     return out
 
 def _save_json(catalysts: list[dict], stock_maps: dict, today: str):
-    out = FEEDS_DIR / f"catalyst_screen_{today}.json"
+    out = CATALYST_DIR / f"catalyst_screen_{today}.json"
     data = {"date": today, "catalysts": catalysts, "stock_maps": stock_maps}
     out.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 

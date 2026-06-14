@@ -32,8 +32,8 @@ try:
 except ImportError:
     def _push(title, content): return False
 
-FEEDS_DIR = REPORT_DIR / "feeds"
-FEEDS_DIR.mkdir(parents=True, exist_ok=True)
+CATALYST_DIR = REPORT_DIR / "catalyst"
+CATALYST_DIR.mkdir(parents=True, exist_ok=True)
 CACHE_DIR = Path(__file__).parent / "data" / "commonality_cache"
 
 LOOKBACK_DAYS = 14
@@ -253,7 +253,7 @@ def track(today_str: str):
         if any(dr.get("delayed") for dr in dr_confirmed):
             w("\n> ⚠️ 部分标的在深度研读后超过3日才被市场确认，说明逻辑领先于价格。")
 
-    out = FEEDS_DIR / f"catalyst_track_{today_str}.md"
+    out = CATALYST_DIR / f"catalyst_track_{today_str}.md"
     out.write_text("\n".join(L), encoding="utf-8")
     print(f"  Report: {out}")
 

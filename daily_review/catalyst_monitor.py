@@ -27,8 +27,8 @@ try:
 except ImportError:
     def _push(title, content): return False
 
-FEEDS_DIR = REPORT_DIR / "feeds"
-FEEDS_DIR.mkdir(parents=True, exist_ok=True)
+CATALYST_DIR = REPORT_DIR / "catalyst"
+CATALYST_DIR.mkdir(parents=True, exist_ok=True)
 INTEL_REPORTS = Path(__file__).parent.parent / "morning_intel" / "reports"
 
 ALERT_CHG_PCT = 3.0
@@ -81,7 +81,7 @@ def _scan_intraday_delta(today_str: str) -> dict[str, list[dict]]:
         return {}
 
     # 内容去重缓存
-    cache_path = FEEDS_DIR / f"_intraday_hash_{today_str}.txt"
+    cache_path = CATALYST_DIR / f"_intraday_hash_{today_str}.txt"
     content_hash = hashlib.md5(text.encode()).hexdigest()
     if cache_path.exists():
         try:
@@ -205,7 +205,7 @@ def _score_resurrection(q: dict) -> tuple[int, list[str]]:
 def load_catalyst_stocks(today_str: str) -> dict[str, list[dict]]:
     """监控池 = 今日催化 + 7天历史未确认催化 + 盘中增量"""
     result = {}
-    path = FEEDS_DIR / f"catalyst_screen_{today_str}.json"
+    path = CATALYST_DIR / f"catalyst_screen_{today_str}.json"
     if path.exists():
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -353,7 +353,7 @@ def monitor(today_str: str):
                 L.append(f"- **{a['code']} {a['name']}** {flags} (置信度={a['confidence']}){hist_tag}")
             L.append("")
 
-        out = FEEDS_DIR / f"catalyst_monitor_{today_str}.md"
+        out = CATALYST_DIR / f"catalyst_monitor_{today_str}.md"
         out.write_text("\n".join(L), encoding="utf-8")
         print(f"  Report: {out}")
 
