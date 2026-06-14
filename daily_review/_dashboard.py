@@ -184,20 +184,14 @@ def _score_dossier(text: str, latest_date: str) -> tuple[int, str]:
         except Exception:
             pass
 
-    STAR_COLORS = {
-        5: ("★★★★★", "#FFD700"),
-        4: ("★★★★",   "#4CAF50"),
-        3: ("★★★",    "#2196F3"),
-        2: ("★★",     "#FF9800"),
-        1: ("★",      "#9E9E9E"),
-    }
+    STAR_EMOJI = {5: "🟡", 4: "🟢", 3: "🔵", 2: "🟠", 1: "⚫"}
+    STARS = {5: "★★★★★", 4: "★★★★", 3: "★★★", 2: "★★", 1: "★"}
     if score >= 70: n = 5
     elif score >= 50: n = 4
     elif score >= 30: n = 3
     elif score >= 15: n = 2
     else: n = 1
-    stars, color = STAR_COLORS[n]
-    return (score, f'<span style="color:{color}">{stars}</span>', stars)
+    return (score, f'{STAR_EMOJI[n]} **{STARS[n]}**', STARS[n])
 
 
 def _generate_dossier_index():
