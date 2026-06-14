@@ -641,16 +641,21 @@ def save_industry_reports(reports: list[dict]):
             "  report_subtype TEXT, attach_pages INTEGER, org_code TEXT,"
             "  fetched_at TEXT)"
         )
+        import hashlib
         added = 0
         for r in reports:
+            info_code = r.get("info_code", "")
+            if not info_code:
+                raw = f"{r.get('title','')}|{r.get('institution','')}|{r.get('report_date','')}"
+                info_code = "EM" + hashlib.md5(raw.encode()).hexdigest()[:18]
             cur = conn.execute(
-                "INSERT OR IGNORE INTO industry_reports "
+                "INSERT OR REPLACE INTO industry_reports "
                 "(info_code, title, report_date, institution, industry_name, "
                 " industry_code, researcher, pdf_url, encode_url, "
                 " report_subtype, attach_pages, org_code, fetched_at) "
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
-                    r.get("info_code", ""), r.get("title", ""),
+                    info_code, r.get("title", ""),
                     r.get("report_date", ""), r.get("institution", ""),
                     r.get("industry_name", ""), r.get("industry_code", ""),
                     r.get("researcher", ""), r.get("pdf_url", ""),
