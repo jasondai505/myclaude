@@ -13,8 +13,24 @@ from config import REPORT_DIR
 RESEARCH_DIR = REPORT_DIR / "research_dossiers"
 
 
-def _dossier_path(code: str) -> Path:
+def _sanitize_name(name: str) -> str:
+    return "".join(c for c in str(name) if c not in r'\/:*?"<>|').strip()
+
+
+def _find_dossier(code: str) -> Path | None:
+    """按代码查找已有档案（兼容新旧命名）。"""
     RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
+    code = str(code).zfill(6)
+    for p in RESEARCH_DIR.glob(f"{code}*.md"):
+        return p
+    return None
+
+
+def _dossier_path(code: str, name: str = "") -> Path:
+    RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
+    code = str(code).zfill(6)
+    if name:
+        return RESEARCH_DIR / f"{code}_{_sanitize_name(name)}.md"
     return RESEARCH_DIR / f"{code}.md"
 
 
@@ -49,8 +65,14 @@ def upsert_stock_dossier(result: dict) -> str:
     """更新个股研报档案（新信号追加）。返回文件路径。"""
     code = str(result.get("code", "")).zfill(6)
     name = result.get("name", "")
-    path = _dossier_path(code)
     today = date.today().isoformat()
+
+    # 优先查找已有档案（兼容旧命名 {code}.md）
+    existing = _find_dossier(code)
+    if existing:
+        path = existing
+    else:
+        path = _dossier_path(code, name)
 
     signals = result.get("signals", [])
     reports = result.get("reports", [])

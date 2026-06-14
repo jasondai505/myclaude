@@ -17,9 +17,19 @@ SOURCE_NAME = "sentiment_track"
 RESEARCH_DIR = Path("reports") / "research_dossiers"
 
 
+def _find_dossier(code: str) -> Path | None:
+    code = str(code).zfill(6)
+    RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
+    for p in RESEARCH_DIR.glob(f"{code}*.md"):
+        return p
+    return None
+
+
 def _append_to_dossier(code: str, today: str, section_title: str, signals: list[dict]) -> bool:
     """将信号追加到 Obsidian 个股档案（无档案则新建）。"""
-    path = RESEARCH_DIR / f"{code}.md"
+    code = str(code).zfill(6)
+    existing = _find_dossier(code)
+    path = existing or (RESEARCH_DIR / f"{code}.md")
 
     if not path.exists():
         # 新建轻量档案
