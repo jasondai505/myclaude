@@ -63,7 +63,7 @@ HTML_TPL = """<!DOCTYPE html>
 </head>
 <body>
 <div class="header">
-  <p>📡 盘前建议 · 自动生成 · 每日 08:30 前更新</p>
+  <p>📡 盘前建议 · {gen_time}</p>
   <p>API: <a href="/json">/json</a> · <a href="/md">/md</a> · <a href="/health">/health</a></p>
 </div>
 {body}
@@ -150,9 +150,11 @@ class AdviceHandler(BaseHTTPRequestHandler):
             self._send(200, content, "text/markdown; charset=utf-8")
         else:
             # / → HTML 网页
+            gen_m = re.search(r"生成时间:\s*(.+)", content)
+            gen_time = gen_m.group(1).strip() if gen_m else f"日期 {advice_date}"
             clean = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", content)
             html_body = markdown.markdown(clean, extensions=["tables", "fenced_code"])
-            html = HTML_TPL.format(date=advice_date, body=html_body)
+            html = HTML_TPL.format(date=advice_date, gen_time=gen_time, body=html_body)
             self._send(200, html, "text/html; charset=utf-8")
 
     def log_message(self, format, *args):

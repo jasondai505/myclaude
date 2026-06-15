@@ -171,6 +171,19 @@ def check_pipeline_logs():
         print(f"  [流水线] 最近日志: {latest.name} ({hours_ago:.0f}h前)")
 
 
+def check_advice_server():
+    """检查 advice HTTP 服务 (端口 8900) 是否存活"""
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.settimeout(5)
+        s.connect(("127.0.0.1", 8900))
+        s.close()
+        print("  [advice_server] 端口 8900: OK")
+    except (ConnectionRefusedError, OSError, socket.timeout):
+        ISSUES.append("advice_server: 端口 8900 无响应 → 手动 python daily_review/advice_server.py --daemon")
+
+
 def main():
     print(f"=== 系统健康检查 {datetime.now().strftime('%Y-%m-%d %H:%M')} ===")
     check_rss()
@@ -179,6 +192,7 @@ def main():
     check_fev_delta()
     check_placeholder_leaks()
     check_pipeline_logs()
+    check_advice_server()
 
     if ISSUES:
         msg = "\n".join(f"- {i}" for i in ISSUES)

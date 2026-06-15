@@ -197,14 +197,13 @@ def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> di
         except Exception as e:
             print(f"  [WARN] deep_read_results 保存失败: {e}")
 
+    msg = (
+        f"{len(raw_anns)} 条公告 → Stage 1 通过 {stage1_count} 条 → "
+        f"Stage 2 完成 {stage2_count} 条 → 存档 {saved_count} 条"
+    )
+    store.upsert_collect_status(SOURCE_NAME, date_str, "ok", msg, saved_count)
     return {
-        "last_date": date_str,
-        "stage1_count": stage1_count,
-        "stage2_count": stage2_count,
-        "saved_count": saved_count,
-        "status": "ok",
-        "message": (
-            f"{len(raw_anns)} 条公告 → Stage 1 通过 {stage1_count} 条 → "
-            f"Stage 2 完成 {stage2_count} 条 → 存档 {saved_count} 条"
-        ),
+        "last_date": date_str, "stage1_count": stage1_count,
+        "stage2_count": stage2_count, "saved_count": saved_count,
+        "status": "ok", "message": msg,
     }

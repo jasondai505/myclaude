@@ -77,7 +77,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
     },
     "intraday": {
         "name": "盘中流水线",
-        "desc": "增量采集 → 盘中情报 → 盘前验证",
+        "desc": "增量采集 → 盘中情报 → 盘前验证 （⚠️ 已由 run_intraday_loop.py 双频自循环替代，保留仅作手动备用）",
         "trigger": "10:30 / 14:00",
         "steps": [
             {"id": "health", "name": "系统健康检查", "cmd": "python daily_review/health_check.py"},

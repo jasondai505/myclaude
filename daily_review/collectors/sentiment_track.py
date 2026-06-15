@@ -81,10 +81,10 @@ def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> di
                 updated += 1
 
     total = len(survey_signals) + len(interaction_signals) + len(earnings_signals)
+    msg = f"调研{len(survey_signals)}+互动{len(interaction_signals)}+业绩{len(earnings_signals)}={total}只({updated}存档)"
+    store.upsert_collect_status(SOURCE_NAME, today_str, "ok", msg, updated)
     return {
-        "last_date": today_str,
-        "status": "ok",
-        "message": f"调研{len(survey_signals)}+互动{len(interaction_signals)}+业绩{len(earnings_signals)}={total}只({updated}存档)",
+        "last_date": today_str, "status": "ok", "message": msg,
         "survey_count": len(survey_signals),
         "interaction_count": len(interaction_signals),
         "earnings_count": len(earnings_signals),

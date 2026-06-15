@@ -156,11 +156,10 @@ def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> di
         except Exception as e:
             print(f"  [WARN] 存档失败 {r['code']}: {e}")
 
+    msg = f"{len(results)} 只股票有信号, {llm_count} 只触发LLM, {dossier_count} 份档案更新"
+    store.upsert_collect_status(SOURCE_NAME, today_str, "ok", msg, dossier_count)
     return {
-        "last_date": today_str,
-        "signal_count": len(results),
-        "llm_count": llm_count,
-        "dossier_count": dossier_count,
-        "status": "ok",
-        "message": f"{len(results)} 只股票有信号, {llm_count} 只触发LLM, {dossier_count} 份档案更新",
+        "last_date": today_str, "signal_count": len(results),
+        "llm_count": llm_count, "dossier_count": dossier_count,
+        "status": "ok", "message": msg,
     }

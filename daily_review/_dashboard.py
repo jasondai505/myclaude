@@ -5,11 +5,19 @@ Obsidian 中可用 Homepage 插件设为首页，或固定标签页。
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import store
 from config import REPORT_DIR
+
+
+def _last_trading_day(ref: date | None = None) -> date:
+    """最近一个交易日（跳过周末）。"""
+    d = (ref or date.today()) - timedelta(days=1)
+    while d.weekday() >= 5:
+        d = d - timedelta(days=1)
+    return d
 
 DASHBOARD_PATH = REPORT_DIR / "Dashboard.md"
 
@@ -292,14 +300,15 @@ def _data_freshness(source: str) -> tuple[str, str]:
 
 
 def generate(today_str: str = "") -> str:
+    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M")
     today = today_str or date.today().isoformat()
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    last_trade = _last_trading_day().isoformat()
     L = []
     def w(s=""): L.append(s)
 
     w(f"# 📊 每日仪表盘 {today}")
     w()
-    w(f"> 自动生成 | [复盘](daily_review/reports/review/review_{yesterday}.md) | [建议](daily_review/reports/advice/advice_{today}.md) | [深研档案](daily_review/reports/deep_read/) | [个股档案](daily_review/reports/research_dossiers/)")
+    w(f"> 生成时间: {now_ts} | [复盘](daily_review/reports/review/review_{last_trade}.md) | [建议](daily_review/reports/advice/advice_{today}.md) | [深研档案](daily_review/reports/deep_read/) | [个股档案](daily_review/reports/research_dossiers/)")
     w()
 
     # === 五维状态 ===
