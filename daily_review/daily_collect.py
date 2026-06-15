@@ -278,6 +278,11 @@ def main():
         if results[src].get("status") == "timeout":
             print(f"  ⏰ {src} 超时({timeout}s)，跳过")
             store.upsert_collect_status(src, fmt_iso(until), "timeout", f"超时({timeout}s)", 0)
+        elif results[src].get("status") == "ok":
+            # 兜底：确保成功状态写入 DB（即使 collector 忘了调 upsert_collect_status）
+            store.upsert_collect_status(
+                src, results[src].get("last_date", fmt_iso(until)), "ok",
+                results[src].get("message", ""), results[src].get("added_count", 0))
 
     # 星球深度分析（依赖 zsxq 采集完成，LLM 加工）
     if "zsxq" in sources:

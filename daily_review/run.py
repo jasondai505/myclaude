@@ -30,7 +30,10 @@ import data
 import engine
 import report
 from screener import run_scan
-from research import run_research
+try:
+    from research import run_research
+except ImportError:
+    run_research = None  # 研报采集已迁至 daily_collect.py research_reports collector
 from earnings_screen import run_earnings_screen
 from zsxq_cross import run_cross, load_cookie, fetch_recent_topics, analyze_zsxq_topics, COOKIE_PATH
 from zsxq_collector import sync
@@ -137,7 +140,10 @@ def _dispatch_early(args) -> bool:
     if args.report:
         check_deps()
         trade_date = resolve_trade_date(args.date)
-        run_research(trade_date)
+        if run_research:
+            run_research(trade_date)
+        else:
+            print("  研报采集已迁至 daily_collect research_reports collector，跳过")
         return True
 
     if args.earnings:

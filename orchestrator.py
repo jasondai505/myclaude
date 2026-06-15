@@ -42,6 +42,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
         "desc": "健康 → 采集 → 公众号 → 摘要 → 追踪 → 四源 → 解读 → FEVΔ → 边际变化 → 建议 → Serenity",
         "trigger": "06:00 盘前（美股4:00收盘，数据源需2h更新窗口）",
         "steps": [
+            {"id": "watchdog", "name": "流水线看门狗", "cmd": "python daily_review/pipeline_watchdog.py"},
             {"id": "health", "name": "系统健康检查", "cmd": "python daily_review/health_check.py"},
             {"id": "collect", "name": "数据采集(日更)", "cmd": "python daily_review/daily_collect.py --tier daily"},
             {"id": "collect_weekly", "name": "数据采集(低频)", "cmd": "python daily_review/daily_collect.py --tier weekly", "only_on": [5]},
