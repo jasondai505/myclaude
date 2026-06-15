@@ -1121,7 +1121,7 @@ def main():
             hot_rank_map[item["code"]] = hr
     major_concepts = {t["theme"] for t in leveled if t.get("today_count", 0) >= 3}
     print("[将成龙] 跨板块性价比筛选...")
-    from strength import score_emerging_dragons, save_emerging_dragons, track_emerging_dragon_outcomes, compute_conversion_rate
+    from emerging_dragon import score_emerging_dragons, save_emerging_dragons, track_emerging_dragon_outcomes, compute_conversion_rate
     emerging_dragons = score_emerging_dragons(
         theme_pool, all_klines_merged, all_quotes_merged, zt_pool,
         fev_map, hot_rank_map, hot_codes, major_concepts, strength_result)

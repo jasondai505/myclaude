@@ -679,33 +679,9 @@ def _render_strength(lines: list, sd: dict, focus_pool_data: list = None,
                         lines.append(_fmt_strength_row(role_name, s, pool_lookup))
                 lines.append("")
 
-    if emerging_dragons and len(emerging_dragons) > 0:
-        lines.append("### 将成龙 — 领先于板块的率先异动\n")
-        lines.append("> 板块前中期 + 个股显著强于板块 + 能在板块调整时逆势走强\n")
-        lines.append("| # | 标的 | 代码 | 板块(阶段) | 个股5日 | 板块5日 | 领先 | 逆势 | 涨停 | 未定价 | 总分 | FEV | 人气# |")
-        lines.append("|--:|------|------|-----------|------:|------:|-----:|:---:|:----:|------:|-----:|----:|------:|")
-        for d in emerging_dragons[:20]:
-            name = d.get("name") or d["code"]
-            fev = d.get("fev_total") or "-"
-            hr = d.get("hot_rank") or "-"
-            stage = d.get("stage", "")
-            counter_str = f"{d['counter_days']}d" + ("🔥" if d.get("has_new_high") else "") + ("↑" if d.get("near_high") else "")
-            # 涨停/连涨/近新高 信号
-            zt_parts = []
-            if d.get("has_limit"):
-                zt_parts.append("涨停")
-            if d.get("consecutive_up", 0) >= 2:
-                zt_parts.append(f"{d['consecutive_up']}连涨")
-            if d.get("near_high"):
-                zt_parts.append("近新高")
-            zt_str = "/".join(zt_parts) if zt_parts else "—"
-            lines.append(
-                f"| {d['rank']} | {name} | {d['code']} | {d['theme']}({stage}) "
-                f"| {d['r5']:+.1f}% | {d['sector_r5']:+.1f}% | +{d['rel_5d']:.1f}pp "
-                f"| {counter_str} | {zt_str} | {d['unpriced_score']:.0f} | {d['value_score']:.0f} "
-                f"| {fev} | {hr} |"
-            )
-        lines.append("")
+    if emerging_dragons:
+        from emerging_dragon import render_table
+        render_table(lines, emerging_dragons)
 
     if fading:
         lines.append("### 退潮板块\n")
@@ -821,24 +797,5 @@ def render_limit_up_analysis(lines: list[str], lu: dict):
 
 
 def _render_dragon_tracking(lines: list, tracked: list[dict], stats: dict):
-    if not tracked:
-        return
-    lines.append("## 附：将成龙追踪\n")
-    note = stats.get("note", "")
-    if note:
-        lines.append(f"> {note}\n")
-    else:
-        lines.append(f"> 累计发现 {stats['total']} 只 | 晋升 {stats['promoted']} 只 ({stats['rate']}) | 数据积累中\n")
-
-    lines.append("| 发现日期 | 标的 | 板块 | 5日% | 性价比 | 当前状态 | 现属板块 |")
-    lines.append("|---------|------|------|-----:|------:|:--------:|---------|")
-    for t in tracked[:20]:
-        name = t.get("name") or t.get("code", "")
-        status = t.get("current_status", "—")
-        cur_theme = t.get("current_theme", "") or "—"
-        lines.append(
-            f"| {t.get('trade_date', '')} | {name} | {t.get('theme', '')} "
-            f"| {t.get('r5', 0):+.1f}% | {t.get('value_score', 0):.0f} "
-            f"| {status} | {cur_theme} |"
-        )
-    lines.append("")
+    from emerging_dragon import render_tracking
+    render_tracking(lines, tracked, stats)
