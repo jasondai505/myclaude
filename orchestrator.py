@@ -52,7 +52,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
             {"id": "synthesis", "name": "四源交叉验证", "cmd": "python daily_review/primary_synthesis.py"},
             {"id": "catalyst_screen", "name": "催化快速筛查", "cmd": "python daily_review/catalyst_screen.py"},
             {"id": "interpret", "name": "盘前解读", "cmd": "python morning_intel/run_morning.py --phase pre"},
-            {"id": "feval", "name": "独立FEV评分", "cmd": "python daily_review/feval.py --from-feeds"},
+            {"id": "unified", "name": "统一FEV+G-Factor评分", "cmd": "python daily_review/unified_scorer.py --from-feeds"},
             {"id": "delta", "name": "Δ 边际变化评分", "cmd": "python daily_review/feval.py --update-delta"},
             {"id": "marginal", "name": "边际变化检测", "cmd": "python daily_review/engine_marginal.py"},
             {"id": "advice", "name": "生成建议", "cmd": "python daily_review/_run_advice.py"},
