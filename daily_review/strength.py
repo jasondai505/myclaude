@@ -429,9 +429,9 @@ def score_emerging_dragons(
                     recent_high = max(highs[-5:])
                     has_new_high = recent_high > prev_high
                     near_high = recent_high > prev_high * 0.9 and not has_new_high
-                # 近期涨停
-                if len(kdf) >= 11:
-                    for i in range(max(1, len(kdf) - 10), len(kdf)):
+                # 近期涨停（只看今天+昨天）
+                if len(kdf) >= 3:
+                    for i in range(max(1, len(kdf) - 2), len(kdf)):
                         if _is_limit_up(kdf, i):
                             has_limit = True
                             break
@@ -459,10 +459,10 @@ def score_emerging_dragons(
                     counter_weighted += recency_w[i] if i < len(recency_w) else 1
             counter_score = counter_weighted * 3 + (10 if has_new_high and counter_days >= 1 else 0)
 
-            # 涨停 + 连涨 (0-15, 适度加分)
+            # 涨停 + 连涨 (0-12, 适度加分)
             momentum_bonus = 0
             if has_limit:
-                momentum_bonus += 8
+                momentum_bonus += 5
             if consecutive_up >= 3:
                 momentum_bonus += 4
             elif consecutive_up >= 2:
