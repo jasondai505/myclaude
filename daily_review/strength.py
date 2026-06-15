@@ -412,6 +412,9 @@ def score_emerging_dragons(
             # 逐日个股涨跌（5天，最近=index 0）
             stock_daily = []
             has_new_high = False
+            near_high = False
+            has_limit = False
+            consecutive_up = 0
             if kdf is not None and len(kdf) >= 6:
                 closes = kdf["close"].values
                 highs = kdf["high"].values if "high" in kdf.columns else closes
@@ -420,25 +423,52 @@ def score_emerging_dragons(
                         stock_daily.append((closes[-d] - closes[-d-1]) / closes[-d-1] * 100)
                     else:
                         stock_daily.append(0.0)
-                # 最近5日是否创新高（20日范围）
+                # 20日新高 / 近新高(>90%分位)
                 if len(highs) >= 20:
                     prev_high = max(highs[-20:-5])
                     recent_high = max(highs[-5:])
                     has_new_high = recent_high > prev_high
+                    near_high = recent_high > prev_high * 0.9 and not has_new_high
+                # 近期涨停
+                if len(kdf) >= 11:
+                    for i in range(max(1, len(kdf) - 10), len(kdf)):
+                        if _is_limit_up(kdf, i):
+                            has_limit = True
+                            break
+                # 连涨天数
+                for j in range(1, min(4, len(closes))):
+                    if closes[-j] > closes[-j - 1]:
+                        consecutive_up += 1
+                    else:
+                        break
             else:
                 stock_daily = [0.0] * 5
 
-            # 相对强度：领先板块多少 (0-70)
+            # 相对强度：领先板块多少 (0-60)
             rel_5d = r5 - sector_r5
             rel_10d = r10 - sector_r10
-            rel_score = _clamp(rel_5d * 2, 0, 40) + _clamp(rel_10d * 1.5, 0, 30)
+            rel_score = _clamp(rel_5d * 2, 0, 35) + _clamp(rel_10d * 1.2, 0, 25)
 
-            # 逆势信号：个股涨+板块跌的天数 (0-30)
+            # 逆势信号：个股涨+板块跌 (0-35, 近期加权)
             counter_days = 0
-            for sd, sec_d in zip(stock_daily, sdr):
+            counter_weighted = 0
+            recency_w = [3, 2, 1, 1, 1]
+            for i, (sd, sec_d) in enumerate(zip(stock_daily, sdr)):
                 if sd > 0 and sec_d < 0:
                     counter_days += 1
-            counter_score = counter_days * 8 + (10 if has_new_high and counter_days >= 1 else 0)
+                    counter_weighted += recency_w[i] if i < len(recency_w) else 1
+            counter_score = counter_weighted * 3 + (10 if has_new_high and counter_days >= 1 else 0)
+
+            # 涨停 + 连涨 (0-15, 适度加分)
+            momentum_bonus = 0
+            if has_limit:
+                momentum_bonus += 8
+            if consecutive_up >= 3:
+                momentum_bonus += 4
+            elif consecutive_up >= 2:
+                momentum_bonus += 2
+            if near_high:
+                momentum_bonus += 3
 
             # 逻辑未定价 (0-20)
             unpriced = 0
@@ -464,7 +494,7 @@ def score_emerging_dragons(
             else:
                 stage_mul = 1.0
 
-            total = (rel_score + counter_score + unpriced) * stage_mul
+            total = (rel_score + counter_score + momentum_bonus + unpriced) * stage_mul
 
             candidates.append({
                 "code": code, "name": name, "theme": theme,
@@ -475,6 +505,8 @@ def score_emerging_dragons(
                 "rel_score": round(rel_score, 1),
                 "counter_days": counter_days, "has_new_high": has_new_high,
                 "counter_score": counter_score,
+                "has_limit": has_limit, "consecutive_up": consecutive_up,
+                "near_high": near_high, "momentum_bonus": momentum_bonus,
                 "unpriced_score": unpriced,
                 "value_score": round(total, 1),
                 "fev_total": fev_total,

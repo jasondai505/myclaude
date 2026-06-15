@@ -682,18 +682,27 @@ def _render_strength(lines: list, sd: dict, focus_pool_data: list = None,
     if emerging_dragons and len(emerging_dragons) > 0:
         lines.append("### 将成龙 — 领先于板块的率先异动\n")
         lines.append("> 板块前中期 + 个股显著强于板块 + 能在板块调整时逆势走强\n")
-        lines.append("| # | 标的 | 代码 | 板块(阶段) | 个股5日 | 板块5日 | 领先 | 逆势 | 未定价 | 总分 | FEV | 人气# |")
-        lines.append("|--:|------|------|-----------|------:|------:|-----:|:---:|------:|-----:|----:|------:|")
+        lines.append("| # | 标的 | 代码 | 板块(阶段) | 个股5日 | 板块5日 | 领先 | 逆势 | 涨停 | 未定价 | 总分 | FEV | 人气# |")
+        lines.append("|--:|------|------|-----------|------:|------:|-----:|:---:|:----:|------:|-----:|----:|------:|")
         for d in emerging_dragons[:20]:
             name = d.get("name") or d["code"]
             fev = d.get("fev_total") or "-"
             hr = d.get("hot_rank") or "-"
             stage = d.get("stage", "")
-            counter_str = f"{d['counter_days']}d" + ("🔥" if d.get("has_new_high") else "")
+            counter_str = f"{d['counter_days']}d" + ("🔥" if d.get("has_new_high") else "") + ("↑" if d.get("near_high") else "")
+            # 涨停/连涨/近新高 信号
+            zt_parts = []
+            if d.get("has_limit"):
+                zt_parts.append("涨停")
+            if d.get("consecutive_up", 0) >= 2:
+                zt_parts.append(f"{d['consecutive_up']}连涨")
+            if d.get("near_high"):
+                zt_parts.append("近新高")
+            zt_str = "/".join(zt_parts) if zt_parts else "—"
             lines.append(
                 f"| {d['rank']} | {name} | {d['code']} | {d['theme']}({stage}) "
                 f"| {d['r5']:+.1f}% | {d['sector_r5']:+.1f}% | +{d['rel_5d']:.1f}pp "
-                f"| {counter_str} | {d['unpriced_score']:.0f} | {d['value_score']:.0f} "
+                f"| {counter_str} | {zt_str} | {d['unpriced_score']:.0f} | {d['value_score']:.0f} "
                 f"| {fev} | {hr} |"
             )
         lines.append("")
