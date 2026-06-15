@@ -460,7 +460,7 @@ def _inject_stock_context(codes: set[str]) -> str:
             "name": q.get("name", ""),
             "mcap_yi": round(q.get("mcap_yi", 0) or 0),
             "pe_ttm": round(q.get("pe_ttm", 0) or 0, 1),
-            "chg_pct": round(q.get("change_pct", 0) or 0, 2),
+            "chg_pct": 0,  # 盘前建议不注入当日涨跌幅，防未来函数
             "amount_yi": round((q.get("amount_wan", 0) or 0) / 10000, 1),
             "fev": fv.get("fev", 0),
             "f_score": fv.get("f", 0), "e_score": fv.get("e", 0),
@@ -1233,7 +1233,7 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
                     "name": q.get("name", c["name"]),
                     "mcap_yi": round(q.get("mcap_yi", 0) or 0),
                     "pe_ttm": round(q.get("pe_ttm", 0) or 0, 1),
-                    "chg_pct": round(q.get("change_pct", 0) or 0, 2),
+                    "chg_pct": 0,  # 盘前建议不注入当日涨跌幅，防未来函数
                 })
             from daily_review.feval import score_batch, save_scores
             new_scores = score_batch(stocks)
