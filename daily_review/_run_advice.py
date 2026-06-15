@@ -1689,7 +1689,7 @@ def _build_daily_diff(today_output: str, yesterday: str, today: str) -> str:
         return ""
 
     # 提取今日精选标的（从硬排名表格中）
-    # 表格列: # | 标的 | FEV | Δ | 加分 | FEVΔ | 持有期 | 来源
+    # 表格列: # | 标的 | 轨 | FEV | Δ | FEVΔ | G分数 | 驱动 | 信号源 | 催化逻辑
     today_stocks = {}
     in_table = False
     for line in today_output.split("\n"):
@@ -1703,10 +1703,9 @@ def _build_daily_diff(today_output: str, yesterday: str, today: str) -> str:
             if m:
                 name, code = m.group(1).strip(), m.group(2)
                 cols = line.split("|")
-                if len(cols) >= 8:
-                    fevd_str = cols[6].strip().strip("*")  # FEVΔ 在第6列
-                    delta_str = cols[4].strip().strip("*")  # Δ 在第4列
-                    hp_str = cols[7].strip()                 # 持有期 在第7列
+                if len(cols) >= 7:
+                    fevd_str = cols[6].strip().strip("*")  # FEVΔ 列
+                    delta_str = cols[5].strip().strip("*")  # Δ 列
                     try:
                         fevd = int(fevd_str)
                     except ValueError:
@@ -1717,9 +1716,7 @@ def _build_daily_diff(today_output: str, yesterday: str, today: str) -> str:
                         delta = 0
                 else:
                     fevd, delta = 0, 0
-                    hp_str = ""
-                hp = hp_str if hp_str in ("短线催化", "中线趋势", "长线底仓") else ""
-                today_stocks[code] = {"name": name, "fevd": fevd, "delta": delta, "hold_period": hp}
+                today_stocks[code] = {"name": name, "fevd": fevd, "delta": delta}
 
     if not today_stocks:
         return ""
@@ -1764,8 +1761,8 @@ def _build_daily_diff(today_output: str, yesterday: str, today: str) -> str:
     if continued:
         lines.append("### ✅ 延续标的")
         lines.append("")
-        lines.append("| 标的 | 昨日FEVΔ | 今日FEVΔ | 变化 | 持有期 |")
-        lines.append("|------|:--------:|:--------:|:----:|:------:|")
+        lines.append("| 标的 | 昨日FEVΔ | 今日FEVΔ | 变化 |")
+        lines.append("|------|:--------:|:--------:|:----:|")
         for code in sorted(continued):
             t = today_stocks[code]
             y = yesterday_stocks[code]
@@ -1774,15 +1771,15 @@ def _build_daily_diff(today_output: str, yesterday: str, today: str) -> str:
             note = "↑" if diff > 0 else ("↓" if diff < 0 else "→")
             lines.append(
                 f"| {t['name']}({code}) | {y['fevd']} | **{t['fevd']}** | "
-                f"{diff_str} {note} | {t['hold_period']} |"
+                f"{diff_str} {note} |"
             )
         lines.append("")
 
     if new_entries:
         lines.append("### 🆕 新进入")
         lines.append("")
-        lines.append("| 标的 | FEVΔ | Δ | 进入原因 | 持有期 |")
-        lines.append("|------|:----:|:--:|---------|:------:|")
+        lines.append("| 标的 | FEVΔ | Δ | 进入原因 |")
+        lines.append("|------|:----:|:--:|---------|")
         for code in sorted(new_entries, key=lambda c: -today_stocks[c]["fevd"]):
             t = today_stocks[code]
             sign = "+" if t["delta"] > 0 else ""
@@ -1794,7 +1791,7 @@ def _build_daily_diff(today_output: str, yesterday: str, today: str) -> str:
             else:
                 reason = "候选池排名上升"
             lines.append(
-                f"| {t['name']}({code}) | **{t['fevd']}** | {ds} | {reason} | {t['hold_period']} |"
+                f"| {t['name']}({code}) | **{t['fevd']}** | {ds} | {reason} |"
             )
         lines.append("")
 
