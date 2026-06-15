@@ -976,10 +976,12 @@ def _validate_advice_coverage(output: str) -> str:
     if not output or len(output) < 500:
         return output
 
-    # 1. 统计精选标的数量（匹配 ### 名称 (6位代码) 格式）
-    stock_blocks = re.findall(r"###\s+.+?\s*\((\d{6})\)", output)
+    # 1. 统计精选标的数量（匹配表格 | **名称(代码)** | 或 ### 名称 (代码) 格式）
+    stock_blocks = re.findall(r"\*\*(.+?)\((\d{6})\)\*\*", output)
+    if not stock_blocks:
+        stock_blocks = re.findall(r"###\s+.+?\s*\((\d{6})\)", output)
     count = len(stock_blocks)
-    codes_found = re.findall(r"###\s+\S+\s*\((\d{6})\)", output)
+    codes_found = [m[1] if isinstance(m, tuple) else m for m in stock_blocks]
 
     warnings = []
     if count < 6:
