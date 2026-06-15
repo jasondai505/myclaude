@@ -5,8 +5,9 @@
     python daily_review/advice_server.py --daemon     # 后台启动（覆盖旧进程）
 
 端点:
-    GET /              → 最新 advice 完整 Markdown
-    GET /json          → JSON {date, time, content, stocks: [{code, name, track, ...}]}
+    GET /              → 最新 advice 网页 (Markdown→HTML)
+    GET /md            → 原始 Markdown
+    GET /json          → JSON {date, stocks: [{code, name, track, fev, delta, fevd}]}
     GET /health        → {"status": "ok", "last_update": "..."}
 """
 from __future__ import annotations
@@ -19,11 +20,56 @@ from datetime import date
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
+import markdown
+
 sys.stdout.reconfigure(encoding="utf-8")
 
 BASE = Path(__file__).resolve().parent
 ADVICE_DIR = BASE / "reports" / "advice"
 PORT = 8900
+
+HTML_TPL = """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>盘前建议 {date}</title>
+<style>
+  :root {{ color-scheme: dark; }}
+  body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         max-width: 1200px; margin: 0 auto; padding: 20px;
+         background: #0d1117; color: #c9d1d9; line-height: 1.6; }}
+  h1 {{ color: #58a6ff; border-bottom: 1px solid #30363d; padding-bottom: 8px; }}
+  h2 {{ color: #f0883e; margin-top: 32px; }}
+  h3 {{ color: #d2a8ff; }}
+  table {{ width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }}
+  th {{ background: #161b22; color: #8b949e; padding: 8px 10px; text-align: center;
+        border: 1px solid #30363d; }}
+  td {{ padding: 8px 10px; border: 1px solid #30363d; }}
+  tr:nth-child(even) {{ background: #161b22; }}
+  code {{ background: #161b22; padding: 2px 6px; border-radius: 4px; font-size: 12px; }}
+  pre {{ background: #161b22; padding: 12px; border-radius: 6px; overflow-x: auto; }}
+  blockquote {{ border-left: 3px solid #58a6ff; margin: 12px 0; padding: 8px 16px;
+                background: #161b22; color: #8b949e; }}
+  a {{ color: #58a6ff; }}
+  details {{ margin: 10px 0; }}
+  summary {{ cursor: pointer; color: #8b949e; }}
+  .header {{ text-align: center; padding: 16px; background: #161b22; border-radius: 8px;
+             margin-bottom: 24px; }}
+  .header p {{ color: #8b949e; margin: 4px 0; }}
+  .footer {{ text-align: center; color: #484f58; font-size: 12px; margin-top: 40px;
+             border-top: 1px solid #30363d; padding-top: 16px; }}
+</style>
+</head>
+<body>
+<div class="header">
+  <p>📡 盘前建议 · 自动生成 · 每日 08:30 前更新</p>
+  <p>API: <a href="/json">/json</a> · <a href="/md">/md</a> · <a href="/health">/health</a></p>
+</div>
+{body}
+<div class="footer">盘前建议 {date} · 数据来源: 星球/公众号/韭研/公告/新闻 · 仅供研究参考不构成投资建议</div>
+</body>
+</html>"""
 
 
 def _latest_advice() -> Path | None:
@@ -93,26 +139,21 @@ class AdviceHandler(BaseHTTPRequestHandler):
             self._send(500, f"读取失败: {e}")
             return
 
-        if path == "/json":
-            advice_date = latest.stem.replace("advice_", "")
-            stocks = _parse_stocks(content)
-            # 去除不可打印字符，防止 JSON 编码失败
-            clean_content = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", content)
-            self._send(200, json.dumps({
-                "date": advice_date,
-                "file": str(latest),
-                "stocks": stocks,
-            }, ensure_ascii=False, indent=2), "application/json")
-        elif path == "/stocks":
-            advice_date = latest.stem.replace("advice_", "")
+        advice_date = latest.stem.replace("advice_", "")
+
+        if path == "/json" or path == "/stocks":
             stocks = _parse_stocks(content)
             self._send(200, json.dumps({
                 "date": advice_date, "stocks": stocks,
             }, ensure_ascii=False, indent=2), "application/json")
-        elif path == "/full":
+        elif path == "/md":
             self._send(200, content, "text/markdown; charset=utf-8")
         else:
-            self._send(200, content, "text/markdown; charset=utf-8")
+            # / → HTML 网页
+            clean = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", content)
+            html_body = markdown.markdown(clean, extensions=["tables", "fenced_code"])
+            html = HTML_TPL.format(date=advice_date, body=html_body)
+            self._send(200, html, "text/html; charset=utf-8")
 
     def log_message(self, format, *args):
         print(f"  [{self.log_date_time_string()}] {args[0]}")
