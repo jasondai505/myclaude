@@ -1115,7 +1115,7 @@ def main():
 
     # Phase 7.5: 将成龙筛选
     hot_rank_map = {}
-    for item in focus_pool_data.get("stocks", []):
+    for item in focus_pool_data:
         hr = item.get("hot_rank")
         if hr:
             hot_rank_map[item["code"]] = hr

@@ -703,7 +703,7 @@ def _render_strength(lines: list, sd: dict, focus_pool_data: list = None,
             lines.append(
                 f"| {d['rank']} | {name} | {d['code']} | {d['theme']} "
                 f"| {d['r5']:+.1f}% | {d['r10']:+.1f}% | {d['vol_ratio']:.1f} "
-                f"| {d['trend_score']} | {d['unpriced_score']} | {d['value_score']} "
+                f"| {d['trend_score']:.0f} | {d['unpriced_score']:.0f} | {d['value_score']:.1f} "
                 f"| {fev} | {hr} | {sig_str} |"
             )
         lines.append("")
