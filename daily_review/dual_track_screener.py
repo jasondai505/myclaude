@@ -17,12 +17,49 @@ from datetime import date
 sys.stdout.reconfigure(encoding="utf-8")
 
 BASE = Path(__file__).resolve().parent
+sys.path.insert(0, str(BASE))
 FEVAL_DB = BASE / "data" / "serenity.db"
 GFACTOR_DB = BASE / "data" / "gfactor.db"
 
 
 def _today() -> str:
     return date.today().strftime("%Y-%m-%d")
+
+
+def _fill_names(records: list[dict]):
+    """用研报表 + 行情 API 回补缺失的名称。"""
+    missing = [r["code"] for r in records if not r.get("name")]
+    if not missing:
+        return
+
+    # 1. 研报表 (最可靠)
+    review_db = BASE / "data" / "review.db"
+    if review_db.exists():
+        conn = sqlite3.connect(str(review_db))
+        conn.row_factory = sqlite3.Row
+        placeholders = ",".join("?" * len(missing))
+        rows = conn.execute(
+            f"SELECT code, name FROM research_reports "
+            f"WHERE code IN ({placeholders}) AND name IS NOT NULL AND name != '' "
+            f"GROUP BY code", missing
+        ).fetchall()
+        name_map = {r["code"]: r["name"] for r in rows}
+        conn.close()
+        for r in records:
+            if not r.get("name"):
+                r["name"] = name_map.get(r["code"], "")
+
+    # 2. 行情 API
+    still_missing = [r["code"] for r in records if not r.get("name")]
+    if still_missing:
+        try:
+            import data
+            quotes = data.fetch_stock_quotes(still_missing, batch_size=50)
+            for r in records:
+                if not r.get("name"):
+                    r["name"] = quotes.get(r["code"], {}).get("name", "")
+        except Exception:
+            pass
 
 
 def load_fev(min_score: int = 0, top_n: int = 50) -> list[dict]:
@@ -46,7 +83,9 @@ def load_fev(min_score: int = 0, top_n: int = 50) -> list[dict]:
             (min_score, top_n),
         ).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    result = [dict(r) for r in rows]
+    _fill_names(result)
+    return result
 
 
 def load_gfactor() -> dict[str, dict]:
@@ -61,7 +100,9 @@ def load_gfactor() -> dict[str, dict]:
         "FROM gfactor_scores WHERE date=(SELECT MAX(date) FROM gfactor_scores)"
     ).fetchall()
     conn.close()
-    return {r["code"]: dict(r) for r in rows}
+    result = {r["code"]: dict(r) for r in rows}
+    _fill_names(list(result.values()))
+    return result
 
 
 def screen(fev_top_n: int = 7, g_per_dim: int = 3, min_fev: int = 15,
