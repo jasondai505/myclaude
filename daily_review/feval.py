@@ -608,16 +608,39 @@ def score_delta_from_feeds(date_str: str = "") -> list[dict]:
     d = date_str or _today()
     feeds_dir = BASE / "reports" / "feeds"
 
-    # 收集 feeds
+    # 收集 feeds：大文件按名称反查摘录上下文，确保「只写名称不写代码」的标的也能被 Haiku 看到
     feed_texts = []
     codes_found: set[str] = set()
+    name_map = data._load_name_to_code_map()
     for pattern in ["zsxq_*.md", "news_*.md", "announcements_*.md", "industry_*.md"]:
         for f in sorted(feeds_dir.glob(pattern)):
             if d in f.name:
                 try:
                     text = f.read_text(encoding="utf-8")
-                    feed_texts.append(f"## {f.stem}\n{text[:3000]}")
                     codes_found.update(data.extract_codes_from_text(text))
+                    if len(text) > 6000 and name_map and "zsxq" in f.stem:
+                        # zsxq 大文件：针对名称匹配到的标的提取上下文（200字窗口）
+                        excerpts = []
+                        seen_excerpts = set()
+                        for m in re.finditer(r"[一-鿿]{2,6}", text):
+                            name = m.group()
+                            code = name_map.get(name)
+                            if code:
+                                start = max(0, m.start() - 100)
+                                end = min(len(text), m.end() + 100)
+                                excerpt = text[start:end].replace("\n", " ")
+                                if excerpt not in seen_excerpts:
+                                    seen_excerpts.add(excerpt)
+                                    excerpts.append(f"[{name}={code}] {excerpt}")
+                        if excerpts:
+                            text = "\n".join(excerpts[:80])  # 最多80条摘录
+                        else:
+                            text = text[:1500] + "\n...(省略)...\n" + text[-4500:]
+                    elif len(text) > 6000:
+                        text = text[:1500] + "\n...(省略)...\n" + text[-4500:]
+                    else:
+                        text = text[:6000]
+                    feed_texts.append(f"## {f.stem}\n{text}")
                 except Exception:
                     pass
 
@@ -627,8 +650,8 @@ def score_delta_from_feeds(date_str: str = "") -> list[dict]:
         if path.exists():
             try:
                 text = path.read_text(encoding="utf-8")
-                feed_texts.append(f"## {label}\n{text[:2000]}")
                 codes_found.update(data.extract_codes_from_text(text))
+                feed_texts.append(f"## {label}\n{text[:2000]}")
             except Exception:
                 pass
 
@@ -671,7 +694,25 @@ def score_delta_from_feeds(date_str: str = "") -> list[dict]:
     client = get_client("synthesis", timeout=120)
 
     combined_feeds = "\n".join(feed_texts)
+
+    # 构建名称→代码速查表：从 feed 文本中提取所有出现的股票名称
+    import data as _data
+    name_map = _data._load_name_to_code_map()
+    name_refs = []
+    if name_map:
+        seen_names = set()
+        for m in re.finditer(r"[一-鿿]{2,6}", combined_feeds):
+            name = m.group()
+            code = name_map.get(name)
+            if code and name not in seen_names:
+                seen_names.add(name)
+                name_refs.append(f"{name}={code}")
+    name_table = "\n".join(name_refs) if name_refs else "（无）"
     prompt = DELTA_PROMPT.format(feed_text=combined_feeds[:20000])
+    prompt = prompt.replace(
+        "信息源:",
+        f"名称→代码速查（信息源中出现的股票名称对应代码，必须使用）:\n{name_table}\n\n信息源:"
+    )
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:

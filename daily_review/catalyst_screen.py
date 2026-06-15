@@ -158,7 +158,23 @@ def _haiku_extract(client, model, items: list[dict], source_type: str) -> list[d
             for j, it in enumerate(batch, start=i)
         )
 
-        prompt = _EXTRACT_PROMPT + "\n来源: " + source_type + "\n\n" + batch_text
+        # 注入名称→代码速查
+        import data as _cd
+        nm = _cd._load_name_to_code_map()
+        name_hints = []
+        if nm:
+            seen = set()
+            for m in re.finditer(r"[一-鿿]{2,6}", batch_text):
+                n = m.group()
+                c = nm.get(n)
+                if c and n not in seen:
+                    seen.add(n)
+                    name_hints.append(f"{n}={c}")
+        hint_text = "\n".join(name_hints) if name_hints else ""
+        prompt = _EXTRACT_PROMPT + "\n来源: " + source_type
+        if hint_text:
+            prompt += f"\n\n名称→代码速查（帖子中出现的股票名称对应6位代码）:\n{hint_text}"
+        prompt += "\n\n" + batch_text
 
         try:
             resp = client.messages.create(

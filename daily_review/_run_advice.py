@@ -356,7 +356,10 @@ def _inject_wechat_raw(today: str) -> str:
 
 
 def _extract_codes_from_feeds(feeds: dict[str, str]) -> set[str]:
-    """从所有 feed 中提取股票代码：正则6位代码 + 全名反向匹配。"""
+    """从所有 feed 中提取股票代码：正则6位代码 + 全名反向匹配。
+
+    同时扫描原始 feed 文件（大文件会被摘要截断，名称可能丢失）。
+    """
     import data
     codes = set()
     for key in ("%%RECAP%%", "%%REVIEW_SUMMARY%%", "%%ZSXQ%%",
@@ -366,6 +369,28 @@ def _extract_codes_from_feeds(feeds: dict[str, str]) -> set[str]:
         text = feeds.get(key, "")
         if text:
             codes.update(data.extract_codes_from_text(text))
+
+    # 补扫原始大文件中的股票名称（无代码的写法如「炬光科技」）
+    # Haiku 摘要可能丢失非核心标的名称，直接从原始文件做名称匹配
+    # 用正则提取中文名称候选 → 查字典，避免 O(名称数×文本长度) 遍历
+    today = date.today().isoformat()
+    name_map = data._load_name_to_code_map()
+    if name_map:
+        for stem in ["zsxq", "wechat", "jiuyang"]:
+            path = FEEDS_DIR / f"{stem}_{today}.md"
+            if not path.exists():
+                continue
+            try:
+                raw = path.read_text(encoding="utf-8")
+                if len(raw) <= MAX_DIRECT_CHARS:
+                    continue
+                # 提取所有2-6字中文序列 → 查名称字典
+                for m in re.finditer(r"[一-鿿]{2,6}", raw):
+                    code = name_map.get(m.group())
+                    if code and code not in codes:
+                        codes.add(code)
+            except Exception:
+                pass
     return codes
 
 
