@@ -56,6 +56,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
             {"id": "delta", "name": "Δ 边际变化评分", "cmd": "python daily_review/feval.py --update-delta"},
             {"id": "marginal", "name": "边际变化检测", "cmd": "python daily_review/engine_marginal.py"},
             {"id": "advice", "name": "生成建议", "cmd": "python daily_review/_run_advice.py"},
+            {"id": "advice_server", "name": "启动Advice服务", "cmd": "python daily_review/advice_server.py --daemon"},
             {"id": "serenity_stocks", "name": "标的FEV评分更新", "cmd": "python daily_review/serenity_kb.py --update-stocks"},
         ],
     },
