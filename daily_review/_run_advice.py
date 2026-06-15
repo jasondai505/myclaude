@@ -1704,9 +1704,9 @@ def _debate_stocks(top10: list[dict]) -> dict[str, list[str]]:
     stock_briefs = []
     for c in top10:
         w1 = w3 = w4 = ""
-        w1_m = re.search(r"-\s*\*\*W1\*\*\s*(.+)", c["block"])
-        w3_m = re.search(r"-\s*\*\*W3\*\*\s*(.+)", c["block"])
-        w4_m = re.search(r"-\s*\*\*W4\*\*\s*(.+)", c["block"])
+        w1_m = re.search(r"-\s*\*\*W1\*\*\s*(.+)", c.get("block", ""))
+        w3_m = re.search(r"-\s*\*\*W3\*\*\s*(.+)", c.get("block", ""))
+        w4_m = re.search(r"-\s*\*\*W4\*\*\s*(.+)", c.get("block", ""))
         if w1_m:
             w1 = w1_m.group(1).strip()[:80]
         if w3_m:
