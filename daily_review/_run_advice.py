@@ -4,6 +4,7 @@ Called by morning_advice.bat Step 5.
 import json
 import os
 import re
+import sqlite3
 import sys
 import time
 from datetime import date, datetime, timedelta
@@ -420,6 +421,25 @@ def _inject_stock_context(codes: set[str]) -> str:
     except Exception:
         pass
 
+    # 从 gfactor 取 G-Factor 四维评分
+    gfactor_map = {}
+    try:
+        gdb = BASE / "data" / "gfactor.db"
+        if gdb.exists():
+            conn_g = sqlite3.connect(str(gdb))
+            conn_g.row_factory = sqlite3.Row
+            for r in conn_g.execute(
+                "SELECT code, g1_score, g2_score, g3_score, g4_score "
+                "FROM gfactor_scores WHERE date=(SELECT MAX(date) FROM gfactor_scores)"
+            ).fetchall():
+                gfactor_map[r["code"]] = {
+                    "g1": r["g1_score"], "g2": r["g2_score"],
+                    "g3": r["g3_score"], "g4": r["g4_score"],
+                }
+            conn_g.close()
+    except Exception:
+        pass
+
     # 深度研读数据
     dr_map = {}
     try:
@@ -447,6 +467,7 @@ def _inject_stock_context(codes: set[str]) -> str:
             "v_score": fv.get("v", 0),
             "delta": d.get("delta_score", 0) if d else 0,
             "delta_signal": d.get("signal", "") if d else "",
+            "gfactor": gfactor_map.get(code, {}),
             "serenity_chain": fv.get("chain", ""),
             "fev_source": fv.get("source", ""),
             "deep_read_score": dr.get("total_score", 0),
