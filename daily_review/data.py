@@ -214,12 +214,13 @@ def fetch_stock_quotes(codes: list[str], batch_size: int = 30, max_retries: int 
     if redis_available():
         all_quotes = redis_quote_all()
         if all_quotes:
+            name_map = _load_name_map()
             result = {}
             for c in codes:
                 if c in all_quotes:
                     q = all_quotes[c]
                     result[c] = {
-                        "name": "", "price": q["price"],
+                        "name": name_map.get(c, ""), "price": q["price"],
                         "last_close": q["prev_close"], "open": q["open"],
                         "high": q["high"], "low": q["low"],
                         "change_pct": q["change_pct"], "change_amt": q["change_amt"],

@@ -778,6 +778,24 @@ def init_feeds_tables():
                 added_count  INTEGER DEFAULT 0
             );
 
+            CREATE TABLE IF NOT EXISTS emerging_dragon_log (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_date      TEXT NOT NULL,
+                code            TEXT NOT NULL,
+                name            TEXT,
+                theme           TEXT,
+                trend_score     REAL,
+                unpriced_score  REAL,
+                value_score     REAL,
+                r5              REAL,
+                r10             REAL,
+                status          TEXT DEFAULT 'active',
+                promoted_date   TEXT,
+                promoted_theme  TEXT,
+                notes           TEXT DEFAULT '',
+                UNIQUE(trade_date, code)
+            );
+
             CREATE TABLE IF NOT EXISTS earnings_forecast (
                 code          TEXT NOT NULL,
                 name          TEXT,

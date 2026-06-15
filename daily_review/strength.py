@@ -195,7 +195,7 @@ def identify_roles(
         mcap = q.get("mcap_yi", 0) or 0
         turnover = q.get("turnover_pct", 0) or 0
         price = q.get("price", 0) or 0
-        name = q.get("name", code)
+        name = q.get("name") or code
         chg = q.get("change_pct", 0) or 0
         vol_ratio = q.get("vol_ratio", 0) or 0
 
@@ -306,40 +306,209 @@ def identify_roles(
     for c in quant:
         c["role_reason"] = f"{c['board']}，{c['mcap_yi']:.0f}亿，10日+{c['r10']:.1f}%"
 
-    # --- 将成龙 ---
-    emerging = []
-    stage = theme_info.get("stage", "")
-    if stage == "爆发初期":
-        all_codes = leader_codes | zhongjun_codes | {c["code"] for c in quant}
-        emerging_pool = [c for c in candidates if c["code"] not in all_codes]
-        emerging_pool = [
-            c for c in emerging_pool
-            if (c["consecutive_up"] >= 2 or c["has_limit"])
-            and c["vol_ratio"] > 1.2
-        ]
-        if not emerging_pool:
-            emerging_pool = [
-                c for c in candidates if c["code"] not in all_codes
-                and (c["consecutive_up"] >= 2 or c["has_limit"])
-            ]
-        emerging_pool.sort(key=lambda x: -x["r5"])
-        emerging = emerging_pool[:3]
-        for c in emerging:
-            signals = []
-            if c["has_limit"]:
-                signals.append("近期涨停")
-            if c["consecutive_up"] >= 2:
-                signals.append(f"{c['consecutive_up']}日连涨")
-            if c["vol_ratio"] > 1.5:
-                signals.append(f"量比{c['vol_ratio']:.1f}")
-            c["role_reason"] = "，".join(signals) if signals else f"5日+{c['r5']:.1f}%"
-
     return {
         "龙头": leaders,
         "中军": zhongjun,
         "量化标的": quant,
-        "将成龙": emerging,
+        "将成龙": [],
     }
+
+
+# ============================================================
+# 2b. 将成龙 — 跨板块性价比筛选
+# ============================================================
+
+def _clamp(v, lo, hi):
+    return max(lo, min(hi, v))
+
+
+def score_emerging_dragons(
+    theme_pool: dict[str, dict[str, dict]],
+    klines_map: dict[str, pd.DataFrame],
+    quotes_map: dict[str, dict],
+    zt_pool: dict[str, dict],
+    fev_map: dict[str, dict],
+    hot_rank_map: dict[str, int],
+    major_concepts: set[str],
+    hot100_codes: set[str],
+) -> list[dict]:
+    """跨板块筛选将成龙标的：走势已启动 / 逻辑未充分定价。
+
+    返回按性价比降序排列的标的列表 (top 30)。
+    """
+    all_candidates = []
+    for theme, pool_stocks in theme_pool.items():
+        for code, info in pool_stocks.items():
+            q = quotes_map.get(code, {})
+            kdf = klines_map.get(code)
+            r10 = _calc_nd_return(kdf, 10)
+            r5 = _calc_nd_return(kdf, 5)
+            chg = q.get("change_pct", 0) or 0
+            vol_ratio = q.get("vol_ratio", 0) or 0
+            mcap = q.get("mcap_yi", 0) or 0
+            name = q.get("name") or code
+
+            has_limit = False
+            if kdf is not None and len(kdf) >= 11:
+                for i in range(max(1, len(kdf) - 10), len(kdf)):
+                    if _is_limit_up(kdf, i):
+                        has_limit = True
+                        break
+
+            consecutive_up = 0
+            if kdf is not None and len(kdf) >= 4:
+                closes = kdf["close"].values
+                for j in range(1, min(4, len(closes))):
+                    if closes[-j] > closes[-j - 1]:
+                        consecutive_up += 1
+                    else:
+                        break
+
+            zt = zt_pool.get(code, {})
+            consecutive_boards = zt.get("consecutive_boards", 0)
+
+            ma_bull = False
+            broke_ma20 = False
+            if kdf is not None and len(kdf) >= 21:
+                closes = kdf["close"].values
+                ma5 = closes[-5:].mean()
+                ma10 = closes[-10:].mean()
+                ma20 = closes[-20:].mean()
+                ma_bull = ma5 > ma10 > ma20
+                broke_ma20 = closes[-1] > ma20 and closes[-2] <= ma20
+
+            all_candidates.append({
+                "code": code, "name": name, "theme": theme,
+                "r5": r5 or 0, "r10": r10 or 0, "chg": chg,
+                "vol_ratio": vol_ratio, "mcap_yi": mcap,
+                "has_limit": has_limit, "consecutive_up": consecutive_up,
+                "consecutive_boards": consecutive_boards,
+                "ma_bull": ma_bull, "broke_ma20": broke_ma20,
+                "freq": info.get("freq", 0),
+                "first_date": info.get("first_date", ""),
+            })
+
+    # 走势强度 (0-100)
+    def trend_strength(c):
+        s = 0
+        s += _clamp(c["r5"] / 5 * 5, 0, 25)
+        s += _clamp(c["r10"] / 10 * 5, 0, 20)
+        s += _clamp(c["consecutive_up"] * 5, 0, 15)
+        s += 15 if c["has_limit"] else 0
+        s += _clamp((c["vol_ratio"] - 1) * 8, 0, 10)
+        s += 5 if c["chg"] > 3 else 0
+        s += 5 if c["ma_bull"] else 0
+        s += 5 if c["broke_ma20"] else 0
+        return _clamp(s, 0, 100)
+
+    # 逻辑未定价 (0-100, 越高越未被发现)
+    def unpriced_level(c):
+        s = 0
+        fev = fev_map.get(c["code"], {})
+        fev_total = fev.get("fev_total") if isinstance(fev, dict) else 0
+        s += _clamp(30 - fev_total, 0, 30) if fev_total else 20
+        s += 15 if c["code"] not in hot100_codes else 0
+        s += 10 if c["mcap_yi"] < 150 else 0
+        s += 10 if c["theme"] not in major_concepts else 0
+        s += 5 if c["consecutive_boards"] < 3 else 0
+        return _clamp(s, 0, 100)
+
+    scored = []
+    for c in all_candidates:
+        ts = trend_strength(c)
+        up = unpriced_level(c)
+        vs = ts * (100 - up) / 100 if up < 100 else 0
+        c["trend_score"] = ts
+        c["unpriced_score"] = up
+        c["value_score"] = round(vs, 1)
+        fev = fev_map.get(c["code"])
+        c["fev_total"] = fev.get("fev_total") if isinstance(fev, dict) else 0
+        hr = hot_rank_map.get(c["code"])
+        c["hot_rank"] = f"#{hr}" if hr else "-"
+        scored.append(c)
+
+    # 去重：同股票出现在多个板块，只保留性价比最高的那个
+    seen = {}
+    for c in scored:
+        code = c["code"]
+        if code not in seen or c["value_score"] > seen[code]["value_score"]:
+            seen[code] = c
+
+    result = sorted(seen.values(), key=lambda x: -x["value_score"])
+    for i, c in enumerate(result):
+        c["rank"] = i + 1
+
+    return result[:30]
+
+
+def save_emerging_dragons(trade_date: str, dragons: list[dict]):
+    """将当日的将成龙标的持久化到 SQLite"""
+    import store
+    try:
+        with store._conn() as conn:
+            for d in dragons:
+                conn.execute(
+                    """INSERT OR REPLACE INTO emerging_dragon_log
+                       (trade_date, code, name, theme, trend_score, unpriced_score,
+                        value_score, r5, r10, status)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')""",
+                    (trade_date, d["code"], d.get("name", ""), d.get("theme", ""),
+                     d.get("trend_score", 0), d.get("unpriced_score", 0),
+                     d.get("value_score", 0), d.get("r5", 0), d.get("r10", 0)))
+            conn.commit()
+    except Exception as e:
+        print(f"  [WARN] 将成龙日志保存失败: {e}")
+
+
+def track_emerging_dragon_outcomes(trade_date: str,
+                                   current_strength: dict | None = None) -> list[dict]:
+    """回顾历史将成龙标的，对比当前状态。"""
+    import store
+    try:
+        with store._conn() as conn:
+            rows = conn.execute(
+                """SELECT * FROM emerging_dragon_log
+                   WHERE trade_date < ? AND status = 'active'
+                   ORDER BY trade_date DESC LIMIT 100""",
+                (trade_date,)).fetchall()
+    except Exception:
+        return []
+
+    if not rows:
+        return []
+
+    current_themes = {}
+    if current_strength:
+        for ts in current_strength.get("strong_themes", []) + current_strength.get("emerging_themes", []):
+            for role_name in ("龙头", "中军"):
+                for s in ts.get("roles", {}).get(role_name, []):
+                    current_themes[s["code"]] = {"theme": ts["theme"], "role": role_name}
+
+    results = []
+    for r in rows:
+        d = dict(r)
+        info = current_themes.get(d["code"])
+        if info:
+            d["current_status"] = "🐉龙" if info["role"] == "龙头" else "活跃"
+            d["current_theme"] = info["theme"]
+            d["current_role"] = info["role"]
+        else:
+            d["current_status"] = "退出"
+            d["current_theme"] = ""
+            d["current_role"] = ""
+        results.append(d)
+
+    return results
+
+
+def compute_conversion_rate(tracked: list[dict]) -> dict:
+    """统计将成龙→龙的转化率"""
+    if not tracked:
+        return {"total": 0, "promoted": 0, "rate": "—", "note": "数据积累中"}
+    total = len(tracked)
+    promoted = sum(1 for t in tracked if t.get("current_status") == "🐉龙")
+    rate = f"{promoted / total:.0%}" if total > 0 else "—"
+    return {"total": total, "promoted": promoted, "rate": rate}
 
 
 # ============================================================

@@ -218,7 +218,7 @@ def _fmt_strength_row(role_name: str, s: dict, pool_lookup: dict = None) -> str:
             if fev.get("v_score") is not None:
                 v_str = str(fev["v_score"])
     return (
-        f"| {role_name} | {s['name']} | {s['code']} | {mcap_str} "
+        f"| {role_name} | {s.get('name') or s['code']} | {s['code']} | {mcap_str} "
         f"| {s['chg']:+.1f}% | {zt_str} | {cb_str} "
         f"| {s['r10']:+.1f}% | {s['r5']:+.1f}% "
         f"| {hot_str} | {f_str} | {e_str} | {v_str} | {s.get('role_reason', '')} |"

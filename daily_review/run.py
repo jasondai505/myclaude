@@ -960,7 +960,7 @@ def _save_and_report(trade_date, market_result, style_result, sector_result,
                      fev_scores, theme_stock_details, theme_groups,
                      theme_new_dirs, theme_longtail, strength_result,
                      zt_pool, concept_heat, hot_stocks, focus_pool_data,
-                     limit_up_data, t0):
+                     limit_up_data, emerging_dragons, tracked, dragon_stats, t0):
     md = report.render_report(
         trade_date=trade_date,
         market=market_result,
@@ -987,6 +987,9 @@ def _save_and_report(trade_date, market_result, style_result, sector_result,
         hot_stocks=hot_stocks,
         focus_pool_data=focus_pool_data,
         limit_up_data=limit_up_data,
+        emerging_dragons=emerging_dragons,
+        dragon_tracking=tracked,
+        dragon_stats=dragon_stats,
     )
 
     report_path = REPORT_DIR / "review" / f"review_{trade_date}.md"
@@ -1110,6 +1113,28 @@ def main():
         sentiment_result, leveled, code_to_themes,
         crash_warnings_map, strength_result, theme_pool)
 
+    # Phase 7.5: 将成龙筛选
+    hot_rank_map = {}
+    for item in focus_pool_data.get("stocks", []):
+        hr = item.get("hot_rank")
+        if hr:
+            hot_rank_map[item["code"]] = hr
+    major_concepts = {t["theme"] for t in leveled if t.get("today_count", 0) >= 3}
+    print("[将成龙] 跨板块性价比筛选...")
+    from strength import score_emerging_dragons, save_emerging_dragons, track_emerging_dragon_outcomes, compute_conversion_rate
+    emerging_dragons = score_emerging_dragons(
+        theme_pool, all_klines_merged, all_quotes_merged, zt_pool,
+        fev_map, hot_rank_map, major_concepts, hot_codes)
+    print(f"  筛选出 {len(emerging_dragons)} 只将成龙标的")
+    if emerging_dragons:
+        top3 = " / ".join(f"{d['name']}({d['code']})" for d in emerging_dragons[:3])
+        print(f"  TOP3: {top3}")
+    save_emerging_dragons(trade_date, emerging_dragons)
+    tracked = track_emerging_dragon_outcomes(trade_date, strength_result)
+    dragon_stats = compute_conversion_rate(tracked)
+    if tracked:
+        print(f"  历史追踪: {dragon_stats['total']}只 / 晋升{dragon_stats['promoted']}只 ({dragon_stats['rate']})")
+
     # Phase 8: 保存市场快照
     sh = indices.get("上证指数", {})
     sz = indices.get("深证成指", {})
@@ -1136,7 +1161,7 @@ def main():
         fev_scores, theme_stock_details, theme_groups,
         theme_new_dirs, theme_longtail, strength_result,
         zt_pool, concept_heat, hot_stocks, focus_pool_data,
-        limit_up_data, t0)
+        limit_up_data, emerging_dragons, tracked, dragon_stats, t0)
 
 
 if __name__ == "__main__":

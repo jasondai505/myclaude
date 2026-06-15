@@ -385,14 +385,20 @@ def render_watchlist(lines, watchlist_results, fev_scores):
     has_signals = any(s["signals"] for s in watchlist_results)
     if has_signals:
         lines.append("### 技术信号\n")
+        lines.append("| 代码 | 名称 | 趋势分 | 信号 |")
+        lines.append("|------|------|------:|------|")
         for s in watchlist_results:
             if not s["signals"]:
                 continue
-            lines.append(f"**{s['name']}({s['code']})**")
+            name = s.get("name") or s["code"]
+            sig_parts = []
             for sig_type, desc in s["signals"]:
                 icon = {"BULL": "🟢", "BEAR": "🔴", "WARN": "⚠️", "ALERT": "🔶", "INFO": "ℹ️"}.get(sig_type, "•")
-                lines.append(f"- {icon} {desc}")
-            lines.append("")
+                sig_parts.append(f"{icon} {desc}")
+            sig_str = " / ".join(sig_parts)
+            trend = s.get("trend_score", 0)
+            lines.append(f"| {s['code']} | {name} | {trend:.0f} | {sig_str} |")
+        lines.append("")
 
 
 def render_watchlist_cross(lines, watchlist_themes):
@@ -400,9 +406,12 @@ def render_watchlist_cross(lines, watchlist_themes):
     if in_hot:
         lines.append("### 自选股热点对标\n")
         lines.append("以下自选股出现在今日强势股中：\n")
+        lines.append("| 代码 | 名称 | 关联题材 |")
+        lines.append("|------|------|----------|")
         for s in in_hot:
+            name = s.get("name") or s["code"]
             t_str = "、".join(s["themes"][:3])
-            lines.append(f"- **{s['name']}**（{s['code']}）— {t_str}")
+            lines.append(f"| {s['code']} | {name} | {t_str} |")
         lines.append("")
 
     coverage = watchlist_themes.get("theme_coverage", {})
@@ -618,7 +627,8 @@ def render_advice(lines, suggestions):
         lines.append("")
 
 
-def _render_strength(lines: list, sd: dict, focus_pool_data: list = None):
+def _render_strength(lines: list, sd: dict, focus_pool_data: list = None,
+                     emerging_dragons: list = None):
     pool_lookup = {}
     if focus_pool_data:
         for item in focus_pool_data:
@@ -650,7 +660,7 @@ def _render_strength(lines: list, sd: dict, focus_pool_data: list = None):
                 lines.append("")
 
     if emerging:
-        lines.append("### 潜在走强（将成龙）\n")
+        lines.append("### 潜在走强板块（爆发初期）\n")
         for ts in emerging[:5]:
             theme = ts["theme"]
             catalyst = ts["catalyst_type"]
@@ -658,36 +668,6 @@ def _render_strength(lines: list, sd: dict, focus_pool_data: list = None):
             cnt = ts["today_count"]
             lines.append(f"**{theme}** | 爆发初期({cons}天) | {catalyst} | 今日涨停{cnt}只\n")
             lines.append(_fmt_theme_amount_line(ts))
-
-            dragons = ts.get("roles", {}).get("将成龙", [])
-            if dragons:
-                lines.append("| 将成龙 | 代码 | 当日% | 涨停时间 | 连板 | 5日% | 人气# | F | E | V | 信号 |")
-                lines.append("|--------|------|------:|:--------:|:----:|-----:|------:|--:|--:|--:|------|")
-                for s in dragons:
-                    zt_str = s.get("zt_time", "") or ""
-                    cb = s.get("consecutive_boards", 0)
-                    cb_str = f"{cb}板" if cb else ""
-                    hot_str = "-"
-                    f_str = e_str = v_str = "-"
-                    p = pool_lookup.get(s["code"])
-                    if p:
-                        hr = p.get("hot_rank")
-                        if hr:
-                            hot_str = str(hr)
-                        fev = p.get("fev") or {}
-                        if fev.get("f_score") is not None:
-                            f_str = str(fev["f_score"])
-                        if fev.get("e_score") is not None:
-                            e_str = str(fev["e_score"])
-                        if fev.get("v_score") is not None:
-                            v_str = str(fev["v_score"])
-                    lines.append(
-                        f"| {s['name']} | {s['code']} | {s['chg']:+.1f}% "
-                        f"| {zt_str} | {cb_str} | {s['r5']:+.1f}% "
-                        f"| {hot_str} | {f_str} | {e_str} | {v_str} "
-                        f"| {s.get('role_reason', '')} |"
-                    )
-                lines.append("")
 
             other_roles = ts.get("roles", {})
             has_other = any(other_roles.get(r) for r in ("龙头", "中军", "量化标的"))
@@ -698,6 +678,35 @@ def _render_strength(lines: list, sd: dict, focus_pool_data: list = None):
                     for s in other_roles.get(role_name, []):
                         lines.append(_fmt_strength_row(role_name, s, pool_lookup))
                 lines.append("")
+
+    if emerging_dragons and len(emerging_dragons) > 0:
+        lines.append("### 将成龙 — 走势启动 / 逻辑未充分定价\n")
+        lines.append("> 跨板块性价比排序：走势越强越好，逻辑被定价越少越好\n")
+        lines.append("| # | 标的 | 代码 | 板块 | 5日% | 10日% | 量比 | 趋势分 | 未定价 | 性价比 | FEV | 人气# | 信号 |")
+        lines.append("|--:|------|------|------|-----:|------:|-----:|------:|------:|------:|----:|------:|------|")
+        for d in emerging_dragons[:20]:
+            name = d.get("name") or d["code"]
+            fev = d.get("fev_total") or "-"
+            hr = d.get("hot_rank") or "-"
+            signals = []
+            if d["has_limit"]:
+                signals.append("涨停")
+            if d["consecutive_up"] >= 2:
+                signals.append(f"{d['consecutive_up']}日连涨")
+            if d["vol_ratio"] > 1.5:
+                signals.append(f"量比{d['vol_ratio']:.1f}")
+            if d["ma_bull"]:
+                signals.append("多头")
+            if d["broke_ma20"]:
+                signals.append("破MA20")
+            sig_str = "/".join(signals) if signals else f"5日+{d['r5']:.1f}%"
+            lines.append(
+                f"| {d['rank']} | {name} | {d['code']} | {d['theme']} "
+                f"| {d['r5']:+.1f}% | {d['r10']:+.1f}% | {d['vol_ratio']:.1f} "
+                f"| {d['trend_score']} | {d['unpriced_score']} | {d['value_score']} "
+                f"| {fev} | {hr} | {sig_str} |"
+            )
+        lines.append("")
 
     if fading:
         lines.append("### 退潮板块\n")
@@ -810,3 +819,27 @@ def render_limit_up_analysis(lines: list[str], lu: dict):
         lines.append("")
 
     lines.append("> 数据来源: Claude Haiku 深度分析，仅供参考。\n")
+
+
+def _render_dragon_tracking(lines: list, tracked: list[dict], stats: dict):
+    if not tracked:
+        return
+    lines.append("## 附：将成龙追踪\n")
+    note = stats.get("note", "")
+    if note:
+        lines.append(f"> {note}\n")
+    else:
+        lines.append(f"> 累计发现 {stats['total']} 只 | 晋升 {stats['promoted']} 只 ({stats['rate']}) | 数据积累中\n")
+
+    lines.append("| 发现日期 | 标的 | 板块 | 5日% | 性价比 | 当前状态 | 现属板块 |")
+    lines.append("|---------|------|------|-----:|------:|:--------:|---------|")
+    for t in tracked[:20]:
+        name = t.get("name") or t.get("code", "")
+        status = t.get("current_status", "—")
+        cur_theme = t.get("current_theme", "") or "—"
+        lines.append(
+            f"| {t.get('trade_date', '')} | {name} | {t.get('theme', '')} "
+            f"| {t.get('r5', 0):+.1f}% | {t.get('value_score', 0):.0f} "
+            f"| {status} | {cur_theme} |"
+        )
+    lines.append("")

@@ -7,6 +7,7 @@ from report_sections import (
     render_global_markets, render_watchlist, render_watchlist_cross,
     render_fundamentals, render_popularity, render_zsxq, render_focus_pool,
     render_advice, _render_strength, render_limit_up_analysis,
+    _render_dragon_tracking,
 )
 
 
@@ -37,6 +38,9 @@ def render_report(
     hot_stocks: list = None,
     focus_pool_data: list = None,
     limit_up_data: dict = None,
+    emerging_dragons: list = None,
+    dragon_tracking: list = None,
+    dragon_stats: dict = None,
 ) -> str:
     lines = []
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -71,7 +75,7 @@ def render_report(
     # 4.5、板块/个股强弱分析
     if strength_data:
         lines.append("## 板块强弱分析\n")
-        _render_strength(lines, strength_data, focus_pool_data)
+        _render_strength(lines, strength_data, focus_pool_data, emerging_dragons)
 
     # 4.6、涨停深度分析
     if limit_up_data and limit_up_data.get("t1"):
@@ -106,6 +110,10 @@ def render_report(
     # 九、个股深度分析（聚焦池）
     if focus_pool_data:
         render_focus_pool(lines, focus_pool_data)
+
+    # 将成龙追踪
+    if dragon_tracking and dragon_stats:
+        _render_dragon_tracking(lines, dragon_tracking, dragon_stats)
 
     # 十、操作建议
     render_advice(lines, suggestions)
