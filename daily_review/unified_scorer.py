@@ -514,6 +514,7 @@ def score_codes(codes: list[str]) -> tuple[list[dict], list[dict]]:
 
 def score_from_feeds(date_str: str = "") -> tuple[list[dict], list[dict]]:
     """从当天 feeds 提取代码 → 统一评分 → 双库保存。"""
+    import data
     d = date_str or _today()
     feeds_dir = BASE / "reports" / "feeds"
 
@@ -523,7 +524,7 @@ def score_from_feeds(date_str: str = "") -> tuple[list[dict], list[dict]]:
             if d in f.name:
                 try:
                     text = f.read_text(encoding="utf-8")
-                    codes_found.update(re.findall(r"\b(\d{6})\b", text))
+                    codes_found.update(data.extract_codes_from_text(text))
                 except Exception:
                     pass
 
@@ -532,7 +533,7 @@ def score_from_feeds(date_str: str = "") -> tuple[list[dict], list[dict]]:
         if path.exists():
             try:
                 text = path.read_text(encoding="utf-8")
-                codes_found.update(re.findall(r"\b(\d{6})\b", text))
+                codes_found.update(data.extract_codes_from_text(text))
             except Exception:
                 pass
 
@@ -541,7 +542,7 @@ def score_from_feeds(date_str: str = "") -> tuple[list[dict], list[dict]]:
     if wechat_path.exists():
         try:
             text = wechat_path.read_text(encoding="utf-8")
-            codes_found.update(re.findall(r"\b(\d{6})\b", text))
+            codes_found.update(data.extract_codes_from_text(text))
         except Exception:
             pass
 

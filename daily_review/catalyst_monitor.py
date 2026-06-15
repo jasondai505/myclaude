@@ -68,6 +68,7 @@ def _load_multi_map() -> dict | None:
 
 def _scan_intraday_delta(today_str: str) -> dict[str, list[dict]]:
     """扫描盘中增量情报，提取新催化 → {catalyst_name: [{code, name, confidence}]}"""
+    import data
     delta_path = INTEL_REPORTS / f"intraday_delta_{today_str}.md"
     if not delta_path.exists():
         return {}
@@ -91,7 +92,7 @@ def _scan_intraday_delta(today_str: str) -> dict[str, list[dict]]:
             pass
 
     # 从文本中提取所有6位股票代码
-    codes_found = set(re.findall(r"\b(\d{6})\b", text))
+    codes_found = data.extract_codes_from_text(text)
 
     # 关键词匹配催化
     mm = _load_multi_map()
@@ -118,7 +119,7 @@ def _scan_intraday_delta(today_str: str) -> dict[str, list[dict]]:
 
             matched_codes = []
             # 从上下文提取代码
-            ctx_codes = set(re.findall(r"\b(\d{6})\b", text[max(0, m.start()-200):m.end()+200]))
+            ctx_codes = data.extract_codes_from_text(text[max(0, m.start()-200):m.end()+200])
             for code in ctx_codes:
                 matched_codes.append({
                     "code": code, "name": "",

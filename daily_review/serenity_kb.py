@@ -562,8 +562,8 @@ def _try_int(s: str) -> int:
 
 
 def _extract_codes(text: str) -> str:
-    import re
-    return ",".join(sorted(set(re.findall(r"\b(\d{6})\b", text))))
+    import data
+    return ",".join(sorted(data.extract_codes_from_text(text)))
 
 
 def _extract_fev_top(text: str) -> str:

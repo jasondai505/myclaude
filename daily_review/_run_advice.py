@@ -356,14 +356,16 @@ def _inject_wechat_raw(today: str) -> str:
 
 
 def _extract_codes_from_feeds(feeds: dict[str, str]) -> set[str]:
-    """从所有 feed 中提取6位股票代码，覆盖公众号/星球/资讯。"""
+    """从所有 feed 中提取股票代码：正则6位代码 + 全名反向匹配。"""
+    import data
     codes = set()
     for key in ("%%RECAP%%", "%%REVIEW_SUMMARY%%", "%%ZSXQ%%",
                 "%%WECHAT_ANALYSIS%%", "%%NEWS%%", "%%INDUSTRY%%",
                 "%%SUPPLY_CHAIN_INTEL%%", "%%JIUYANG%%", "%%WEIBO%%",
                 "%%PRIMARY_SYNTHESIS%%"):
         text = feeds.get(key, "")
-        codes.update(re.findall(r"\b(\d{6})\b", text))
+        if text:
+            codes.update(data.extract_codes_from_text(text))
     return codes
 
 

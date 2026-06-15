@@ -3,6 +3,7 @@ import json
 import re
 import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "daily_review"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import streamlit as st
@@ -67,7 +68,8 @@ with tab1:
             cap = f"{row['date']}  ·  👁 {row.get('readers_count',0)}  ·  ❤️ {row.get('likes_count',0)}  ·  💬 {row.get('comments_count',0)}"
             st.caption(cap)
 
-            codes_text = re.findall(r"\b(\d{6})\b", row.get("text", "") or "")
+            import data
+            codes_text = list(data.extract_codes_from_text(row.get("text", "") or ""))
             try:
                 codes_json = json.loads(row.get("stock_codes", "[]") or "[]")
             except Exception:

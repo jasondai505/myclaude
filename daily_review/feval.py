@@ -473,6 +473,7 @@ def score_batch(stocks: list[dict]) -> list[dict]:
 
 def score_from_feeds(date_str: str = "") -> list[dict]:
     """从当天 feeds 中提取所有代码并评分（增量：跳过已有评分的标的）"""
+    import data
     d = date_str or _today()
     feeds_dir = BASE / "reports" / "feeds"
 
@@ -482,7 +483,7 @@ def score_from_feeds(date_str: str = "") -> list[dict]:
             if d in f.name:
                 try:
                     text = f.read_text(encoding="utf-8")
-                    codes_found.update(re.findall(r"\b(\d{6})\b", text))
+                    codes_found.update(data.extract_codes_from_text(text))
                 except Exception:
                     pass
 
@@ -491,7 +492,7 @@ def score_from_feeds(date_str: str = "") -> list[dict]:
         if path.exists():
             try:
                 text = path.read_text(encoding="utf-8")
-                codes_found.update(re.findall(r"\b(\d{6})\b", text))
+                codes_found.update(data.extract_codes_from_text(text))
             except Exception:
                 pass
 
@@ -603,6 +604,7 @@ def get_delta_scores(codes: list[str] | None = None, date_str: str = "") -> dict
 
 def score_delta_from_feeds(date_str: str = "") -> list[dict]:
     """从当天 feeds 提取所有代码的 Δ 评分。"""
+    import data
     d = date_str or _today()
     feeds_dir = BASE / "reports" / "feeds"
 
@@ -615,7 +617,7 @@ def score_delta_from_feeds(date_str: str = "") -> list[dict]:
                 try:
                     text = f.read_text(encoding="utf-8")
                     feed_texts.append(f"## {f.stem}\n{text[:3000]}")
-                    codes_found.update(re.findall(r"\b(\d{6})\b", text))
+                    codes_found.update(data.extract_codes_from_text(text))
                 except Exception:
                     pass
 
@@ -626,7 +628,7 @@ def score_delta_from_feeds(date_str: str = "") -> list[dict]:
             try:
                 text = path.read_text(encoding="utf-8")
                 feed_texts.append(f"## {label}\n{text[:2000]}")
-                codes_found.update(re.findall(r"\b(\d{6})\b", text))
+                codes_found.update(data.extract_codes_from_text(text))
             except Exception:
                 pass
 
@@ -635,7 +637,7 @@ def score_delta_from_feeds(date_str: str = "") -> list[dict]:
         try:
             text = wechat_path.read_text(encoding="utf-8")
             feed_texts.append(f"## 公众号分析\n{text[:3000]}")
-            codes_found.update(re.findall(r"\b(\d{6})\b", text))
+            codes_found.update(data.extract_codes_from_text(text))
         except Exception:
             pass
 

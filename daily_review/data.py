@@ -431,6 +431,48 @@ def _load_name_map() -> dict[str, str]:
     return {}
 
 
+# 名称→代码反向映射（懒加载缓存）
+_NAME_TO_CODE: dict[str, str] | None = None
+
+
+def _load_name_to_code_map() -> dict[str, str]:
+    """加载名称→代码反向映射（去除名称中的空格）。"""
+    global _NAME_TO_CODE
+    if _NAME_TO_CODE is not None:
+        return _NAME_TO_CODE
+    _NAME_TO_CODE = {}
+    try:
+        from pathlib import Path
+        import json
+        cache = Path(__file__).parent / "data" / "stock_codes.json"
+        if cache.exists():
+            data = json.loads(cache.read_text(encoding="utf-8"))
+            for c in data.get("codes", []):
+                name = str(c.get("name", "")).replace(" ", "").strip()
+                code = str(c.get("code", ""))
+                if name and code:
+                    _NAME_TO_CODE[name] = code
+    except Exception:
+        pass
+    return _NAME_TO_CODE
+
+
+def extract_codes_from_text(text: str) -> set[str]:
+    """从文本中提取股票代码：正则6位代码 + 全名反向匹配。
+
+    覆盖两种常见写法：
+    - 写代码的：「688167」「300757」→ 正则直接命中
+    - 只写名称的：「炬光科技」「罗博特科」→ 全名反向映射命中
+    """
+    codes = set(re.findall(r"\b(\d{6})\b", text))
+    name_map = _load_name_to_code_map()
+    if name_map:
+        for name, code in name_map.items():
+            if name in text:
+                codes.add(code)
+    return codes
+
+
 def _fetch_zt_pool_redis(name_map: dict[str, str] | None = None) -> dict[str, dict]:
     """Redis 涨停池: 价格触板判定"""
     quotes = redis_quote_all()
