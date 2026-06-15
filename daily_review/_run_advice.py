@@ -1161,6 +1161,25 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
     except Exception:
         pass
 
+    # 查 G-Factor
+    gfactor_map = {}
+    try:
+        gdb = BASE / "data" / "gfactor.db"
+        if gdb.exists():
+            conn_g = sqlite3.connect(str(gdb))
+            conn_g.row_factory = sqlite3.Row
+            for r in conn_g.execute(
+                "SELECT code, g1_score, g2_score, g3_score, g4_score "
+                "FROM gfactor_scores WHERE date=(SELECT MAX(date) FROM gfactor_scores)"
+            ).fetchall():
+                gfactor_map[r["code"]] = {
+                    "g1": r["g1_score"], "g2": r["g2_score"],
+                    "g3": r["g3_score"], "g4": r["g4_score"],
+                }
+            conn_g.close()
+    except Exception:
+        pass
+
     # 候选标的缺 FEV 时实时打分补齐
     missing_fev = [c for c in candidates if c["code"] not in fev_map or fev_map[c["code"]].get("fev", 0) == 0]
     if missing_fev:
@@ -1214,10 +1233,11 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
         elif "长线" in hp or "底仓" in hp or "长期" in hp:
             c["hold_period"] = "长线底仓"
 
-    # 计算 FEVΔ，排序
+    # 计算 FEVΔ + 三轨标签，排序
     for c in candidates:
         fv = fev_map.get(c["code"], {})
         d = delta_map.get(c["code"], {})
+        gf = gfactor_map.get(c["code"], {})
         c["fev"] = fv.get("fev", 0)
         c["f_score"] = fv.get("f", 0)
         c["e_score"] = fv.get("e", 0)
@@ -1227,6 +1247,15 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
         c["delta"] = d.get("delta_score", 0) if d else 0
         c["delta_signal"] = d.get("signal", "") if d else ""
         c["fevd"] = c["fev"] + c["delta"]
+        # 三轨标签
+        tracks = []
+        if c["fev"] >= 18:
+            tracks.append("F")
+        if gf and (gf.get("g1", 0) >= 7 or gf.get("g2", 0) >= 7 or gf.get("g3", 0) >= 7 or gf.get("g4", 0) >= 7):
+            tracks.append("G")
+        if c["delta"] != 0:
+            tracks.append("Δ")
+        c["tracks"] = "".join(f"📌{t}" for t in tracks) if tracks else "—"
 
     # 连续性加分：昨日精选中催化仍成立的标的，防一日游
     from datetime import date as _dt, timedelta as _td
@@ -1354,10 +1383,10 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
 
     lines = ["", "## 🎯 精选标的 — 用谁打", "",
              f"> ⏱️ 时间姿态: {' / '.join(hp_parts)} → {posture.get(dominant, '')}",
-             f"> 🛤️ 双轨制: **FEVΔ 排名 {len(top7)} 只** + **催化行动性 {len(catalyst_picks)} 只**。"
+             f"> 🛤️ 三轨制: **FEV(📌F) {len(top7)}只** + **催化 {len(catalyst_picks)}只**。标签: 📌F=质量价值 📌G=成长动能 📌Δ=事件驱动。"
              "延续标的获加分（长线+5/中线+3/短线+1）。", "",
-             "| # | 标的 | FEV | Δ | FEVΔ | 驱动 | 信号源 | 催化逻辑 |",
-             "|:--|------|:---:|:--:|:-----:|:----:|--------|---------|"]
+             "| # | 标的 | 轨 | FEV | Δ | FEVΔ | 驱动 | 信号源 | 催化逻辑 |",
+             "|:--|------|:--:|:---:|:--:|:-----:|:----:|--------|---------|"]
     for i, c in enumerate(selection):
         sign = "+" if c.get("delta", 0) >= 0 else ""
         ds_str = f"{sign}{c.get('delta', 0)}" if c.get("delta", 0) != 0 else "0"
@@ -1376,8 +1405,9 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
             if w3_m: w3 = w3_m.group(1).strip()[:50]
             logic = f"W1:{w1} | W3:{w3}" if (w1 != "—" or w3 != "—") else "—"
         driver = c.get("source", "FEVΔ")
+        tracks = c.get("tracks", "—")
         lines.append(
-            f"| {rank_emoji[i]} | **{c['name']}({c['code']})** | "
+            f"| {rank_emoji[i]} | **{c['name']}({c['code']})** | {tracks} | "
             f"{c.get('fev',0)} | {ds_str} | **{c.get('fevd',0)}** | {driver} | {sources} | {logic[:80]} |"
         )
     lines.append("")
