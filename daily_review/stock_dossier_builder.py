@@ -29,6 +29,13 @@ def _conn():
     return conn
 
 
+def _gfactor_conn():
+    gdb = BASE / "data" / "gfactor.db"
+    conn = sqlite3.connect(str(gdb))
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
 def _load_name_map(codes: list[str]) -> dict[str, str]:
     """从多源获取股票名称。"""
     names = {}
@@ -96,6 +103,33 @@ def _load_fev(codes: list[str]) -> dict[str, dict]:
         else:
             result[c] = {"f": 0, "e": 0, "v": 0, "total": 0, "delta": 0, "trend": "待补充"}
     conn_s.close()
+    return result
+
+
+def _load_gfactor(codes: list[str]) -> dict[str, dict]:
+    """加载最新 G-Factor 评分（从 gfactor.db 的 gfactor_scores 表）。"""
+    gdb = BASE / "data" / "gfactor.db"
+    result = {}
+    empty = {"g1": 0, "g1_note": "", "g2": 0, "g2_note": "",
+             "g3": 0, "g3_note": "", "g4": 0, "g4_note": ""}
+    if not gdb.exists():
+        return {c: empty for c in codes}
+    conn_g = _gfactor_conn()
+    for c in codes:
+        row = conn_g.execute(
+            "SELECT g1_score, g1_note, g2_score, g2_note, g3_score, g3_note, g4_score, g4_note "
+            "FROM gfactor_scores WHERE code=? ORDER BY date DESC LIMIT 1", (c,)
+        ).fetchone()
+        if row:
+            result[c] = {
+                "g1": row["g1_score"], "g1_note": row["g1_note"] or "",
+                "g2": row["g2_score"], "g2_note": row["g2_note"] or "",
+                "g3": row["g3_score"], "g3_note": row["g3_note"] or "",
+                "g4": row["g4_score"], "g4_note": row["g4_note"] or "",
+            }
+        else:
+            result[c] = dict(empty)
+    conn_g.close()
     return result
 
 
@@ -280,27 +314,31 @@ def aggregate(codes: list[str]) -> dict[str, dict]:
     codes = [c.zfill(6) for c in codes]
     print(f"聚合 {len(codes)} 只标的...")
 
-    print("  [1/6] 名称...", end=" ")
+    print("  [1/7] 名称...", end=" ")
     names = _load_name_map(codes)
     print(f"{len(names)}只")
 
-    print("  [2/6] FEV...", end=" ")
+    print("  [2/7] FEV...", end=" ")
     fevs = _load_fev(codes)
     print(f"{len(fevs)}只")
 
-    print("  [3/6] 财务...", end=" ")
+    print("  [3/7] G-Factor...", end=" ")
+    gfactors = _load_gfactor(codes)
+    print(f"{sum(1 for v in gfactors.values() if v['g1']+v['g2']+v['g3']+v['g4'] > 0)}只有评分")
+
+    print("  [4/7] 财务...", end=" ")
     fins = _load_financials(codes)
     print(f"{len(fins)}只")
 
-    print("  [4/6] 行业...", end=" ")
+    print("  [5/7] 行业...", end=" ")
     industry = _load_industry(codes)
     print(f"{len(industry)}只")
 
-    print("  [5/6] 信号...", end=" ")
+    print("  [6/7] 信号...", end=" ")
     signals = _load_signals(codes)
     print(f"{len(signals)}只")
 
-    print("  [6/6] 股东...", end=" ")
+    print("  [7/7] 股东...", end=" ")
     holders = _load_shareholders(codes)
     print(f"{len(holders)}只有数据")
 
@@ -311,6 +349,7 @@ def aggregate(codes: list[str]) -> dict[str, dict]:
             "code": c,
             "name": names.get(c, "?"),
             "fev": fevs.get(c, {}),
+            "gfactor": gfactors.get(c, {}),
             "financials": fins.get(c, {}),
             "industry": industry.get(c, {}),
             "signals": signals.get(c, {}),
@@ -341,12 +380,20 @@ SYNTHESIS_PROMPT = """你是A股基本面分析师。以下是某只股票的多
 基于同花顺概念和行业归属，简要描述公司在产业链中的位置。
 上游是什么？下游是什么？主要竞争对手？（如信息不足则标注「待补充」）
 
-### FEV 三角
+### FEV 三角 (格雷厄姆轨)
 用 `F=x E=y V=z FEV=total` 格式标注数值，然后三句话解读：
 F（护城河）：引用 F 的评分理由
 E（盈利）：引用 E 的评分理由
 V（估值）：引用 V 的评分理由
 FEV 数据已给出（含评分和备注），必须输出数值。
+
+### G-Factor 成长四维 (费雪轨)
+用 `G1=x G2=y G3=z G4=w` 格式标注数值，然后四句话解读：
+G1（成长质量）：引用 G1 的评分理由
+G2（催化密度）：引用 G2 的评分理由
+G3（叙事强度）：引用 G3 的评分理由
+G4（机构动量）：引用 G4 的评分理由
+G-Factor 每个维度独立评分(0-10)，**四个分不合成**。数据不足的维度标注「信号缺失」。
 
 ### 机构共识与预期差
 引用研报信号和评级，指出机构在关注什么，市场可能在哪些方面定价不足。
@@ -374,6 +421,7 @@ def synthesize_one(code: str, dossier: dict) -> str:
         "code": dossier["code"],
         "name": dossier["name"],
         "fev": dossier.get("fev", {}),
+        "gfactor": dossier.get("gfactor", {}),
         "financials": dossier.get("financials", {}),
         "industry": dossier.get("industry", {}),
         "signals": dossier.get("signals", {}),

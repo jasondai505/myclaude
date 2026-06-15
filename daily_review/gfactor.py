@@ -135,6 +135,30 @@ GFACTOR_PROMPT = """你是A股成长股分析师。对以下标的分别给出 G
 # 数据增强
 # ============================================================
 
+def _parse_json_codes(raw: str) -> list[str]:
+    """解析 mentioned_codes/stock_codes，兼容 JSON 数组和逗号分隔两种格式。"""
+    if not raw or raw in ("[]", ""):
+        return []
+    try:
+        arr = json.loads(raw)
+        if isinstance(arr, list):
+            return [str(c).strip().zfill(6) for c in arr
+                    if str(c).strip().lstrip("0").isdigit()]
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return [c.strip().zfill(6) for c in raw.split(",")
+            if c.strip().isdigit() and len(c.strip()) <= 6]
+
+
+def _batch_json_contains(rows: list[sqlite3.Row], field: str, code: str) -> bool:
+    """检查 code 是否出现在任一行 JSON 数组字段中（一次 DB 查询，Python 侧过滤）。"""
+    for r in rows:
+        codes = _parse_json_codes(r[field] or "")
+        if code in codes:
+            return True
+    return False
+
+
 def _enrich_stocks(codes: list[str]) -> list[dict]:
     """多维数据增强 — 财务+信号+催化+机构。"""
     from config import STOCK_PRIMARY_CONCEPT
@@ -152,7 +176,7 @@ def _enrich_stocks(codes: list[str]) -> list[dict]:
     seven_d = (date.today() - timedelta(days=7)).isoformat()
     ninety_d = (date.today() - timedelta(days=90)).isoformat()
 
-    # G1 财务
+    # G1 财务 — 每个 code 取最新一期报告
     fin_map = {}
     for c in codes:
         row = conn.execute(
@@ -161,53 +185,48 @@ def _enrich_stocks(codes: list[str]) -> list[dict]:
         ).fetchone()
         if row: fin_map[c] = dict(row)
 
-    # G1 非结构化信号 (from deep_read + catalyst)
-    nonstruct_map = {}
-    signal_keywords = {
-        "产能扩张": ["产能", "扩产", "投产", "新建", "募投", "达产"],
-        "新客户导入": ["新客户", "导入", "认证", "通过验证", "送样"],
-        "产品涨价": ["涨价", "提价", "上调价格", "价格上调"],
-        "订单饱满": ["订单", "合同", "中标", "签约", "协议"],
-        "技术突破": ["突破", "量产", "首发", "领先", "自主研发"],
-        "收购重组": ["收购", "重组", "并购", "资产注入"],
-    }
+    # G2 催化 + G1 非结构化信号 — 批量拉 JSON 数组，Python 匹配
+    cat_30d = conn.execute(
+        "SELECT mentioned_codes, catalyst_name, actionability, date FROM catalyst_signals "
+        "WHERE date >= ? AND mentioned_codes IS NOT NULL AND mentioned_codes != '[]'",
+        (thirty_d,)
+    ).fetchall()
+
+    nonstruct_map: dict[str, list[str]] = {}
+    catalyst_map: dict[str, dict] = {}
+    signal_keywords = [
+        ("产能扩张", ["产能", "扩产", "投产", "新建", "募投", "达产"]),
+        ("新客户导入", ["新客户", "导入", "认证", "通过验证", "送样"]),
+        ("产品涨价", ["涨价", "提价", "上调价格", "价格上调"]),
+        ("订单饱满", ["订单", "合同", "中标", "签约", "协议"]),
+        ("技术突破", ["突破", "量产", "首发", "领先", "自主研发"]),
+        ("收购重组", ["收购", "重组", "并购", "资产注入"]),
+    ]
     for c in codes:
-        signals_found = []
-        # deep_read
+        signals = []
+        matched = [(r["actionability"] or 0, r["catalyst_name"] or "")
+                   for r in cat_30d if _batch_json_contains([r], "mentioned_codes", c)]
+        catalyst_map[c] = {
+            "count": len(matched),
+            "max_score": max([m[0] for m in matched]) if matched else 0,
+        }
+        for _, cat_name in matched:
+            for sig_type, keywords in signal_keywords:
+                if any(kw in cat_name for kw in keywords) and sig_type not in signals:
+                    signals.append(sig_type)
+        nonstruct_map[c] = signals
+
+    # G1 非结构化信号 (deep_read 补充)
+    for c in codes:
         dr_rows = conn.execute(
             "SELECT ann_title, total_score FROM deep_read_results "
             "WHERE code=? AND date >= ? AND total_score >= 40", (c, thirty_d)
         ).fetchall()
         for r in dr_rows:
             title = r["ann_title"] or ""
-            for signal_type, keywords in signal_keywords.items():
-                if any(kw in title for kw in keywords):
-                    signals_found.append(signal_type)
-                    break
-        # catalyst
-        cat_rows = conn.execute(
-            "SELECT catalyst_name FROM catalyst_signals "
-            "WHERE mentioned_codes LIKE ? AND date >= ?", (f"%{c}%", thirty_d)
-        ).fetchall()
-        for r in cat_rows:
-            cat_name = r["catalyst_name"] or ""
-            for signal_type, keywords in signal_keywords.items():
-                if any(kw in cat_name for kw in keywords):
-                    if signal_type not in signals_found:
-                        signals_found.append(signal_type)
-                    break
-        nonstruct_map[c] = signals_found
-
-    # G2 催化密度
-    catalyst_map = {}
-    for c in codes:
-        rows = conn.execute(
-            "SELECT actionability FROM catalyst_signals "
-            "WHERE mentioned_codes LIKE ? AND date >= ?", (f"%{c}%", thirty_d)
-        ).fetchall()
-        count = len(rows)
-        max_score = max([r["actionability"] or 0 for r in rows]) if rows else 0
-        catalyst_map[c] = {"count": count, "max_score": max_score}
+            for sig_type, keywords in signal_keywords:
+                if any(kw in title for kw in keywords) and sig_type not in nonstruct_map[c]:
+                    nonstruct_map[c].append(sig_type)
 
     # G2 深研信号
     deep_map = {}
@@ -218,23 +237,18 @@ def _enrich_stocks(codes: list[str]) -> list[dict]:
         ).fetchone()
         deep_map[c] = {"max_score": row["ms"] or 0, "count": row["cnt"]}
 
-    # G3 星球提及
+    # G3 星球提及 — 批量拉 JSON 数组，Python 匹配
+    zsxq_7d = conn.execute(
+        "SELECT stock_codes FROM zsxq_topics "
+        "WHERE create_time >= ? AND stock_codes IS NOT NULL AND stock_codes != '[]' AND stock_codes != ''",
+        (seven_d,)
+    ).fetchall()
     zsxq_map = {}
     for c in codes:
-        row = conn.execute(
-            "SELECT COUNT(*) as cnt FROM zsxq_topics "
-            "WHERE stock_codes LIKE ? AND create_time >= ?", (f"%{c}%", seven_d)
-        ).fetchone()
-        zsxq_map[c] = row["cnt"]
+        zsxq_map[c] = sum(1 for r in zsxq_7d if _batch_json_contains([r], "stock_codes", c))
 
-    # G3 微博提及
-    weibo_map = {}
-    for c in codes:
-        row = conn.execute(
-            "SELECT COUNT(*) as cnt FROM weibo_posts "
-            "WHERE text LIKE ? AND created_at >= ?", (f"%{c}%", seven_d)
-        ).fetchone()
-        weibo_map[c] = row["cnt"]
+    # G3 微博 — 表为空，直接置 0
+    weibo_map = {c: 0 for c in codes}
 
     # G4 研报覆盖 + 评级变化
     research_map = {}
@@ -245,7 +259,6 @@ def _enrich_stocks(codes: list[str]) -> list[dict]:
         ).fetchall()
         count = len(rows)
         latest_rating = rows[0]["rating"] if rows else ""
-        # 检测首次覆盖(90天前无覆盖)
         older = conn.execute(
             "SELECT COUNT(*) as cnt FROM research_reports "
             "WHERE code=? AND report_date < ?", (c, ninety_d)
@@ -335,15 +348,9 @@ def _build_batch_prompt(stocks: list[dict]) -> str:
         # G2 催化
         cc = s.get("catalyst_count", 0)
         dp_max = s.get("deep_read_max", 0)
-        g2_parts = []
-        if cc: g2_parts.append(f"催化{cc}个(最高{', '.join(str(s.get('catalyst_max',0)))})" if False else f"催化{cc}个")
+        g2_parts = [f"催化{cc}个"]
         if dp_max >= 40: g2_parts.append(f"深研{dp_max}分")
-        if g2_parts: parts.append("G2: " + " ".join(g2_parts))
-        else: parts.append("G2: 无催化")
-
-        # G2 simplified
-        parts[-1] = f"催化{cc}个" if "G2" in parts[-1] else parts[-1]
-        if dp_max >= 40: parts[-1] += f" 深研{dp_max}分"
+        parts.append("G2: " + " ".join(g2_parts))
 
         # G3 叙事
         zs = s.get("zsxq_mentions_7d", 0)
@@ -469,17 +476,15 @@ def _main():
     if args.codes:
         codes = [c.strip() for c in args.codes.split(",") if c.strip()]
     elif args.from_pool:
-        # 有财务数据 + 有催化信号的标的
+        # 全量有财务数据的标的 (G1 基础)。G2/G3/G4 由 _enrich_stocks 按实际数据补充。
         conn = _review_conn()
-        fin = set(r[0] for r in conn.execute("SELECT DISTINCT code FROM financial_indicators").fetchall())
-        cat = set()
-        for r in conn.execute("SELECT DISTINCT mentioned_codes FROM catalyst_signals WHERE mentioned_codes IS NOT NULL").fetchall():
-            for c in r[0].split(","):
-                c = c.strip().zfill(6)
-                if c.isdigit() and len(c) == 6: cat.add(c)
+        codes = sorted(
+            r[0] for r in conn.execute(
+                "SELECT DISTINCT code FROM financial_indicators"
+            ).fetchall()
+        )
         conn.close()
-        codes = sorted(fin & cat)
-        print(f"优先池(财务+催化): {len(codes)} 只")
+        print(f"G-Factor 全量池: {len(codes)} 只 (有财务数据)")
     else:
         p.print_help()
         return
