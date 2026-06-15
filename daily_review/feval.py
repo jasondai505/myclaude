@@ -665,7 +665,8 @@ def score_delta_from_feeds(date_str: str = "") -> list[dict]:
         print("  [WARN] delta: 无 API key，跳过")
         return []
 
-    client = _rc2("synthesis", timeout=120)
+    from daily_review.roles import get_client
+    client = get_client("synthesis", timeout=120)
 
     combined_feeds = "\n".join(feed_texts)
     prompt = DELTA_PROMPT.format(feed_text=combined_feeds[:20000])

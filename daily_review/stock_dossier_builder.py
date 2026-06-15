@@ -133,6 +133,31 @@ def _load_gfactor(codes: list[str]) -> dict[str, dict]:
     return result
 
 
+def _load_delta(codes: list[str]) -> dict[str, dict]:
+    """加载最新 Δ 边际变化评分（从 serenity.db 的 stock_delta 表）。"""
+    serenity_db = BASE / "data" / "serenity.db"
+    result = {}
+    empty = {"score": 0, "signal": "", "source": ""}
+    if not serenity_db.exists():
+        return {c: empty for c in codes}
+    conn_s = sqlite3.connect(str(serenity_db))
+    conn_s.row_factory = sqlite3.Row
+    for c in codes:
+        row = conn_s.execute(
+            "SELECT delta_score, signal, source FROM stock_delta "
+            "WHERE code=? ORDER BY date DESC LIMIT 1", (c,)
+        ).fetchone()
+        if row:
+            result[c] = {
+                "score": row["delta_score"], "signal": row["signal"] or "",
+                "source": row["source"] or "",
+            }
+        else:
+            result[c] = dict(empty)
+    conn_s.close()
+    return result
+
+
 def _load_financials(codes: list[str]) -> dict[str, dict]:
     """从 DB 加载财务指标（最近 4 期）。"""
     conn = _conn()
@@ -322,23 +347,27 @@ def aggregate(codes: list[str]) -> dict[str, dict]:
     fevs = _load_fev(codes)
     print(f"{len(fevs)}只")
 
-    print("  [3/7] G-Factor...", end=" ")
+    print("  [3/8] G-Factor...", end=" ")
     gfactors = _load_gfactor(codes)
     print(f"{sum(1 for v in gfactors.values() if v['g1']+v['g2']+v['g3']+v['g4'] > 0)}只有评分")
 
-    print("  [4/7] 财务...", end=" ")
+    print("  [4/8] Δ边际变化...", end=" ")
+    deltas = _load_delta(codes)
+    print(f"{sum(1 for v in deltas.values() if v['score'] != 0)}只有信号")
+
+    print("  [5/8] 财务...", end=" ")
     fins = _load_financials(codes)
     print(f"{len(fins)}只")
 
-    print("  [5/7] 行业...", end=" ")
+    print("  [6/8] 行业...", end=" ")
     industry = _load_industry(codes)
     print(f"{len(industry)}只")
 
-    print("  [6/7] 信号...", end=" ")
+    print("  [7/8] 信号...", end=" ")
     signals = _load_signals(codes)
     print(f"{len(signals)}只")
 
-    print("  [7/7] 股东...", end=" ")
+    print("  [8/8] 股东...", end=" ")
     holders = _load_shareholders(codes)
     print(f"{len(holders)}只有数据")
 
@@ -350,6 +379,7 @@ def aggregate(codes: list[str]) -> dict[str, dict]:
             "name": names.get(c, "?"),
             "fev": fevs.get(c, {}),
             "gfactor": gfactors.get(c, {}),
+            "delta": deltas.get(c, {}),
             "financials": fins.get(c, {}),
             "industry": industry.get(c, {}),
             "signals": signals.get(c, {}),
@@ -422,6 +452,7 @@ def synthesize_one(code: str, dossier: dict) -> str:
         "name": dossier["name"],
         "fev": dossier.get("fev", {}),
         "gfactor": dossier.get("gfactor", {}),
+        "delta": dossier.get("delta", {}),
         "financials": dossier.get("financials", {}),
         "industry": dossier.get("industry", {}),
         "signals": dossier.get("signals", {}),
