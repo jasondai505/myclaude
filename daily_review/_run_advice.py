@@ -791,6 +791,39 @@ def _inject_fev_table() -> str:
     return "\n".join(lines)
 
 
+def _inject_gfactor_table() -> str:
+    """注入所有已评分标的的 G-Factor 查询表，按 G_composite 降序。"""
+    gfactor_rows: dict[str, dict] = {}
+    try:
+        gdb = BASE / "data" / "gfactor.db"
+        if gdb.exists():
+            conn_g = sqlite3.connect(str(gdb))
+            conn_g.row_factory = sqlite3.Row
+            for r in conn_g.execute(
+                "SELECT * FROM gfactor_scores "
+                "WHERE date=(SELECT MAX(date) FROM gfactor_scores)"
+            ).fetchall():
+                gfactor_rows[r["code"]] = dict(r)
+            conn_g.close()
+    except Exception:
+        pass
+
+    if not gfactor_rows:
+        return "（G-Factor 评分数据暂未生成）"
+
+    lines = ["| 代码 | 名称 | G1 | G2 | G3 | G4 | G_composite |",
+             "|------|------|:--:|:--:|:--:|:--:|:-----------:|"]
+    for code, r in sorted(gfactor_rows.items(),
+                          key=lambda x: -(x[1]["g1_score"]*2 + x[1]["g2_score"]*2
+                                         + x[1]["g3_score"] + x[1]["g4_score"])):
+        g_comp = r["g1_score"]*2 + r["g2_score"]*2 + r["g3_score"] + r["g4_score"]
+        lines.append(
+            f"| {code} | {r.get('name','')} | {r['g1_score']} | {r['g2_score']} | "
+            f"{r['g3_score']} | {r['g4_score']} | **{g_comp}** |"
+        )
+    return "\n".join(lines)
+
+
 def _validate_index_claims(output: str, us_indices_json: str) -> str:
     """校验 LLM 输出中的指数涨跌幅声明，与注入的真实数据比对，不匹配时自动修正。"""
     try:
@@ -1124,6 +1157,8 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
                 block_lines.append(ln)
             candidates.append({"code": code, "name": name, "block": "\n".join(block_lines)})
 
+    candidate_map = {c["code"]: c for c in candidates}
+
     if len(candidates) < 5:
         print(f"  [SELECTION] 候选池仅 {len(candidates)} 只，跳过硬排名")
         return output
@@ -1235,11 +1270,15 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
         elif "长线" in hp or "底仓" in hp or "长期" in hp:
             c["hold_period"] = "长线底仓"
 
-    # 计算 FEVΔ + 三轨标签，排序
+    # ================================================================
+    # 双轨评分计算：FEVΔ 轨 + G-Factor 轨
+    # ================================================================
     for c in candidates:
         fv = fev_map.get(c["code"], {})
         d = delta_map.get(c["code"], {})
         gf = gfactor_map.get(c["code"], {})
+
+        # --- FEVΔ 轨 ---
         c["fev"] = fv.get("fev", 0)
         c["f_score"] = fv.get("f", 0)
         c["e_score"] = fv.get("e", 0)
@@ -1249,15 +1288,46 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
         c["delta"] = d.get("delta_score", 0) if d else 0
         c["delta_signal"] = d.get("signal", "") if d else ""
         c["fevd"] = c["fev"] + c["delta"]
-        # 三轨标签
+
+        # --- G-Factor 轨 ---
+        g1 = gf.get("g1", 0)
+        g2 = gf.get("g2", 0)
+        g3 = gf.get("g3", 0)
+        g4 = gf.get("g4", 0)
+        c["g1"] = g1
+        c["g2"] = g2
+        c["g3"] = g3
+        c["g4"] = g4
+        c["g_composite"] = g1 * 2 + g2 * 2 + g3 * 1 + g4 * 1
+
+        # G2Δ 联动加分
+        delta_val = c["delta"]
+        g2delta_bonus = 0
+        if g2 >= 6 and delta_val > 0:
+            g2delta_bonus = 3   # 催化强化
+        elif g2 >= 6 and delta_val == 0:
+            g2delta_bonus = -1  # 催化可能已兑现
+        elif g2 <= 2 and delta_val >= 3:
+            g2delta_bonus = 2   # 冷门标的突发催化
+        c["g2delta_bonus"] = g2delta_bonus
+        c["g_rank_score"] = c["g_composite"] + g2delta_bonus
+
+        # --- 三轨标签 ---
         tracks = []
         if c["fev"] >= 18:
             tracks.append("F")
-        if gf and (gf.get("g1", 0) >= 7 or gf.get("g2", 0) >= 7 or gf.get("g3", 0) >= 7 or gf.get("g4", 0) >= 7):
+        if gf and (g1 >= 7 or g2 >= 7 or g3 >= 7 or g4 >= 7):
             tracks.append("G")
-        if c["delta"] != 0:
+        if delta_val != 0:
             tracks.append("Δ")
-        c["tracks"] = "".join(f"📌{t}" for t in tracks) if tracks else "—"
+        c["tracks"] = " ".join(f"📌{t}" for t in tracks) if tracks else "—"
+
+        # --- 分歧检测 ---
+        e_score = c.get("e_score", 0)
+        if e_score > 0 and g1 > 0 and abs(e_score - g1) >= 4:
+            c["divergence"] = f"E={e_score} vs G1={g1}"
+        else:
+            c["divergence"] = ""
 
     # 连续性加分：昨日精选中催化仍成立的标的，防一日游
     from datetime import date as _dt, timedelta as _td
@@ -1316,57 +1386,119 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
             c["deep_read_bonus"] = 0
         c["fevd_adjusted"] = c["fevd"] + c["continuity_bonus"] + c["deep_read_bonus"]
 
-    candidates.sort(key=lambda x: -x["fevd_adjusted"])
+    # ================================================================
+    # 三轨席位制：FEVΔ 5席 + G-Factor 3席 + 催化 2席
+    # ================================================================
+    fev_sorted = sorted(candidates, key=lambda x: -x["fevd_adjusted"])
+    g_sorted = sorted(candidates, key=lambda x: -x["g_rank_score"])
 
-    # 双轨制：FEVΔ 取前7 + 催化行动性取3只
-    top7 = candidates[:7]
-    top7_codes = {c["code"] for c in top7}
+    # F轨: FEVΔ 前5
+    track_f = []
+    track_f_codes: set[str] = set()
+    for c in fev_sorted:
+        if len(track_f) >= 5:
+            break
+        track_f.append(c)
+        track_f_codes.add(c["code"])
 
-    # 催��化轨：从 catalyst_screen JSON 提取 CRITICAL/HIGH 催化标的
-    catalyst_picks = []
+    # G轨: G-Factor 前3 (排除F轨已入选，需 G_composite >= 10)
+    track_g = []
+    track_g_codes: set[str] = set()
+    for c in g_sorted:
+        if len(track_g) >= 3:
+            break
+        if c["code"] in track_f_codes:
+            continue
+        if c["g_composite"] >= 10:
+            track_g.append(c)
+            track_g_codes.add(c["code"])
+
+    # C轨: 催化前2 (从 catalyst_screen JSON，排除F/G轨)
+    existing_codes = track_f_codes | track_g_codes
+    track_c = []
     try:
-        cat_data = json.loads(
-            (CATALYST_DIR / f"catalyst_screen_{today}.json").read_text(encoding="utf-8"))
-        cat_candidates = cat_data.get("catalysts", [])
-        cat_maps = cat_data.get("stock_maps", {})
-        # 按行动性排序，取不在 top7 中的标的
-        for cat in sorted(cat_candidates, key=lambda x: -x.get("final_actionability", 0)):
-            for s in cat_maps.get(cat.get("catalyst_name", ""), []):
-                code = s.get("code", "")
-                if not code or code in top7_codes:
-                    continue
-                # 是否已在 candidates 中
-                cand = candidate_map.get(code, {})
-                fv = fev_map.get(code, {})
-                d = delta_map.get(code, {})
-                catalyst_picks.append({
-                    "code": code,
-                    "name": s.get("name", cand.get("name", "?")),
-                    "catalyst": cat.get("catalyst_name", "?"),
-                    "actionability": cat.get("final_actionability", 0),
-                    "fev": fv.get("fev", 0),
-                    "fevd": fv.get("fev", 0) + (d.get("delta_score", 0) if d else 0),
-                    "confidence": s.get("confidence", "?"),
-                    "source": "催化驱动",
-                })
-                top7_codes.add(code)  # 防止同催化多标的占满3席
-                break
-            if len(catalyst_picks) >= 3:
-                break
+        cat_path = CATALYST_DIR / f"catalyst_screen_{today}.json"
+        if cat_path.exists():
+            cat_data = json.loads(cat_path.read_text(encoding="utf-8"))
+            cat_candidates = cat_data.get("catalysts", [])
+            cat_maps = cat_data.get("stock_maps", {})
+            for cat in sorted(cat_candidates, key=lambda x: -x.get("final_actionability", 0)):
+                for s in cat_maps.get(cat.get("catalyst_name", ""), []):
+                    code = s.get("code", "")
+                    if not code or code in existing_codes:
+                        continue
+                    cand = candidate_map.get(code, {})
+                    fv = fev_map.get(code, {})
+                    d = delta_map.get(code, {})
+                    track_c.append({
+                        "code": code,
+                        "name": s.get("name", cand.get("name", "?")),
+                        "catalyst": cat.get("catalyst_name", "?"),
+                        "actionability": cat.get("final_actionability", 0),
+                        "fev": fv.get("fev", 0),
+                        "fevd": fv.get("fev", 0) + (d.get("delta_score", 0) if d else 0),
+                        "confidence": s.get("confidence", "?"),
+                        "source": "催化驱动",
+                    })
+                    existing_codes.add(code)
+                    break
+                if len(track_c) >= 2:
+                    break
     except Exception:
         pass
 
-    # 补够3只（催化不够时从 FEVΔ 候选中补）
-    while len(catalyst_picks) < 3 and len(candidates) > len(top7) + len(catalyst_picks):
-        c = candidates[len(top7) + len(catalyst_picks)]
-        if c["code"] not in top7_codes:
-            catalyst_picks.append({
-                "code": c["code"], "name": c["name"], "catalyst": "FEVΔ补位",
-                "actionability": 0, "fev": c["fev"], "fevd": c["fevd"],
-                "confidence": "—", "source": "FEVΔ补位",
-            })
+    # 补位: C轨不足从 FEVΔ 溢出补
+    while len(track_c) < 2:
+        found = False
+        for c in fev_sorted:
+            if c["code"] not in existing_codes:
+                track_c.append({
+                    "code": c["code"], "name": c["name"], "catalyst": "FEVΔ补位",
+                    "actionability": 0, "fev": c["fev"], "fevd": c["fevd"],
+                    "confidence": "—", "source": "FEVΔ补位",
+                })
+                existing_codes.add(c["code"])
+                found = True
+                break
+        if not found:
+            break
 
-    selection = top7 + catalyst_picks
+    # G轨不足从 FEVΔ 溢出补
+    while len(track_g) < 3:
+        found = False
+        for c in fev_sorted:
+            if c["code"] not in existing_codes:
+                c["source"] = "FEVΔ补位(G轨)"
+                track_g.append(c)
+                track_g_codes.add(c["code"])
+                existing_codes.add(c["code"])
+                found = True
+                break
+        if not found:
+            break
+
+    # F轨不足从 G 溢出补
+    while len(track_f) < 5:
+        found = False
+        for c in g_sorted:
+            if c["code"] not in existing_codes:
+                track_f.append(c)
+                track_f_codes.add(c["code"])
+                existing_codes.add(c["code"])
+                found = True
+                break
+        if not found:
+            for c in fev_sorted:
+                if c["code"] not in existing_codes:
+                    track_f.append(c)
+                    track_f_codes.add(c["code"])
+                    existing_codes.add(c["code"])
+                    found = True
+                    break
+        if not found:
+            break
+
+    selection = track_f + track_g + track_c
     rank_emoji = ["🥇", "🥈", "🥉"] + ["4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
 
     # 时间姿态
@@ -1375,7 +1507,7 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
         hp = c.get("hold_period", "")
         if hp in hp_counts:
             hp_counts[hp] += 1
-    dominant = max(hp_counts, key=hp_counts.get)
+    dominant = max(hp_counts, key=hp_counts.get) if any(hp_counts.values()) else "短线催化"
     posture = {
         "短线催化": "偏短线，适合事件驱动盯盘，持仓 1-5 天",
         "中线趋势": "偏中线，适合趋势跟随，持仓 1-3 周",
@@ -1383,22 +1515,34 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
     }
     hp_parts = [f"{v}只 {k}" for k, v in hp_counts.items() if v > 0]
 
-    lines = ["", "## 🎯 精选标的 — 用谁打", "",
+    # 构建精选表
+    lines = ["", "## 🎯 精选标的 — 三轨席位制", "",
              f"> ⏱️ 时间姿态: {' / '.join(hp_parts)} → {posture.get(dominant, '')}",
-             f"> 🛤️ 三轨制: **FEV(📌F) {len(top7)}只** + **催化 {len(catalyst_picks)}只**。标签: 📌F=质量价值 📌G=成长动能 📌Δ=事件驱动。"
-             "延续标的获加分（长线+5/中线+3/短线+1）。", "",
-             "| # | 标的 | 轨 | FEV | Δ | FEVΔ | 驱动 | 信号源 | 催化逻辑 |",
-             "|:--|------|:--:|:---:|:--:|:-----:|:----:|--------|---------|"]
+             f"> 🛤️ 三轨制: **FEVΔ(F轨) {len(track_f)}席** + **G-Factor(G轨) {len(track_g)}席** + **催化(C轨) {len(track_c)}席**。",
+             "> G轨: G_composite = G1×2 + G2×2 + G3×1 + G4×1 + G2Δbonus。延续标的获加分（长线+5/中线+3/短线+1）。", "",
+             "| # | 标的 | 轨 | FEV | Δ | FEVΔ | G分数 | 驱动 | 信号源 | 催化逻辑 |",
+             "|:--|------|:--:|:---:|:--:|:-----:|:-----:|:----:|--------|---------|"]
     for i, c in enumerate(selection):
         sign = "+" if c.get("delta", 0) >= 0 else ""
         ds_str = f"{sign}{c.get('delta', 0)}" if c.get("delta", 0) != 0 else "0"
-        hp = c.get("hold_period", "—")
         sources = _tag_stock_sources(c["code"], feeds)
-        # FEVΔ 轨显示 W1/W3，催化轨显示催化名+行动性
-        if "source" in c and c["source"] == "催化驱动":
+
+        # 轨标签
+        if c in track_f:
+            track_label = "F"
+            driver = c.get("fev_source", "FEVΔ") or "FEVΔ"
+        elif c in track_g:
+            track_label = "G"
+            driver = "G-Factor"
+        else:
+            track_label = "C"
+            driver = c.get("source", "催化") or "催化"
+
+        # 催化逻辑
+        if track_label == "C" and c.get("source") == "催化驱动":
             logic = f"{c.get('catalyst','?')} ({c.get('actionability',0)}分)"
-        elif "source" in c and c["source"] == "FEVΔ补位":
-            logic = "FEVΔ补位"
+        elif track_label == "C":
+            logic = c.get("source", "补位")
         else:
             w1 = w3 = "—"
             w1_m = re.search(r"-\s*\*\*W1\*\*\s*(.+)", c.get("block", ""))
@@ -1406,15 +1550,47 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
             if w1_m: w1 = w1_m.group(1).strip()[:55]
             if w3_m: w3 = w3_m.group(1).strip()[:50]
             logic = f"W1:{w1} | W3:{w3}" if (w1 != "—" or w3 != "—") else "—"
-        driver = c.get("source", "FEVΔ")
-        tracks = c.get("tracks", "—")
+
+        # G分数
+        if track_label == "G":
+            g_score_str = f"G={c.get('g_rank_score', 0)}"
+        else:
+            g_score_str = "—"
+
+        # 分歧标注
+        div = c.get("divergence", "")
+        name_display = f"**{c['name']}({c['code']})**"
+        if div:
+            name_display += f" ⚠️{div}"
+
+        tracks_display = c.get("tracks", "—")
+        # 去重：轨标签已显示 F/G/C，不再重复显示相同标签
+        if tracks_display != "—":
+            track_emoji = f"📌{track_label}"
+            parts = tracks_display.split()
+            filtered = [p for p in parts if p != track_emoji]
+            tracks_display = " ".join(filtered) if filtered else "—"
         lines.append(
-            f"| {rank_emoji[i]} | **{c['name']}({c['code']})** | {tracks} | "
-            f"{c.get('fev',0)} | {ds_str} | **{c.get('fevd',0)}** | {driver} | {sources} | {logic[:80]} |"
+            f"| {rank_emoji[i]} | {name_display} | 📌{track_label} {tracks_display} | "
+            f"{c.get('fev',0)} | {ds_str} | **{c.get('fevd',0)}** | {g_score_str} | "
+            f"{driver} | {sources} | {logic[:80]} |"
         )
     lines.append("")
-    lines.append(f"> 候选池 {len(candidates)} 只 → FEVΔ {len(top7)}只 + 催化 {len(catalyst_picks)}只")
+    lines.append(f"> 候选池 {len(candidates)} 只 → F轨{len(track_f)}席 + G轨{len(track_g)}席 + C轨{len(track_c)}席")
     lines.append("")
+
+    # 分歧检测
+    divergent = [c for c in selection if c.get("divergence")]
+    if divergent:
+        lines.append("### ⚠️ FEV/G-Factor 分歧检测")
+        lines.append("")
+        lines.append("> 以下标的 E(盈利质量) 与 G1(成长质量) 评分差距 ≥4，存在框架性分歧。")
+        lines.append("> 同一批财务数据，价值视角和成长视角给出了不同判断——值得深入验证。")
+        lines.append("")
+        for c in divergent:
+            lines.append(f"- **{c['name']}({c['code']})**: E={c.get('e_score',0)} vs G1={c.get('g1',0)} "
+                         f"| 建议验证财务数据的成长-质量一致性")
+        lines.append("")
 
     # 自辩
     debate_map = _debate_stocks(selection)
@@ -1496,8 +1672,8 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
     after = after.lstrip("\n")
     new_output = before.rstrip("\n") + "\n" + "\n".join(lines) + "\n" + after
 
-    print(f"  [SELECTION] 候选 {len(candidates)} → FEVΔ{len(top7)} + 催化{len(catalyst_picks)}，"
-          f"FEVΔ {top7[0]['fevd']}~{top7[-1]['fevd']}")
+    print(f"  [SELECTION] 候选 {len(candidates)} → F轨{len(track_f)} + G轨{len(track_g)} + C轨{len(track_c)}，"
+          f"FEVΔ {track_f[0]['fevd']}~{track_f[-1]['fevd']}" if track_f else "  [SELECTION] F轨为空")
     return new_output
 
 
@@ -2048,13 +2224,32 @@ def main():
     codes = _extract_codes_from_feeds(feeds)
     stock_ctx = _inject_stock_context(codes)
 
-    # 盘前先跑 FEV + Δ 评分，确保候选池有数据可查
-    print("  [PRE] 盘前 FEV/Δ 评分...")
+    # 盘前先跑统一评分 (FEV + G-Factor) + Δ 评分
+    print("  [PRE] 盘前统一评分 (FEV + G-Factor)...")
     try:
-        from daily_review.feval import score_from_feeds, score_delta_from_feeds
-        score_from_feeds(today)
+        from daily_review.unified_scorer import score_from_feeds as score_from_feeds_unified
+        score_from_feeds_unified(today)
     except Exception as e:
-        print(f"  [PRE] FEV 评分失败: {e}")
+        print(f"  [PRE] 统一评分失败: {e}，回退独立评分器...")
+        try:
+            from daily_review.feval import score_from_feeds
+            score_from_feeds(today)
+        except Exception as e2:
+            print(f"  [PRE] FEV 回退失败: {e2}")
+        try:
+            from daily_review.gfactor import score_codes as gf_score_codes
+            conn_r = sqlite3.connect(str(BASE / "data" / "review.db"))
+            conn_r.row_factory = sqlite3.Row
+            codes = sorted(r[0] for r in conn_r.execute(
+                "SELECT DISTINCT code FROM financial_indicators").fetchall())
+            conn_r.close()
+            if codes:
+                results = gf_score_codes(codes[:200])
+                from daily_review.gfactor import save_scores as gf_save
+                if results:
+                    gf_save(results)
+        except Exception as e3:
+            print(f"  [PRE] G-Factor 回退失败: {e3}")
     try:
         from daily_review.feval import score_delta_from_feeds
         score_delta_from_feeds(today)
@@ -2062,6 +2257,7 @@ def main():
         print(f"  [PRE] Δ 评分失败: {e}")
 
     fev_table = _inject_fev_table()
+    gfactor_table = _inject_gfactor_table()
 
     prompt = (tpl
         .replace("%%TODAY%%", today)
@@ -2087,6 +2283,7 @@ def main():
         .replace("%%MUST_CONSIDER%%", must_consider)
         .replace("%%YESTERDAY_LOGIC%%", yesterday_logic)
         .replace("%%FEV_TABLE%%", fev_table)
+        .replace("%%GFACTOR_TABLE%%", gfactor_table)
         .replace("%%CATALYST_SCREEN%%", _inject_catalyst_screen(today))
         .replace("%%CATALYST_TRACK%%", _inject_catalyst_track(today))
     )
