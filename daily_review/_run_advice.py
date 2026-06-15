@@ -1261,7 +1261,7 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
 
     # 连续性加分：昨日精选中催化仍成立的标的，防一日游
     from datetime import date as _dt, timedelta as _td
-    _yesterday = (_dt.today() - _td(days=1)).isoformat()
+    _yesterday = _last_trading_day().isoformat()
     y_path = BASE / "reports" / "advice" / f"advice_{_yesterday}.md"
     yesterday_holds: dict[str, str] = {}  # code -> hold_period
     if y_path.exists():
@@ -2010,9 +2010,18 @@ def _diff_chokemap(new_output: str, today: str) -> str:
     return "\n".join(lines)
 
 
+def _last_trading_day(ref: date | None = None) -> date:
+    """最近一个交易日（跳过周末）。"""
+    d = ref or date.today()
+    d = d - timedelta(days=1)
+    while d.weekday() >= 5:  # 周六=5, 周日=6
+        d = d - timedelta(days=1)
+    return d
+
+
 def main():
     today = sys.argv[1] if len(sys.argv) > 1 else date.today().isoformat()
-    yesterday = sys.argv[2] if len(sys.argv) > 2 else (date.today() - timedelta(days=1)).isoformat()
+    yesterday = sys.argv[2] if len(sys.argv) > 2 else _last_trading_day().isoformat()
     today_dow = DOW_CN[date.fromisoformat(today).weekday()]
     yesterday_dow = DOW_CN[date.fromisoformat(yesterday).weekday()]
 
