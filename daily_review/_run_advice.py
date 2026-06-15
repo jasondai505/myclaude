@@ -1713,8 +1713,9 @@ def _debate_stocks(top10: list[dict]) -> dict[str, list[str]]:
             w3 = w3_m.group(1).strip()[:80]
         if w4_m:
             w4 = w4_m.group(1).strip()[:60]
+        fevd = c.get('fevd_adjusted', c.get('fevd', 0))
         stock_briefs.append(
-            f"- {c['name']}({c['code']}) {c.get('hold_period','')} FEVΔ={c['fevd_adjusted']} "
+            f"- {c['name']}({c['code']}) {c.get('hold_period','')} FEVΔ={fevd} "
             f"W1:{w1} W3:{w3} W4:{w4}"
         )
 
