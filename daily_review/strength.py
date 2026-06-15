@@ -329,107 +329,161 @@ def score_emerging_dragons(
     zt_pool: dict[str, dict],
     fev_map: dict[str, dict],
     hot_rank_map: dict[str, int],
-    major_concepts: set[str],
     hot100_codes: set[str],
+    major_concepts: set[str],
+    strength_data: dict,
 ) -> list[dict]:
-    """跨板块筛选将成龙标的：走势已启动 / 逻辑未充分定价。
+    """跨板块筛选将成龙：个股领先于板块，在板块前中期率先走强。
 
-    返回按性价比降序排列的标的列表 (top 30)。
+    核心逻辑：涨停是结果不是预言。将成龙要找的是——
+    1. 板块处于前中期（非高潮/退潮）
+    2. 个股显著强于板块（相对强度）
+    3. 能在板块调整时逆势走强（最强信号）
     """
-    all_candidates = []
+
+    # 板块聚合：stage + 平均涨跌幅
+    sector_info: dict[str, dict] = {}
+    for ts in (strength_data.get("strong_themes", [])
+               + strength_data.get("emerging_themes", [])
+               + strength_data.get("fading_themes", [])):
+        sector_info[ts["theme"]] = ts
+
+    # 板块逐日平均涨跌（从板块内 K线计算）
+    def _sector_daily_returns(pool_stocks, days=5):
+        if not pool_stocks:
+            return [0.0] * days
+        daily_sums = [0.0] * days
+        daily_counts = [0] * days
+        for code in pool_stocks:
+            kdf = klines_map.get(code)
+            if kdf is None or len(kdf) <= days:
+                continue
+            closes = kdf["close"].values
+            for d in range(1, days + 1):
+                if len(closes) > d and closes[-d-1] > 0:
+                    daily_sums[d-1] += (closes[-d] - closes[-d-1]) / closes[-d-1] * 100
+                    daily_counts[d-1] += 1
+        return [daily_sums[i] / max(daily_counts[i], 1) for i in range(days)]
+
+    def _sector_avg_return(pool_stocks, ndays):
+        """从 K线直接计算板块 N 日平均涨跌幅"""
+        returns = []
+        for code in pool_stocks:
+            kdf = klines_map.get(code)
+            r = _calc_nd_return(kdf, ndays)
+            if r is not None:
+                returns.append(r)
+        return sum(returns) / len(returns) if returns else 0.0
+
+    candidates = []
     for theme, pool_stocks in theme_pool.items():
+        si = sector_info.get(theme, {})
+        stage = si.get("stage", "")
+        if stage in ("退潮", "高潮"):
+            continue
+
+        # 从 K线直接算板块均值（strength_data 可能因 level<2 不包含此主题）
+        sector_r5 = si.get("avg_5d") or _sector_avg_return(pool_stocks, 5)
+        sector_r10 = si.get("avg_10d") or _sector_avg_return(pool_stocks, 10)
+        # 板块阶段，strength_data 没有时从涨跌和涨停数推断
+        if not stage:
+            today_count = si.get("today_count", 0) or 0
+            breadth = si.get("breadth") or (0.5 if sector_r5 > 0 else 0.3)
+            if sector_r5 < -3 and today_count == 0:
+                stage = "退潮"
+            elif today_count >= 10 and sector_r5 > 15:
+                stage = "高潮"
+            elif sector_r5 > 0:
+                stage = "主升浪"
+            else:
+                stage = "活跃"
+        if stage in ("退潮", "高潮"):
+            continue
+        sdr = _sector_daily_returns(pool_stocks, 5)
+
         for code, info in pool_stocks.items():
             q = quotes_map.get(code, {})
             kdf = klines_map.get(code)
-            r10 = _calc_nd_return(kdf, 10)
-            r5 = _calc_nd_return(kdf, 5)
-            chg = q.get("change_pct", 0) or 0
-            vol_ratio = q.get("vol_ratio", 0) or 0
-            mcap = q.get("mcap_yi", 0) or 0
+            r5 = (_calc_nd_return(kdf, 5) or 0)
+            r10 = (_calc_nd_return(kdf, 10) or 0)
             name = q.get("name") or code
+            mcap = q.get("mcap_yi", 0) or 0
 
-            has_limit = False
-            if kdf is not None and len(kdf) >= 11:
-                for i in range(max(1, len(kdf) - 10), len(kdf)):
-                    if _is_limit_up(kdf, i):
-                        has_limit = True
-                        break
-
-            consecutive_up = 0
-            if kdf is not None and len(kdf) >= 4:
+            # 逐日个股涨跌（5天，最近=index 0）
+            stock_daily = []
+            has_new_high = False
+            if kdf is not None and len(kdf) >= 6:
                 closes = kdf["close"].values
-                for j in range(1, min(4, len(closes))):
-                    if closes[-j] > closes[-j - 1]:
-                        consecutive_up += 1
+                highs = kdf["high"].values if "high" in kdf.columns else closes
+                for d in range(1, 6):
+                    if len(closes) > d and closes[-d-1] > 0:
+                        stock_daily.append((closes[-d] - closes[-d-1]) / closes[-d-1] * 100)
                     else:
-                        break
+                        stock_daily.append(0.0)
+                # 最近5日是否创新高（20日范围）
+                if len(highs) >= 20:
+                    prev_high = max(highs[-20:-5])
+                    recent_high = max(highs[-5:])
+                    has_new_high = recent_high > prev_high
+            else:
+                stock_daily = [0.0] * 5
 
-            zt = zt_pool.get(code, {})
-            consecutive_boards = zt.get("consecutive_boards", 0)
+            # 相对强度：领先板块多少 (0-70)
+            rel_5d = r5 - sector_r5
+            rel_10d = r10 - sector_r10
+            rel_score = _clamp(rel_5d * 2, 0, 40) + _clamp(rel_10d * 1.5, 0, 30)
 
-            ma_bull = False
-            broke_ma20 = False
-            if kdf is not None and len(kdf) >= 21:
-                closes = kdf["close"].values
-                ma5 = closes[-5:].mean()
-                ma10 = closes[-10:].mean()
-                ma20 = closes[-20:].mean()
-                ma_bull = ma5 > ma10 > ma20
-                broke_ma20 = closes[-1] > ma20 and closes[-2] <= ma20
+            # 逆势信号：个股涨+板块跌的天数 (0-30)
+            counter_days = 0
+            for sd, sec_d in zip(stock_daily, sdr):
+                if sd > 0 and sec_d < 0:
+                    counter_days += 1
+            counter_score = counter_days * 8 + (10 if has_new_high and counter_days >= 1 else 0)
 
-            all_candidates.append({
+            # 逻辑未定价 (0-20)
+            unpriced = 0
+            fev = fev_map.get(code)
+            fev_total = fev.get("fev_total") if isinstance(fev, dict) else 0
+            if fev_total > 0 and fev_total < 15:
+                unpriced += 5
+            elif fev_total == 0:
+                unpriced += 8
+            if code not in hot100_codes:
+                unpriced += 4
+            if mcap > 0 and mcap < 150:
+                unpriced += 4
+            if theme not in major_concepts:
+                unpriced += 4
+
+            # 板块阶段乘数
+            if stage == "爆发初期":
+                stage_mul = 1.5
+            elif stage == "主升浪":
+                breadth = si.get("breadth", 0.5) or 0.5
+                stage_mul = 1.2 if breadth < 0.6 else 1.0
+            else:
+                stage_mul = 1.0
+
+            total = (rel_score + counter_score + unpriced) * stage_mul
+
+            candidates.append({
                 "code": code, "name": name, "theme": theme,
-                "r5": r5 or 0, "r10": r10 or 0, "chg": chg,
-                "vol_ratio": vol_ratio, "mcap_yi": mcap,
-                "has_limit": has_limit, "consecutive_up": consecutive_up,
-                "consecutive_boards": consecutive_boards,
-                "ma_bull": ma_bull, "broke_ma20": broke_ma20,
-                "freq": info.get("freq", 0),
-                "first_date": info.get("first_date", ""),
+                "stage": stage,
+                "r5": r5, "r10": r10,
+                "sector_r5": round(sector_r5, 1), "sector_r10": round(sector_r10, 1),
+                "rel_5d": round(rel_5d, 1), "rel_10d": round(rel_10d, 1),
+                "rel_score": round(rel_score, 1),
+                "counter_days": counter_days, "has_new_high": has_new_high,
+                "counter_score": counter_score,
+                "unpriced_score": unpriced,
+                "value_score": round(total, 1),
+                "fev_total": fev_total,
+                "hot_rank": f"#{hot_rank_map[code]}" if code in hot_rank_map else "-",
             })
 
-    # 走势强度 (0-100)
-    def trend_strength(c):
-        s = 0
-        s += _clamp(c["r5"] / 5 * 5, 0, 25)
-        s += _clamp(c["r10"] / 10 * 5, 0, 20)
-        s += _clamp(c["consecutive_up"] * 5, 0, 15)
-        s += 15 if c["has_limit"] else 0
-        s += _clamp((c["vol_ratio"] - 1) * 8, 0, 10)
-        s += 5 if c["chg"] > 3 else 0
-        s += 5 if c["ma_bull"] else 0
-        s += 5 if c["broke_ma20"] else 0
-        return _clamp(s, 0, 100)
-
-    # 逻辑未定价 (0-100, 越高越未被发现)
-    def unpriced_level(c):
-        s = 0
-        fev = fev_map.get(c["code"], {})
-        fev_total = fev.get("fev_total") if isinstance(fev, dict) else 0
-        s += _clamp(30 - fev_total, 0, 30) if fev_total else 20
-        s += 15 if c["code"] not in hot100_codes else 0
-        s += 10 if c["mcap_yi"] < 150 else 0
-        s += 10 if c["theme"] not in major_concepts else 0
-        s += 5 if c["consecutive_boards"] < 3 else 0
-        return _clamp(s, 0, 100)
-
-    scored = []
-    for c in all_candidates:
-        ts = trend_strength(c)
-        up = unpriced_level(c)
-        vs = ts * (100 - up) / 100 if up < 100 else 0
-        c["trend_score"] = ts
-        c["unpriced_score"] = up
-        c["value_score"] = round(vs, 1)
-        fev = fev_map.get(c["code"])
-        c["fev_total"] = fev.get("fev_total") if isinstance(fev, dict) else 0
-        hr = hot_rank_map.get(c["code"])
-        c["hot_rank"] = f"#{hr}" if hr else "-"
-        scored.append(c)
-
-    # 去重：同股票出现在多个板块，只保留性价比最高的那个
+    # 去重：同股票只保留最高分
     seen = {}
-    for c in scored:
+    for c in candidates:
         code = c["code"]
         if code not in seen or c["value_score"] > seen[code]["value_score"]:
             seen[code] = c
@@ -453,7 +507,7 @@ def save_emerging_dragons(trade_date: str, dragons: list[dict]):
                         value_score, r5, r10, status)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')""",
                     (trade_date, d["code"], d.get("name", ""), d.get("theme", ""),
-                     d.get("trend_score", 0), d.get("unpriced_score", 0),
+                     d.get("rel_score", 0), d.get("unpriced_score", 0),
                      d.get("value_score", 0), d.get("r5", 0), d.get("r10", 0)))
             conn.commit()
     except Exception as e:

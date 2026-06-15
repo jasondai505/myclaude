@@ -1124,7 +1124,7 @@ def main():
     from strength import score_emerging_dragons, save_emerging_dragons, track_emerging_dragon_outcomes, compute_conversion_rate
     emerging_dragons = score_emerging_dragons(
         theme_pool, all_klines_merged, all_quotes_merged, zt_pool,
-        fev_map, hot_rank_map, major_concepts, hot_codes)
+        fev_map, hot_rank_map, hot_codes, major_concepts, strength_result)
     print(f"  筛选出 {len(emerging_dragons)} 只将成龙标的")
     if emerging_dragons:
         top3 = " / ".join(f"{d['name']}({d['code']})" for d in emerging_dragons[:3])
