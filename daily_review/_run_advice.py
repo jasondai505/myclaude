@@ -26,6 +26,7 @@ MAX_DIRECT_CHARS = 6000
 FEED_FILES = [
     # 核心日更（必须） — 原始信息，无其他分析引擎覆盖
     ("%%NEWS%%", "news", True),
+    ("%%NEWS_SIGNALS%%", "news_signals", False),
     ("%%ANNOUNCEMENTS%%", "announcements", True),
     # 日更（可选）— 有独立分析引擎但原始摘要仍有参考价值
     ("%%INDUSTRY%%", "industry", False),

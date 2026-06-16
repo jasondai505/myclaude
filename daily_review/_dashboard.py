@@ -81,6 +81,7 @@ SOURCE_LABELS = {
     "interactions": "💬 互动易",
     "earnings": "📈 业绩预告",
     "news": "📰 个股新闻",
+    "news_signals": "📰 新闻边际信号",
     "industry": "🏭 行业研报",
     "wechat": "💚 微信公众号",
     "weibo": "🐦 唐史主任微博",
@@ -344,9 +345,12 @@ def _engine_status() -> list[dict]:
         try:
             text = ct_path.read_text(encoding="utf-8")
             import re
-            active = len(re.findall(r"^\| .+ \| active \|", text, re.MULTILINE))
-            revived = len(re.findall(r"复活|revived|price_confirmed", text, re.IGNORECASE))
-            ct_nums = f"{active}活性" + (f", {revived}复活" if revived else "")
+            m = re.search(r"(\d+)\s*条活性催化.*?走势确认\s*(\d+)\s*条", text)
+            if m:
+                ct_nums = f"{m.group(1)}活性/{m.group(2)}确认"
+            revived = re.findall(r"历史催化复活|历史复活", text)
+            if revived:
+                ct_nums += " 🔄复活"
         except Exception:
             ct_nums = ""
     engines.append({

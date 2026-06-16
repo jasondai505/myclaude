@@ -39,6 +39,7 @@ _COLLECTOR_IMPORTS = {
     "announcements": "announcements",
     "announcement_deep_read": "announcement_deep_read",
     "news": "news",
+    "news_signals": "news_signals",
     "research": "research_reports",
     "research_deep_read": "research_deep_read",
     "interactions": "interactions",
@@ -49,6 +50,7 @@ _COLLECTOR_IMPORTS = {
     "eps": "eps_forecast",
     "industry": "industry_research",
     "industry_deep_read": "industry_deep_read",
+    "catalyst_tracker": "catalyst_tracker_collector",
     "financials": "financials",
     "wechat": "wechat",
     "jiuyang": "jiuyang",
@@ -68,6 +70,7 @@ SOURCE_LABELS = {
     "announcements": "公告",
     "announcement_deep_read": "公告深度研读",
     "news": "个股新闻",
+    "news_signals": "新闻边际信号",
     "research": "个股研报",
     "research_deep_read": "研报深度跟踪",
     "interactions": "互动易",
@@ -78,6 +81,7 @@ SOURCE_LABELS = {
     "eps": "一致预期EPS",
     "industry": "行业研报",
     "industry_deep_read": "行业深度分析",
+    "catalyst_tracker": "催化走势跟踪",
     "financials": "财务指标",
     "wechat": "微信公众号",
     "jiuyang": "韭研脱水研报",
@@ -89,6 +93,7 @@ SOURCE_TABLE = {
     "announcements": ("announcements", "date"),
     "announcement_deep_read": ("deep_read_results", "date"),
     "news": ("stock_news", "publish_time"),
+    "news_signals": ("stock_news", "publish_time"),
     "research": ("research_reports", "report_date"),
     "research_deep_read": ("deep_read_results", "date"),
     "interactions": ("interactions", "reply_time"),
@@ -99,6 +104,7 @@ SOURCE_TABLE = {
     "eps": ("eps_forecast", "fetched_at"),
     "industry": ("industry_research", "publish_date"),
     "industry_deep_read": ("industry_reports", "fetched_at"),
+    "catalyst_tracker": ("catalyst_signals", "created_at"),
     "financials": ("financial_indicators", "fetched_at"),
     "wechat": ("wechat_articles", "pub_date"),
     "jiuyang": ("jiuyang_reports", "pub_date"),
@@ -106,9 +112,10 @@ SOURCE_TABLE = {
 }
 
 SOURCE_TIERS = {
-    "daily": {"zsxq", "announcements", "announcement_deep_read", "news", "research", "research_deep_read", "industry",
+    "daily": {"zsxq", "announcements", "announcement_deep_read", "news", "news_signals", "research", "research_deep_read", "industry",
               "industry_deep_read", "wechat", "weibo", "jiuyang", "interactions", "surveys", "sentiment_track", "earnings"},
     "weekly": {"lockups", "eps", "financials"},
+    "post_market": {"catalyst_tracker"},
 }
 
 
@@ -118,8 +125,8 @@ def _parse_args():
                    help="逗号分隔: zsxq,announcements,news,research,interactions,"
                         "earnings,surveys,lockups,eps,industry,financials；默认全部")
     p.add_argument("--tier", type=str, default="all",
-                   choices=["all", "daily", "weekly"],
-                   help="按频率分层: all=全部14源, daily=日更8源, weekly=低频6源")
+                   choices=["all", "daily", "weekly", "post_market"],
+                   help="按频率分层: all/daily/weekly/post_market")
     p.add_argument("--days", type=int, default=7, help="回补天数")
     p.add_argument("--since", type=str, help="起始日期 YYYY-MM-DD")
     p.add_argument("--until", type=str, help="截止日期 YYYY-MM-DD，默认今天")
@@ -223,10 +230,10 @@ def _write_index():
 
 COLLECTOR_TIMEOUTS = {
     "zsxq": 300, "announcements": 180, "announcement_deep_read": 1200,
-    "news": 180, "research": 240, "research_deep_read": 120,
+    "news": 180, "news_signals": 120, "research": 240, "research_deep_read": 120,
     "interactions": 600, "earnings": 120, "surveys": 240, "lockups": 120,
     "eps": 240, "industry": 120, "industry_deep_read": 600,
-    "financials": 180, "wechat": 120,
+    "catalyst_tracker": 120, "financials": 180, "wechat": 120,
     "jiuyang": 600, "weibo": 180,
 }
 DEFAULT_TIMEOUT = 180
