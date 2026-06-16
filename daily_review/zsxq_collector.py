@@ -41,6 +41,25 @@ def _extract_stock_codes(text: str) -> list[str]:
     return list(set(re.findall(r'[036]\d{5}', text)))
 
 
+def _extract_attachments(talk: dict) -> list[dict]:
+    """从 talk 中提取附件（图片/PDF/文件）。"""
+    atts = []
+    # 1. images 字段
+    for img in talk.get("images", []) or []:
+        url = img.get("large_url") or img.get("original_url") or img.get("thumbnail_url", "")
+        if url:
+            atts.append({"type": "image", "url": url, "name": img.get("name", "")})
+    # 2. files / attachments 字段
+    for f in talk.get("files", []) or talk.get("attachments", []) or []:
+        url = f.get("url", "")
+        name = f.get("name", "") or f.get("title", "")
+        if url:
+            ext = (name.split(".")[-1] if "." in name else "").lower()
+            att_type = "pdf" if ext == "pdf" else "image" if ext in ("png","jpg","jpeg","gif","webp") else "file"
+            atts.append({"type": att_type, "url": url, "name": name})
+    return atts
+
+
 def _parse_topic(raw: dict) -> dict:
     talk = raw.get("talk", {})
     raw_text = talk.get("text", "") or ""
@@ -59,6 +78,7 @@ def _parse_topic(raw: dict) -> dict:
         "likes_count": raw.get("likes_count", 0),
         "comments_count": raw.get("comments_count", 0),
         "stock_codes": _extract_stock_codes(text),
+        "attachments": json.dumps(_extract_attachments(talk), ensure_ascii=False),
     }
 
 

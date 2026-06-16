@@ -491,10 +491,16 @@ def init_zsxq_table():
                 likes_count    INTEGER DEFAULT 0,
                 comments_count INTEGER DEFAULT 0,
                 stock_codes TEXT,
+                attachments TEXT DEFAULT '',
                 fetched_at TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_zsxq_create_time ON zsxq_topics(create_time);
         """)
+        # migrate: attachments column
+        try:
+            conn.execute("ALTER TABLE zsxq_topics ADD COLUMN attachments TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
 
 
 def zsxq_batch_existing(topic_ids: list[str]) -> set[str]:
@@ -515,8 +521,8 @@ def save_zsxq_topics_batch(topics: list[dict]):
         conn.executemany(
             "INSERT OR IGNORE INTO zsxq_topics "
             "(topic_id, create_time, author, title, text, topic_type, "
-            " readers_count, likes_count, comments_count, stock_codes, fetched_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            " readers_count, likes_count, comments_count, stock_codes, attachments, fetched_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             [
                 (
                     t["topic_id"], t["create_time"], t.get("author", ""),
@@ -524,6 +530,7 @@ def save_zsxq_topics_batch(topics: list[dict]):
                     t.get("topic_type", ""), t.get("readers_count", 0),
                     t.get("likes_count", 0), t.get("comments_count", 0),
                     json.dumps(t.get("stock_codes", []), ensure_ascii=False),
+                    t.get("attachments", ""),
                     now,
                 )
                 for t in topics
