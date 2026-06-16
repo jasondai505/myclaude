@@ -24,17 +24,13 @@ CATALYST_DIR = BASE / "reports" / "catalyst"
 MAX_DIRECT_CHARS = 6000
 
 FEED_FILES = [
-    ("%%ZSXQ%%", "zsxq", True),
+    # 核心日更（必须） — 原始信息，无其他分析引擎覆盖
     ("%%NEWS%%", "news", True),
     ("%%ANNOUNCEMENTS%%", "announcements", True),
-    ("%%DEEP_READ%%", "deep_read", False),
+    # 日更（可选）— 有独立分析引擎但原始摘要仍有参考价值
     ("%%INDUSTRY%%", "industry", False),
-    ("%%FINANCIALS%%", "financials", False),
-    ("%%EARNINGS%%", "earnings", False),
-    ("%%SURVEYS%%", "surveys", False),
-    ("%%LOCKUPS%%", "lockups", False),
-    ("%%EPS%%", "eps", False),
-    ("%%INTERACTIONS%%", "interactions", False),
+    # 低频合并 — 周更数据合并注入，有数据才显示
+    ("%%LOW_FREQ%%", "low_freq", False),
 ]
 
 
@@ -282,13 +278,43 @@ def _inject_feeds(today: str, yesterday: str) -> dict[str, str]:
             result[placeholder] = content
 
     for placeholder, stem, _required in FEED_FILES:
-        content = _read_feed(stem, today)
-        if content is None:
-            result[placeholder] = f"（{stem}_{today}.md 暂未生成）"
-        elif len(content) > MAX_DIRECT_CHARS:
-            result[placeholder] = _summarize_feed(content, stem)
+        if stem == "low_freq":
+            # 合并 lockups + eps + financials（周更数据）
+            parts = []
+            for sub in ["lockups", "eps", "financials"]:
+                c = _read_feed(sub, today)
+                if c:
+                    label = {"lockups": "限售解禁", "eps": "一致预期EPS", "financials": "财务指标"}[sub]
+                    parts.append(f"## {label}\n\n{c[:2000]}")
+            result[placeholder] = "\n\n".join(parts) if parts else "（本周低频数据暂未更新）"
+        elif stem == "industry":
+            # 优先用深度分析日报，回退到原始 feed
+            ind_path = BASE / "reports" / "industry" / f"industry_daily_{today}.md"
+            if ind_path.exists():
+                try:
+                    content = ind_path.read_text(encoding="utf-8")
+                    if len(content) > MAX_DIRECT_CHARS * 2:
+                        content = content[:MAX_DIRECT_CHARS * 2] + "\n...(truncated)"
+                    result[placeholder] = content
+                    continue
+                except Exception:
+                    pass
+            # 回退
+            content = _read_feed(stem, today)
+            if content is None:
+                result[placeholder] = f"（{stem}_{today}.md 暂未生成）"
+            elif len(content) > MAX_DIRECT_CHARS:
+                result[placeholder] = _summarize_feed(content, stem)
+            else:
+                result[placeholder] = content
         else:
-            result[placeholder] = content
+            content = _read_feed(stem, today)
+            if content is None:
+                result[placeholder] = f"（{stem}_{today}.md 暂未生成）"
+            elif len(content) > MAX_DIRECT_CHARS:
+                result[placeholder] = _summarize_feed(content, stem)
+            else:
+                result[placeholder] = content
 
     return result
 
@@ -389,10 +415,10 @@ def _extract_codes_from_feeds(feeds: dict[str, str]) -> set[str]:
     """
     import data
     codes = set()
-    for key in ("%%RECAP%%", "%%REVIEW_SUMMARY%%", "%%ZSXQ%%",
+    for key in ("%%RECAP%%", "%%REVIEW_SUMMARY%%",
                 "%%WECHAT_ANALYSIS%%", "%%NEWS%%", "%%INDUSTRY%%",
                 "%%SUPPLY_CHAIN_INTEL%%", "%%JIUYANG%%", "%%WEIBO%%",
-                "%%PRIMARY_SYNTHESIS%%"):
+                "%%PRIMARY_SYNTHESIS%%", "%%LOW_FREQ%%"):
         text = feeds.get(key, "")
         if text:
             codes.update(data.extract_codes_from_text(text))

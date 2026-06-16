@@ -66,7 +66,7 @@ def check_reports():
     today = date.today()
     reports = {
         "复盘报告": f"daily_review/reports/review/review_{today.isoformat()}.md",
-        "公众号分析": f"daily_review/reports/wechat/wechat_analysis_{today.isoformat()}.md",
+        "公众号分析": f"daily_review/reports/wechat_analysis/wechat_analysis_{today.isoformat()}.md",
     }
     for label, rel in reports.items():
         p = PROJECT / rel
@@ -171,6 +171,33 @@ def check_pipeline_logs():
         print(f"  [流水线] 最近日志: {latest.name} ({hours_ago:.0f}h前)")
 
 
+def check_engines():
+    """检查分析引擎产出文件是否存在且新鲜。"""
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+    engines = [
+        ("催化筛查", f"daily_review/reports/catalyst/catalyst_screen_{today.isoformat()}.md", True),
+        ("催化跟踪", f"daily_review/reports/catalyst/catalyst_track_{today.isoformat()}.md", False),
+        ("四源交叉", f"daily_review/reports/feeds/primary_synthesis_{today.isoformat()}.md", True),
+        ("公众号分析", f"daily_review/reports/wechat_analysis/wechat_analysis_{today.isoformat()}.md", True),
+        ("星球分析", f"daily_review/reports/zsxq_analysis/zsxq_analysis_{today.isoformat()}.md", True),
+        ("边际变化", f"daily_review/reports/marginal/marginal_{today.isoformat()}.md", True),
+        ("行业深研", f"daily_review/reports/industry/industry_daily_{today.isoformat()}.md", False),
+    ]
+    for name, rel, required in engines:
+        p = PROJECT / rel
+        if p.exists():
+            print(f"  [引擎] {name}: OK")
+        else:
+            yp = PROJECT / rel.replace(today.isoformat(), yesterday.isoformat())
+            if yp.exists():
+                print(f"  [引擎] {name}: 最新{yesterday}(今日未生成)")
+                if required:
+                    ISSUES.append(f"引擎: {name} 今日未产出(昨日有)")
+            elif required:
+                ISSUES.append(f"引擎: {name} 近2天均未产出")
+
+
 def check_advice_server():
     """检查 advice HTTP 服务 (端口 8900) 是否存活"""
     import socket
@@ -192,6 +219,7 @@ def main():
     check_fev_delta()
     check_placeholder_leaks()
     check_pipeline_logs()
+    check_engines()
     check_advice_server()
 
     if ISSUES:

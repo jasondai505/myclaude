@@ -125,10 +125,14 @@ def _collector_status() -> list[dict]:
                     "SELECT * FROM collect_status WHERE source = ? ORDER BY last_run_at DESC LIMIT 1",
                     (src,),
                 ).fetchone()
-                rows.append(dict(r) if r else {
+                row = dict(r) if r else {
                     "source": src, "status": "unknown", "last_date": "",
                     "last_run_at": "", "message": "从未运行", "added_count": 0,
-                })
+                }
+                # 提取 HH:MM
+                ts = row.get("last_run_at", "") or ""
+                row["run_time"] = ts[-5:] if len(ts) >= 16 and ts[10] == " " else ""
+                rows.append(row)
     except Exception:
         pass
     return rows
@@ -299,6 +303,163 @@ def _data_freshness(source: str) -> tuple[str, str]:
     return "—", ""
 
 
+def _engine_status() -> list[dict]:
+    """检查分析引擎产出文件，提取关键数字。"""
+    today = date.today()
+    engines = []
+
+    def _mtime(path: Path) -> str:
+        try:
+            ts = datetime.fromtimestamp(path.stat().st_mtime)
+            return ts.strftime("%H:%M")
+        except Exception:
+            return ""
+
+    # catalyst_screen
+    cs_path = REPORT_DIR / "catalyst" / f"catalyst_screen_{today.isoformat()}.md"
+    cs_json = REPORT_DIR / "catalyst" / f"catalyst_screen_{today.isoformat()}.json"
+    cs_ok = cs_path.exists()
+    cs_nums = ""
+    if cs_ok:
+        try:
+            import json, re
+            data = json.loads(cs_json.read_text(encoding="utf-8"))
+            cats = data.get("catalysts", [])
+            high_n = sum(1 for c in cats if c.get("final_actionability", 0) >= 40)
+            crit_n = sum(1 for c in cats if c.get("final_actionability", 0) >= 60)
+            cs_nums = f"{len(cats)}催化, {high_n} HIGH+, {crit_n} CRITICAL"
+        except Exception:
+            cs_nums = ""
+    engines.append({
+        "name": "🧪 催化筛查", "key": "catalyst_screen",
+        "ok": cs_ok, "time": _mtime(cs_path) if cs_ok else "—",
+        "nums": cs_nums,
+    })
+
+    # catalyst_track
+    ct_path = REPORT_DIR / "catalyst" / f"catalyst_track_{today.isoformat()}.md"
+    ct_ok = ct_path.exists()
+    ct_nums = ""
+    if ct_ok:
+        try:
+            text = ct_path.read_text(encoding="utf-8")
+            import re
+            active = len(re.findall(r"^\| .+ \| active \|", text, re.MULTILINE))
+            revived = len(re.findall(r"复活|revived|price_confirmed", text, re.IGNORECASE))
+            ct_nums = f"{active}活性" + (f", {revived}复活" if revived else "")
+        except Exception:
+            ct_nums = ""
+    engines.append({
+        "name": "📡 催化跟踪", "key": "catalyst_track",
+        "ok": ct_ok, "time": _mtime(ct_path) if ct_ok else "—",
+        "nums": ct_nums,
+    })
+
+    # primary_synthesis
+    ps_path = REPORT_DIR / "feeds" / f"primary_synthesis_{today.isoformat()}.md"
+    ps_ok = ps_path.exists()
+    ps_nums = ""
+    if ps_ok:
+        try:
+            text = ps_path.read_text(encoding="utf-8")
+            import re
+            # 共识主题 + 源间分歧 = 板块数
+            themes = re.findall(r"^###\s+(?:🔥|📌|⚡)", text, re.MULTILINE)
+            ps_nums = f"{len(themes)}板块" if themes else ""
+        except Exception:
+            ps_nums = ""
+    engines.append({
+        "name": "🔗 四源交叉", "key": "primary_synthesis",
+        "ok": ps_ok, "time": _mtime(ps_path) if ps_ok else "—",
+        "nums": ps_nums,
+    })
+
+    # wechat_analysis
+    wa_path = REPORT_DIR / "wechat_analysis" / f"wechat_analysis_{today.isoformat()}.md"
+    wa_ok = wa_path.exists()
+    wa_nums = ""
+    if wa_ok:
+        try:
+            text = wa_path.read_text(encoding="utf-8")
+            import re
+            # 核心主题下 ### 子标题
+            core_start = text.find("## 核心主题")
+            if core_start >= 0:
+                core_section = text[core_start:text.find("\n## ", core_start + 10)]
+                themes = re.findall(r"^###\s+", core_section, re.MULTILINE)
+                wa_nums = f"{len(themes)}主题" if themes else ""
+        except Exception:
+            wa_nums = ""
+    engines.append({
+        "name": "💚 公众号分析", "key": "wechat_analysis",
+        "ok": wa_ok, "time": _mtime(wa_path) if wa_ok else "—",
+        "nums": wa_nums,
+    })
+
+    # zsxq_analysis
+    za_path = REPORT_DIR / "zsxq_analysis" / f"zsxq_analysis_{today.isoformat()}.md"
+    za_ok = za_path.exists()
+    za_nums = ""
+    if za_ok:
+        try:
+            text = za_path.read_text(encoding="utf-8")
+            import re
+            # 核心主题下 ### 🔥 / ### 📌 子标题
+            core_start = text.find("## 核心主题")
+            if core_start >= 0:
+                core_section = text[core_start:text.find("\n## ", core_start + 10)]
+                themes = re.findall(r"^###\s+", core_section, re.MULTILINE)
+                za_nums = f"{len(themes)}主题" if themes else ""
+        except Exception:
+            za_nums = ""
+    engines.append({
+        "name": "⭐ 星球分析", "key": "zsxq_analysis",
+        "ok": za_ok, "time": _mtime(za_path) if za_ok else "—",
+        "nums": za_nums,
+    })
+
+    # marginal_changes
+    mg_path = REPORT_DIR / "marginal" / f"marginal_{today.isoformat()}.md"
+    mg_ok = mg_path.exists()
+    mg_nums = ""
+    if mg_ok:
+        try:
+            text = mg_path.read_text(encoding="utf-8")
+            import re
+            m = re.search(r"边际向好\s+\*{0,2}(\d+)\*{0,2}", text)
+            up_n = int(m.group(1)) if m else 0
+            m2 = re.search(r"边际下滑\s+\*{0,2}(\d+)\*{0,2}", text)
+            dn_n = int(m2.group(1)) if m2 else 0
+            mg_nums = f"↑{up_n} ↓{dn_n}" if up_n or dn_n else ""
+        except Exception:
+            mg_nums = ""
+    engines.append({
+        "name": "📐 边际变化", "key": "marginal",
+        "ok": mg_ok, "time": _mtime(mg_path) if mg_ok else "—",
+        "nums": mg_nums,
+    })
+
+    # industry_deep_read (daily)
+    ind_path = REPORT_DIR / "industry" / f"industry_daily_{today.isoformat()}.md"
+    ind_ok = ind_path.exists()
+    ind_nums = ""
+    if ind_ok:
+        try:
+            text = ind_path.read_text(encoding="utf-8")
+            m = re.search(r"(\d+)篇研报\s*\|\s*(\d+)家机构\s*\|\s*(\d+)个行业", text)
+            if m:
+                ind_nums = f"{m.group(1)}篇/{m.group(2)}机构/{m.group(3)}行业"
+        except Exception:
+            pass
+    engines.append({
+        "name": "🏭 行业深研", "key": "industry_deep_read",
+        "ok": ind_ok, "time": _mtime(ind_path) if ind_ok else "—",
+        "nums": ind_nums,
+    })
+
+    return engines
+
+
 def generate(today_str: str = "") -> str:
     now_ts = datetime.now().strftime("%Y-%m-%d %H:%M")
     today = today_str or date.today().isoformat()
@@ -341,17 +502,28 @@ def generate(today_str: str = "") -> str:
     # === 采集管线 ===
     w("## 采集管线")
     w()
-    w("| 源 | 状态 | 上次成功 | 新增 | 备注 |")
-    w("|----|:----:|---------|-----:|------|")
+    w("| 源 | 状态 | 最新数据 | 采集时间 | 新增 | 备注 |")
+    w("|----|:----:|---------|:------:|-----:|------|")
     for cs in _collector_status():
         icon = _status_icon(cs.get("status", "unknown"))
         label = SOURCE_LABELS.get(cs["source"], cs["source"])
         last = cs.get("last_date", "") or "—"
+        rtime = cs.get("run_time", "") or "—"
         added = cs.get("added_count", 0) or 0
         msg = (cs.get("message", "") or "")[:40]
         if cs.get("status") == "timeout":
             msg += " ⏰"
-        w(f"| {label} | {icon} | {last} | {added} | {msg} |")
+        w(f"| {label} | {icon} | {last} | {rtime} | {added} | {msg} |")
+    w()
+
+    # === 分析引擎 ===
+    w("## 分析引擎")
+    w()
+    w("| 引擎 | 状态 | 产出时间 | 关键数字 |")
+    w("|------|:----:|:------:|---------|")
+    for eng in _engine_status():
+        icon = "✅" if eng["ok"] else "❌"
+        w(f"| {eng['name']} | {icon} | {eng['time']} | {eng['nums'] or '—'} |")
     w()
 
     # === 异常警报（可操作） ===

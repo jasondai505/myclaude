@@ -48,6 +48,7 @@ _COLLECTOR_IMPORTS = {
     "lockups": "lockups",
     "eps": "eps_forecast",
     "industry": "industry_research",
+    "industry_deep_read": "industry_deep_read",
     "financials": "financials",
     "wechat": "wechat",
     "jiuyang": "jiuyang",
@@ -76,6 +77,7 @@ SOURCE_LABELS = {
     "lockups": "限售解禁",
     "eps": "一致预期EPS",
     "industry": "行业研报",
+    "industry_deep_read": "行业深度分析",
     "financials": "财务指标",
     "wechat": "微信公众号",
     "jiuyang": "韭研脱水研报",
@@ -96,6 +98,7 @@ SOURCE_TABLE = {
     "lockups": ("lockups", "release_date"),
     "eps": ("eps_forecast", "fetched_at"),
     "industry": ("industry_research", "publish_date"),
+    "industry_deep_read": ("industry_reports", "fetched_at"),
     "financials": ("financial_indicators", "fetched_at"),
     "wechat": ("wechat_articles", "pub_date"),
     "jiuyang": ("jiuyang_reports", "pub_date"),
@@ -104,7 +107,7 @@ SOURCE_TABLE = {
 
 SOURCE_TIERS = {
     "daily": {"zsxq", "announcements", "announcement_deep_read", "news", "research", "research_deep_read", "industry",
-              "wechat", "weibo", "jiuyang", "interactions", "surveys", "sentiment_track", "earnings"},
+              "industry_deep_read", "wechat", "weibo", "jiuyang", "interactions", "surveys", "sentiment_track", "earnings"},
     "weekly": {"lockups", "eps", "financials"},
 }
 
@@ -222,7 +225,8 @@ COLLECTOR_TIMEOUTS = {
     "zsxq": 300, "announcements": 180, "announcement_deep_read": 1200,
     "news": 180, "research": 240, "research_deep_read": 120,
     "interactions": 600, "earnings": 120, "surveys": 240, "lockups": 120,
-    "eps": 240, "industry": 120, "financials": 180, "wechat": 120,
+    "eps": 240, "industry": 120, "industry_deep_read": 600,
+    "financials": 180, "wechat": 120,
     "jiuyang": 600, "weibo": 180,
 }
 DEFAULT_TIMEOUT = 180

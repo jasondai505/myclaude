@@ -8,6 +8,17 @@
 
 以下所有数据已由 Python 脚本预先注入到本 prompt 中，直接使用，不要编造任何数值。
 
+### 信息源分工指南（四源分析引擎覆盖同一批原始数据，角色不同，避免重复引用）
+
+| 引擎 | 角色 | 用于 | 不用于 |
+|------|------|------|--------|
+| `primary_synthesis` | **主题共识发现** — 四源交叉找多源共振的主题和分歧 | ChokeMap 战场选择、W3 预期差判断 | 单事件催化（那是 catalyst_screen 的活） |
+| `catalyst_screen` | **单事件催化提取** — 从信息中提取可交易的催化事件+映射标的 | 候选池 📌C 催化轨、W4 时间窗锚点 | 跨源主题归纳（那是 primary_synthesis 的活） |
+| `wechat_analysis` | **市场叙事+自选预警** — 公众号文章的两阶段深度分析 | W1 信号补充、自选股风险提示 | 标的映射（用 catalyst_screen 的结果） |
+| `catalyst_track` | **历史催化复活** — 过去14天催化今天的走势交叉确认 | 判断催化是否仍有效、是否需要复活 | 新催化发现 |
+
+> **铁律**：同一件事如果同时出现在 primary_synthesis 和 catalyst_screen 中，优先用 primary_synthesis 的主题视角（大局），catalyst_screen 的事件视角做补充（具体时机）。不要分别引用两次当作两个独立信号。
+
 **昨日推荐回顾（%%YESTERDAY%% 表现）**
 ```
 %%RECAP%%
@@ -19,9 +30,7 @@
 ```
 
 **今日知识星球**
-```
-%%ZSXQ%%
-```
+> 星球内容已由 primary_synthesis（四源交叉验证）和 catalyst_screen（催化筛查）覆盖，关键催化事件见 %%CATALYST_SCREEN%%，共识主题见 %%PRIMARY_SYNTHESIS%%。
 
 **今日新闻**
 ```
@@ -48,34 +57,9 @@
 %%DOSSIER_CONTEXT%%
 ```
 
-**财务指标**
+**低频数据（限售解禁/一致预期EPS/财务指标 — 周更，有数据才显示）**
 ```
-%%FINANCIALS%%
-```
-
-**业绩预告快报**
-```
-%%EARNINGS%%
-```
-
-**机构调研**
-```
-%%SURVEYS%%
-```
-
-**限售解禁**
-```
-%%LOCKUPS%%
-```
-
-**一致预期EPS**
-```
-%%EPS%%
-```
-
-**互动易**
-```
-%%INTERACTIONS%%
+%%LOW_FREQ%%
 ```
 
 **边际变化日报（REAL DATA — engine_marginal.py 自动检测，勿修改）**
