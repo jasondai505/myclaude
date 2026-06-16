@@ -317,7 +317,7 @@ def _engine_status() -> list[dict]:
     def _mtime(path: Path) -> str:
         try:
             ts = datetime.fromtimestamp(path.stat().st_mtime)
-            return ts.strftime("%H:%M")
+            return ts.strftime("%m-%d %H:%M")
         except Exception:
             return ""
 
@@ -469,14 +469,16 @@ def _engine_status() -> list[dict]:
     return engines
 
 
-def _source_funnel(source: str, msg: str) -> str:
-    """从 collector 消息中提取吞吐量漏斗: 采集→初筛→深度产出。"""
+def _source_funnel(source: str, msg: str) -> tuple[str, str, str]:
+    """从 collector 消息中提取吞吐量三阶段: (采集, 初筛, 深度产出)。"""
     import re
     today = date.today().isoformat()
 
-    # 深度分析管线 — 查产出文件/DB
+    # 深度分析管线 — 三阶段拆解
     if source == "announcement_deep_read":
-        # 公告深研: deep_read_results 表
+        collect = "—"
+        filtered = ""
+        deep = ""
         try:
             with store._conn() as conn:
                 total = conn.execute(
@@ -488,84 +490,150 @@ def _source_funnel(source: str, msg: str) -> str:
                     (today,),
                 ).fetchone()[0]
             if total:
-                return f"公告→筛选→{total}篇LLM（{a60}≥60分）"
+                deep = f"{total}篇LLM（{a60}≥60分）"
         except Exception:
             pass
+        return (collect, filtered or "—", deep or "—")
 
     if source == "research_deep_read":
-        # 研报跟踪: dossier 文件数
         d = REPORT_DIR / "research_dossiers"
         try:
             n = len(list(d.glob("*.md"))) if d.exists() else 0
-            return f"研报→信号检测→{n}份档案"
+            return ("—", "信号检测", f"{n}份档案")
         except Exception:
             pass
+        return ("—", "—", "—")
 
     if source == "sentiment_track":
-        # 调研+互动情绪: 从消息提取（如 "调研3+互动10+业绩0=13只(13存档)"）
         m = re.search(r"(\d+)存档", msg)
         if m:
-            return f"调研+互动+业绩→{m.group(1)}只存档"
+            return ("—", "调研+互动+业绩", f"{m.group(1)}只存档")
+        return ("—", "—", "—")
 
     if source == "industry_deep_read":
-        # 行业深研: industry_daily 文件
         ind_path = REPORT_DIR / "industry" / f"industry_daily_{today}.md"
         if ind_path.exists():
             try:
                 text = ind_path.read_text(encoding="utf-8")
                 m = re.search(r"(\d+)篇研报\s*\|\s*(\d+)家机构\s*\|\s*(\d+)个行业", text)
                 if m:
-                    return f"{m.group(1)}篇→筛选→{m.group(3)}行业研判"
+                    return (f"{m.group(1)}篇", f"{m.group(2)}家机构", f"{m.group(3)}行业研判")
             except Exception:
                 pass
+        return ("—", "—", "—")
 
     if source == "news_signals":
-        # 新闻边际信号: news_signals feed
         sig_path = REPORT_DIR / "feeds" / f"news_signals_{today}.md"
         if sig_path.exists():
             try:
                 text = sig_path.read_text(encoding="utf-8")
                 m = re.search(r"(\d+)条边际信号", text)
                 if m:
-                    return f"新闻列表→Haiku扫描→{m.group(1)}条信号"
+                    return ("新闻列表", "Haiku扫描", f"{m.group(1)}条信号")
             except Exception:
                 pass
+        return ("—", "—", "—")
 
     if source == "catalyst_tracker":
-        # 催化跟踪: catalyst_track 文件
         ct_path = REPORT_DIR / "catalyst" / f"catalyst_track_{today}.md"
         if ct_path.exists():
             try:
                 text = ct_path.read_text(encoding="utf-8")
                 m = re.search(r"(\d+)\s*条活性催化.*?确认\s*(\d+)\s*条", text)
                 if m:
-                    return f"{m.group(1)}活性→Redis扫描→{m.group(2)}确认"
+                    return (f"{m.group(1)}活性", "Redis扫描", f"{m.group(2)}确认")
             except Exception:
                 pass
+        return ("—", "—", "—")
 
-    # 普通采集源 — 从消息提取关键数字
-    # 按优先级: 大数+明确单位 > 小数+模糊单位
-    patterns = [
+    # 普通采集源 — 提取关键数字
+    num_str = ""
+    for pat, unit in [
         (r"(\d+)\s*篇", "篇"),
         (r"命中(\d+)", "条命中"),
         (r"(\d+)\s*只\s*成功", "只"),
         (r"(\d+)\s*条", "条"),
         (r"新增\s*(\d+)", "条↑"),
         (r"成功(\d+)", "只"),
-    ]
-    for pat, unit in patterns:
+    ]:
         m = re.search(pat, msg)
         if m:
             n = int(m.group(1))
             if "无新" in msg or "无帖子" in msg:
-                return f"采集 {n}{unit}（无新增）"
-            return f"采集 {n}{unit}"
+                num_str = f"{n}{unit}"
+            else:
+                num_str = f"{n}{unit}"
+            break
 
-    # 无有效数字
-    if "超时" in msg:
-        return "⏰ 超时"
-    short = msg[:25] if msg else "—"
-    return short if short else "—"
+    if not num_str:
+        if "超时" in msg:
+            num_str = "⏰ 超时"
+        else:
+            num_str = msg[:25] if msg else "—"
+
+    return (num_str, "—", "—")
+
+
+def _render_output_checklist(w, today_str: str = ""):
+    """渲染「📋 输出清单」— 所有预期日产出的一眼状态。"""
+    from output_audit import check_all
+
+    results = check_all()
+    now = datetime.now()
+
+    w("## 📋 输出清单")
+    w("")
+    w("| 产出 | 状态 | 产出时间 | 目标时间 | 落后 | 管线 |")
+    w("|------|:----:|:------:|:------:|:----:|------|")
+
+    ok_count = 0
+    stale_count = 0
+    for r in results:
+        if r["ok"] and not r.get("stale"):
+            icon = "✅"
+            ok_count += 1
+        elif r.get("stale"):
+            icon = "⚠️"
+            stale_count += 1
+        else:
+            icon = "❌"
+
+        mtime_str = r["mtime_str"]
+        target_dt_str = f"{r['target_date'][5:]} {r['deadline']}"  # MM-DD HH:MM
+        db_flag = " 💾" if r["is_db"] else ""
+
+        delay_str = ""
+        try:
+            dl = datetime.strptime(f"{r['target_date']} {r['deadline']}", "%Y-%m-%d %H:%M")
+            gap_h = (now - dl).total_seconds() / 3600
+            if not r["ok"] and gap_h > 0:
+                delay_str = f"{gap_h:.0f}h"
+                icon = "🔴"
+            elif not r["ok"] and gap_h > -0.5:
+                delay_str = "⏳"
+            elif r.get("stale") and gap_h > 0:
+                delay_str = f"{gap_h:.0f}h"
+        except ValueError:
+            pass
+
+        stale_note = " 📂过期" if r.get("stale") else ""
+        w(f"| {r['name']}{db_flag} | {icon} | {mtime_str} | {target_dt_str} | {delay_str} | {r['pipeline']}{stale_note} |")
+
+    w("")
+    missing = len(results) - ok_count - stale_count
+    if missing == 0 and stale_count == 0:
+        w(f"✅ **全部 {len(results)} 项产出就绪**")
+    else:
+        parts = []
+        if ok_count:
+            parts.append(f"{ok_count} 正常")
+        if stale_count:
+            parts.append(f"{stale_count} ⚠️过期")
+        if missing:
+            missing_names = "、".join(r["name"] for r in results if not r["ok"])
+            parts.append(f"{missing} ❌缺失: {missing_names}")
+        w("⚠️ **" + "，".join(parts) + "**")
+    w("")
 
 
 def generate(today_str: str = "") -> str:
@@ -610,15 +678,15 @@ def generate(today_str: str = "") -> str:
     # === 采集管线 ===
     w("## 采集管线")
     w()
-    w("| 源 | 状态 | 数据日 | 时间 | 吞吐量（采集→初筛→深度产出） |")
-    w("|----|:----:|:-----:|:---:|---------|")
+    w("| 源 | 状态 | 数据日 | 时间 | 采集 | 初筛 | 深度产出 |")
+    w("|----|:----:|:-----:|:---:|------|------|---------|")
     for cs in _collector_status():
         icon = _status_icon(cs.get("status", "unknown"))
         label = SOURCE_LABELS.get(cs["source"], cs["source"])
         last = cs.get("last_date", "") or "—"
         rtime = cs.get("run_time", "") or "—"
-        funnel = _source_funnel(cs["source"], cs.get("message", ""))
-        w(f"| {label} | {icon} | {last} | {rtime} | {funnel} |")
+        c1, c2, c3 = _source_funnel(cs["source"], cs.get("message", ""))
+        w(f"| {label} | {icon} | {last} | {rtime} | {c1} | {c2} | {c3} |")
     w()
 
     # === 分析引擎 ===
@@ -630,6 +698,9 @@ def generate(today_str: str = "") -> str:
         icon = "✅" if eng["ok"] else "❌"
         w(f"| {eng['name']} | {icon} | {eng['time']} | {eng['nums'] or '—'} |")
     w()
+
+    # === 输出清单 ===
+    _render_output_checklist(w, today)
 
     # === 异常警报（可操作） ===
     alerts = []

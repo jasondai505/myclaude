@@ -36,6 +36,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
             {"id": "review", "name": "收盘复盘", "cmd": "python daily_review/run.py"},
             {"id": "catalyst_track", "name": "催化走势跟踪", "cmd": "python daily_review/daily_collect.py --tier post_market"},
             {"id": "brief", "name": "日报简报", "cmd": "python morning_intel/daily_brief.py"},
+            {"id": "audit", "name": "输出自检(close)", "cmd": "python daily_review/output_audit.py --fix"},
         ],
     },
     "night": {
@@ -54,6 +55,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
             {"id": "synthesis", "name": "四源交叉验证", "cmd": "python daily_review/primary_synthesis.py"},
             {"id": "catalyst_screen", "name": "催化快速筛查", "cmd": "python daily_review/catalyst_screen.py"},
             {"id": "serenity", "name": "产业链卡脖子更新", "cmd": "python daily_review/serenity_kb.py --update-all"},
+            {"id": "audit", "name": "输出自检(night)", "cmd": "python daily_review/output_audit.py --fix"},
         ],
     },
     "pre_dawn": {
@@ -73,6 +75,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
         "desc": "健康 → 解读 → 盘前建议 → 启动服务",
         "trigger": "06:30",
         "steps": [
+            {"id": "audit", "name": "输出自检(全量)", "cmd": "python daily_review/output_audit.py --fix"},
             {"id": "health", "name": "系统健康检查", "cmd": "python daily_review/health_check.py"},
             {"id": "interpret", "name": "盘前解读", "cmd": "python morning_intel/run_morning.py --phase pre"},
             {"id": "advice", "name": "生成盘前建议", "cmd": "python daily_review/_run_advice.py"},

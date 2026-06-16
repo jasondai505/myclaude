@@ -74,36 +74,90 @@ def check_gaps(now: datetime | None = None) -> list[str]:
 
 
 def backfill(pipelines: list[str], dry_run: bool = False) -> dict[str, bool]:
-    """对缺失管线执行补跑"""
+    """对缺失管线执行补跑 — 优先精确定位缺失产出而非整条重跑。"""
+    from output_audit import check_all_condensed, EXPECTED_OUTPUTS
+
     results = {}
+    # 先检查具体哪些产出缺失
+    gaps = check_all_condensed()
+    gap_names = {g["name"] for g in gaps}
+
     for name in pipelines:
         if name == "pre":
             continue  # pre 正在跑，不递归
-        bat = PROJECT / f"run_{name}.bat"
-        cmd = f'python orchestrator.py {name}'
 
-        print(f"\n  ⚠️ {name} 未按时执行，自动补跑...")
-        if bat.exists():
-            print(f"    触发: {bat}")
-        if dry_run:
-            print(f"    [DRY RUN] 将执行: {cmd}")
-            results[name] = True
-            continue
-
-        try:
-            proc = subprocess.run(
-                cmd, shell=True, cwd=str(PROJECT),
-                capture_output=False,
-            )
-            ok = proc.returncode == 0
-            results[name] = ok
-            status = "OK" if ok else f"FAIL({proc.returncode})"
-            print(f"    补跑结果: {status}")
-        except Exception as e:
-            print(f"    ERROR: {e}")
-            results[name] = False
+        # 找到该管线对应的缺失产出
+        # EXPECTED_OUTPUTS: (name, path, target_strategy, pipeline_step, fix_cmd, priority, deadline)
+        pipeline_outputs = [
+            e for e in EXPECTED_OUTPUTS
+            if e[3] in _pipeline_steps(name) and e[0] in gap_names
+        ]
+        if pipeline_outputs:
+            # 精确定位：只补跑缺失的步骤
+            for out in pipeline_outputs:
+                display_name, _, _, step_id, fix_cmd, priority, deadline = out
+                print(f"\n  ⚠️ {display_name} 未产出（管线 {name}/{step_id}），自动补跑...")
+                if dry_run:
+                    print(f"    [DRY RUN] 将执行: {fix_cmd}")
+                    results[f"{name}/{display_name}"] = True
+                    continue
+                try:
+                    proc = subprocess.run(
+                        fix_cmd, shell=True, cwd=str(PROJECT),
+                        capture_output=False,
+                    )
+                    ok = proc.returncode == 0
+                    results[f"{name}/{display_name}"] = ok
+                    status = "OK" if ok else f"FAIL({proc.returncode})"
+                    print(f"    补跑结果: {status}")
+                except Exception as e:
+                    print(f"    ERROR: {e}")
+                    results[f"{name}/{display_name}"] = False
+        else:
+            # 没有具体产出缺失，但管线日志显示没跑 → 整条补跑
+            bat = PROJECT / f"run_{name}.bat"
+            cmd = f'python orchestrator.py {name}'
+            print(f"\n  ⚠️ {name} 未按时执行，自动补跑...")
+            if bat.exists():
+                print(f"    触发: {bat}")
+            if dry_run:
+                print(f"    [DRY RUN] 将执行: {cmd}")
+                results[name] = True
+                continue
+            try:
+                proc = subprocess.run(
+                    cmd, shell=True, cwd=str(PROJECT),
+                    capture_output=False,
+                )
+                ok = proc.returncode == 0
+                results[name] = ok
+                status = "OK" if ok else f"FAIL({proc.returncode})"
+                print(f"    补跑结果: {status}")
+            except Exception as e:
+                print(f"    ERROR: {e}")
+                results[name] = False
 
     return results
+
+
+def _pipeline_steps(name: str) -> list[str]:
+    """返回管线包含的步骤 ID 列表（从 orchestrator 导入，避免硬编码）。"""
+    try:
+        sys.path.insert(0, str(PROJECT))
+        from orchestrator import PIPELINES
+        cfg = PIPELINES.get(name, {})
+        return [s["id"] for s in cfg.get("steps", [])]
+    except Exception:
+        # 硬编码回退
+        STEPS_MAP = {
+            "close": ["health", "review", "catalyst_track", "brief"],
+            "night": ["watchdog", "health", "collect", "collect_weekly", "wechat",
+                      "zsxq_analysis", "summary", "track", "synthesis", "catalyst_screen", "serenity"],
+            "pre_dawn": ["health", "unified", "delta", "marginal", "serenity"],
+            "pre": ["health", "interpret", "advice", "advice_upload", "advice_server"],
+            "bom": ["bom"],
+        }
+        return STEPS_MAP.get(name, [])
 
 
 def main():
