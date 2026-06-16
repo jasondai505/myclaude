@@ -97,6 +97,15 @@ DB_CHECKS = {
 
 PRIORITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 
+# 管线 → 步骤 ID 集合（用于 --pipeline 过滤）
+PIPELINE_STEPS = {
+    "close":    {"health", "review", "catalyst_track", "brief"},
+    "night":    {"watchdog", "health", "collect", "collect_weekly", "wechat",
+                 "zsxq_analysis", "summary", "track", "synthesis", "catalyst_screen", "serenity"},
+    "pre_dawn": {"health", "unified", "delta", "marginal"},
+    "pre":      {"health", "advice", "advice_upload", "advice_server"},
+}
+
 
 def _resolve_target_date(target_strategy: str) -> str:
     if target_strategy == "last_trade":
@@ -145,11 +154,12 @@ def _check_output(entry: tuple, target_date: str = None) -> dict:
     mtime = datetime.fromtimestamp(path.stat().st_mtime)
     mtime_str = mtime.strftime("%m-%d %H:%M")
 
-    # 检查是否过期：文件修改时间早于目标日期的截止时间
+    # 检查是否过期：文件修改时间早于目标日期（不是截止时间之前，而是日期本身不对）
     stale = False
     try:
         dl = datetime.strptime(f"{tgt_date} {deadline}", "%Y-%m-%d %H:%M")
-        if mtime < dl - timedelta(hours=1):  # 截止前1h内生成的不算过期
+        # 过期 = 文件 mtime 日期 < 目标日期（即文件是更早的日期生成的）
+        if mtime.date() < date.fromisoformat(tgt_date):
             stale = True
     except ValueError:
         pass
@@ -161,8 +171,12 @@ def _check_output(entry: tuple, target_date: str = None) -> dict:
     }
 
 
-def check_all(target_date: str = None) -> list[dict]:
-    results = [_check_output(e, target_date) for e in EXPECTED_OUTPUTS]
+def check_all(target_date: str = None, pipeline: str = None) -> list[dict]:
+    entries = EXPECTED_OUTPUTS
+    if pipeline:
+        steps = PIPELINE_STEPS.get(pipeline, set())
+        entries = [e for e in EXPECTED_OUTPUTS if e[3] in steps]
+    results = [_check_output(e, target_date) for e in entries]
     results.sort(key=lambda r: PRIORITY_ORDER.get(r["priority"], 99))
     return results
 
@@ -313,11 +327,14 @@ def main():
     do_fix = "--fix" in sys.argv
     fix_all = "--all" in sys.argv
     target_date = None
+    pipeline = None
     for i, arg in enumerate(sys.argv):
         if arg == "--date" and i + 1 < len(sys.argv):
             target_date = sys.argv[i + 1]
+        if arg == "--pipeline" and i + 1 < len(sys.argv):
+            pipeline = sys.argv[i + 1]
 
-    results = check_all(target_date)
+    results = check_all(target_date, pipeline=pipeline)
     print_report(results)
 
     if do_fix:

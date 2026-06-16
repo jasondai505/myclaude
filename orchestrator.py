@@ -36,7 +36,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
             {"id": "review", "name": "收盘复盘", "cmd": "python daily_review/run.py"},
             {"id": "catalyst_track", "name": "催化走势跟踪", "cmd": "python daily_review/daily_collect.py --tier post_market"},
             {"id": "brief", "name": "日报简报", "cmd": "python morning_intel/daily_brief.py"},
-            {"id": "audit", "name": "输出自检(close)", "cmd": "python daily_review/output_audit.py --fix"},
+            {"id": "audit", "name": "输出自检(close)", "cmd": "python daily_review/output_audit.py --fix --pipeline close"},
         ],
     },
     "night": {
@@ -55,7 +55,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
             {"id": "synthesis", "name": "四源交叉验证", "cmd": "python daily_review/primary_synthesis.py"},
             {"id": "catalyst_screen", "name": "催化快速筛查", "cmd": "python daily_review/catalyst_screen.py"},
             {"id": "serenity", "name": "产业链卡脖子更新", "cmd": "python daily_review/serenity_kb.py --update-all"},
-            {"id": "audit", "name": "输出自检(night)", "cmd": "python daily_review/output_audit.py --fix"},
+            {"id": "audit", "name": "输出自检(night)", "cmd": "python daily_review/output_audit.py --fix --pipeline night"},
         ],
     },
     "pre_dawn": {
@@ -68,6 +68,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
             {"id": "delta", "name": "Δ边际变化评分", "cmd": "python daily_review/feval.py --update-delta"},
             {"id": "marginal", "name": "边际变化检测", "cmd": "python daily_review/engine_marginal.py"},
             {"id": "serenity", "name": "标的FEV评分更新", "cmd": "python daily_review/serenity_kb.py --update-stocks"},
+            {"id": "audit", "name": "输出自检(pre_dawn)", "cmd": "python daily_review/output_audit.py --fix --pipeline pre_dawn"},
         ],
     },
     "pre": {
