@@ -1,12 +1,15 @@
-"""统一调度器 — 替代所有 .bat 文件，DAG 步骤编排。
+"""统一调度器 — 四段流水线编排。
+
+时序:
+    close     17:00  收盘复盘 + 催化走势确认 (~15min)
+    night     22:00  批量采集 + 所有深度分析 (~45min)
+    pre_dawn   5:00  美股收盘数据 + FEV/Δ 刷新 (~10min)
+    pre        6:30  最终盘前建议生成 (~5min)
+
 用法:
-    python orchestrator.py close              # 收盘流水线
-    python orchestrator.py pre                # 盘前流水线
-    python orchestrator.py pre --dry-run      # 仅打印计划
-    python orchestrator.py pre --from step3   # 从指定步骤恢复
-    python orchestrator.py bom                # BOM 日更
-    python orchestrator.py collect            # 仅数据采集
-    python orchestrator.py list               # 列出所有流水线
+    python orchestrator.py close / night / pre_dawn / pre
+    python orchestrator.py pre --dry-run
+    python orchestrator.py list
 """
 from __future__ import annotations
 
@@ -26,59 +29,74 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 PIPELINES: dict[str, dict[str, Any]] = {
     "close": {
         "name": "收盘流水线",
-        "desc": "数据采集 → 复盘 → 简报",
-        "trigger": "15:30 收盘后",
+        "desc": "复盘 + 催化走势确认 + 日报简报",
+        "trigger": "17:00",
         "steps": [
             {"id": "health", "name": "系统健康检查", "cmd": "python daily_review/health_check.py"},
-            {"id": "collect", "name": "数据采集", "cmd": "python daily_review/daily_collect.py"},
             {"id": "review", "name": "收盘复盘", "cmd": "python daily_review/run.py"},
-            {"id": "catalyst_track", "name": "催化走势跟踪", "cmd": "python daily_review/catalyst_tracker.py"},
-            {"id": "serenity", "name": "产业链卡脖子更新", "cmd": "python daily_review/serenity_kb.py --update-all"},
+            {"id": "catalyst_track", "name": "催化走势跟踪", "cmd": "python daily_review/daily_collect.py --tier post_market"},
             {"id": "brief", "name": "日报简报", "cmd": "python morning_intel/daily_brief.py"},
         ],
     },
-    "pre": {
-        "name": "盘前流水线",
-        "desc": "健康 → 采集 → 公众号 → 摘要 → 追踪 → 四源 → 解读 → FEVΔ → 边际变化 → 建议 → Serenity",
-        "trigger": "06:00 盘前（美股4:00收盘，数据源需2h更新窗口）",
+    "night": {
+        "name": "深夜流水线",
+        "desc": "批量采集 + 全部深度分析引擎",
+        "trigger": "22:00",
         "steps": [
             {"id": "watchdog", "name": "流水线看门狗", "cmd": "python daily_review/pipeline_watchdog.py"},
             {"id": "health", "name": "系统健康检查", "cmd": "python daily_review/health_check.py"},
-            {"id": "collect", "name": "数据采集(日更)", "cmd": "python daily_review/daily_collect.py --tier daily"},
-            {"id": "collect_weekly", "name": "数据采集(低频)", "cmd": "python daily_review/daily_collect.py --tier weekly", "only_on": [5]},
-            {"id": "wechat", "name": "公众号分析", "cmd": "python daily_review/analyze_wechat.py"},
-            {"id": "zsxq_analysis", "name": "星球分析", "cmd": "python daily_review/analyze_zsxq.py"},
+            {"id": "collect", "name": "数据采集(日更·含行业深研+新闻信号)", "cmd": "python daily_review/daily_collect.py --tier daily"},
+            {"id": "collect_weekly", "name": "数据采集(低频·仅周五)", "cmd": "python daily_review/daily_collect.py --tier weekly", "only_on": [4]},
+            {"id": "wechat", "name": "公众号两阶段AI分析", "cmd": "python daily_review/analyze_wechat.py"},
+            {"id": "zsxq_analysis", "name": "星球两阶段AI分析", "cmd": "python daily_review/analyze_zsxq.py"},
             {"id": "summary", "name": "复盘摘要", "cmd": "python daily_review/review_summary.py"},
             {"id": "track", "name": "推荐追踪", "cmd": "python daily_review/track_recommendations.py"},
             {"id": "synthesis", "name": "四源交叉验证", "cmd": "python daily_review/primary_synthesis.py"},
             {"id": "catalyst_screen", "name": "催化快速筛查", "cmd": "python daily_review/catalyst_screen.py"},
-            {"id": "interpret", "name": "盘前解读", "cmd": "python morning_intel/run_morning.py --phase pre"},
+            {"id": "serenity", "name": "产业链卡脖子更新", "cmd": "python daily_review/serenity_kb.py --update-all"},
+        ],
+    },
+    "pre_dawn": {
+        "name": "凌晨刷新",
+        "desc": "美股收盘数据 + FEV/G-Factor/Δ 评分 + 边际变化",
+        "trigger": "05:00",
+        "steps": [
+            {"id": "health", "name": "系统健康检查", "cmd": "python daily_review/health_check.py"},
             {"id": "unified", "name": "统一FEV+G-Factor评分", "cmd": "python daily_review/unified_scorer.py --from-feeds"},
-            {"id": "delta", "name": "Δ 边际变化评分", "cmd": "python daily_review/feval.py --update-delta"},
+            {"id": "delta", "name": "Δ边际变化评分", "cmd": "python daily_review/feval.py --update-delta"},
             {"id": "marginal", "name": "边际变化检测", "cmd": "python daily_review/engine_marginal.py"},
-            {"id": "advice", "name": "生成建议", "cmd": "python daily_review/_run_advice.py"},
-            {"id": "advice_server", "name": "启动Advice服务", "cmd": "python daily_review/advice_server.py --daemon"},
-            {"id": "serenity_stocks", "name": "标的FEV评分更新", "cmd": "python daily_review/serenity_kb.py --update-stocks"},
+            {"id": "serenity", "name": "标的FEV评分更新", "cmd": "python daily_review/serenity_kb.py --update-stocks"},
+        ],
+    },
+    "pre": {
+        "name": "盘前建议",
+        "desc": "健康 → 解读 → 盘前建议 → 启动服务",
+        "trigger": "06:30",
+        "steps": [
+            {"id": "health", "name": "系统健康检查", "cmd": "python daily_review/health_check.py"},
+            {"id": "interpret", "name": "盘前解读", "cmd": "python morning_intel/run_morning.py --phase pre"},
+            {"id": "advice", "name": "生成盘前建议", "cmd": "python daily_review/_run_advice.py"},
+            {"id": "advice_server", "name": "启动Advice HTTP服务", "cmd": "python daily_review/advice_server.py --daemon"},
         ],
     },
     "bom": {
         "name": "BOM 产业链分析",
         "desc": "产业链拆解 + 龙头护城河评分",
-        "trigger": "18:30 盘后",
+        "trigger": "18:30",
         "steps": [
             {"id": "bom", "name": "BOM日更", "cmd": "python bom_analyzer/run.py --daily"},
         ],
     },
     "collect": {
         "name": "仅数据采集",
-        "desc": "10 源基本面数据采集",
+        "desc": "全量采集（日更+低频），不分层",
         "steps": [
             {"id": "collect", "name": "数据采集", "cmd": "python daily_review/daily_collect.py"},
         ],
     },
     "intraday": {
         "name": "盘中流水线",
-        "desc": "增量采集 → 盘中情报 → 盘前验证 （⚠️ 已由 run_intraday_loop.py 双频自循环替代，保留仅作手动备用）",
+        "desc": "⚠️ 已由 run_intraday_loop.py 双频自循环替代，保留仅作手动备用",
         "trigger": "10:30 / 14:00",
         "steps": [
             {"id": "health", "name": "系统健康检查", "cmd": "python daily_review/health_check.py"},
