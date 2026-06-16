@@ -266,16 +266,28 @@ def deep_read_announcement(ann: dict) -> dict | None:
 
 
 def deep_read_batch(announcements: list[dict]) -> list[dict]:
-    """批量精读多条公告。返回每条的结果列表（含原始公告字段+评分字段）。"""
-    results = []
-    for ann in announcements:
-        print(f"  [deep_read] 正在精读: {ann.get('code')} {ann.get('name')} — {ann.get('ann_title', '')[:40]}...")
+    """批量精读多条公告（并行 4 路 Haiku+Sonnet）。"""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _deep_read_one(ann):
+        code = ann.get('code', '?')
+        name = ann.get('name', '?')
+        title = ann.get('ann_title', '')[:40]
+        print(f"  [deep_read] 正在精读: {code} {name} — {title}...")
         scored = deep_read_announcement(ann)
         if scored:
             from config import DEEP_READ_RULES
             min_score = DEEP_READ_RULES.get("min_deep_read_score", 60)
             scored["passed_threshold"] = scored.get("total_score", 0) >= min_score
-            results.append({**ann, **scored})
-        else:
-            print(f"  [deep_read] 精读失败，跳过: {ann.get('code')}")
+            return {**ann, **scored}
+        print(f"  [deep_read] 精读失败，跳过: {code}")
+        return None
+
+    results = []
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        futures = {ex.submit(_deep_read_one, ann): ann for ann in announcements}
+        for f in as_completed(futures):
+            r = f.result()
+            if r:
+                results.append(r)
     return results
