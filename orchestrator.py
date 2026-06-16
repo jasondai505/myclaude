@@ -76,6 +76,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
             {"id": "health", "name": "系统健康检查", "cmd": "python daily_review/health_check.py"},
             {"id": "interpret", "name": "盘前解读", "cmd": "python morning_intel/run_morning.py --phase pre"},
             {"id": "advice", "name": "生成盘前建议", "cmd": "python daily_review/_run_advice.py"},
+            {"id": "advice_upload", "name": "上传 advice 图片", "cmd": "python daily_review/upload_advice.py"},
             {"id": "advice_server", "name": "启动Advice HTTP服务", "cmd": "python daily_review/advice_server.py --daemon"},
         ],
     },
