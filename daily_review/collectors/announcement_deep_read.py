@@ -75,7 +75,7 @@ def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> di
         content = a.get("content", "")
         art_code = a.get("art_code", "")
         if not content and art_code:
-            content = download_announcement_pdf(art_code) or ""
+            content = download_announcement_pdf(art_code, code) or ""
             if content:
                 store.save_announcement_content(art_code, content)
         raw_anns.append({

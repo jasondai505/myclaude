@@ -65,21 +65,66 @@ def _download_pdf(url: str) -> bytes | None:
         return None
 
 
-def download_announcement_pdf(art_code: str) -> str | None:
-    """下载公告 PDF 并提取文本（截断 MAX_ANNOUNCEMENT_CHARS 字）。"""
+def download_announcement_pdf(art_code: str, stock_code: str = "") -> str | None:
+    """下载公告 PDF 并提取文本（截断 MAX_ANNOUNCEMENT_CHARS 字）。
+
+    自动降级：PDF → HTML 详情页
+    """
     if not art_code:
         return None
     url = ANNOUNCEMENT_PDF_URL.format(art_code=art_code)
     pdf_bytes = _download_pdf(url)
-    if not pdf_bytes:
+    if pdf_bytes:
+        text = extract_text_from_pdf_bytes(pdf_bytes)
+        if text:
+            text = _clean_text(text)
+            if len(text) > MAX_ANNOUNCEMENT_CHARS:
+                text = text[:MAX_ANNOUNCEMENT_CHARS // 2] + "\n...(中略)...\n" + text[-MAX_ANNOUNCEMENT_CHARS // 2:]
+            return text
+    # PDF 失败 → HTML 详情页降级
+    if stock_code:
+        return _download_announcement_html(stock_code, art_code)
+    return None
+
+
+def _download_announcement_html(stock_code: str, art_code: str) -> str | None:
+    """从东财公告详情页提取正文（HTML → 纯文本）。"""
+    url = f"https://data.eastmoney.com/notices/detail/{stock_code}/{art_code}.html"
+    headers = {"User-Agent": random.choice(UA_POOL), "Referer": "https://data.eastmoney.com/"}
+    try:
+        resp = requests.get(url, headers=headers, timeout=15)
+        resp.encoding = "utf-8"
+        html = resp.text
+    except Exception:
         return None
-    text = extract_text_from_pdf_bytes(pdf_bytes)
-    if not text:
-        return None
-    text = _clean_text(text)
-    if len(text) > MAX_ANNOUNCEMENT_CHARS:
-        text = text[:MAX_ANNOUNCEMENT_CHARS // 2] + "\n...(中略)...\n" + text[-MAX_ANNOUNCEMENT_CHARS // 2:]
-    return text
+
+    # 尝试从嵌入式 JSON 提取（东财页面用 JS 渲染，正文可能在 script 标签里）
+    m = re.search(r'"noticeContent"\s*:\s*"((?:[^"\\]|\\.)*)"', html)
+    if not m:
+        m = re.search(r'noticeContent["\']?\s*[:=]\s*["\'](.+?)["\']\s*[,;}]', html, re.DOTALL)
+    if m:
+        content = m.group(1).replace("\\n", "\n").replace("\\t", " ").replace("\\r", "")
+        content = re.sub(r'\\u[0-9a-fA-F]{4}', lambda x: chr(int(x.group(0)[2:], 16)), content)
+        content = re.sub(r"<[^>]+>", " ", content)
+        content = re.sub(r"&nbsp;", " ", content)
+        content = re.sub(r"\s+", " ", content).strip()
+        if len(content) > 100:
+            if len(content) > MAX_ANNOUNCEMENT_CHARS:
+                content = content[:MAX_ANNOUNCEMENT_CHARS]
+            return content
+
+    # 回退: innerHTML 正文区段
+    m = re.search(r'<div[^>]*class="[^"]*content[^"]*"[^>]*>(.+?)</div>', html, re.DOTALL)
+    if m:
+        text = re.sub(r"<[^>]+>", " ", m.group(1))
+        text = re.sub(r"&nbsp;", " ", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        if len(text) > 100:
+            if len(text) > MAX_ANNOUNCEMENT_CHARS:
+                text = text[:MAX_ANNOUNCEMENT_CHARS]
+            return text
+
+    return None
 
 
 def download_report_pdf(pdf_url: str, info_code: str = "") -> str | None:
