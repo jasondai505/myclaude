@@ -26,7 +26,7 @@ UA_POOL = [
 
 
 def extract_text_from_pdf_bytes(pdf_bytes: bytes) -> str:
-    """pdfplumber 提取 PDF 全部文字，返回单个字符串。"""
+    """pdfplumber 提取 PDF 文字。空文本时尝试 OCR（扫描件降级）。"""
     try:
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             texts = []
@@ -34,9 +34,25 @@ def extract_text_from_pdf_bytes(pdf_bytes: bytes) -> str:
                 t = page.extract_text()
                 if t:
                     texts.append(t)
-            return "\n".join(texts)
+            result = "\n".join(texts)
+            if result.strip():
+                return result
     except Exception:
-        return ""
+        pass
+    # 扫描件 PDF → OCR 降级
+    if _ocr_available():
+        try:
+            from pdf2image import convert_from_bytes
+            images = convert_from_bytes(pdf_bytes, first_page=5)
+            texts = []
+            for img in images:
+                t = extract_text_from_image_bytes(img.tobytes())
+                if t:
+                    texts.append(t)
+            return "\n".join(texts)
+        except Exception:
+            pass
+    return ""
 
 
 def _clean_text(text: str) -> str:
@@ -184,4 +200,59 @@ def _fix_report_pdf_url(url: str) -> str | None:
     if "/" in encoded:
         encoded = encoded.split("/")[0]
         return re.sub(r'/h3_.+_1\.pdf$', f'/h3_{encoded}_1.pdf', url)
+    return None
+
+
+# ============================================================
+# 图片 OCR 提取
+# ============================================================
+
+def _ocr_available() -> bool:
+    try:
+        import pytesseract
+        pytesseract.get_tesseract_version()
+        return True
+    except Exception:
+        return False
+
+
+def extract_text_from_image_bytes(img_bytes: bytes, lang: str = "chi_sim+eng") -> str | None:
+    """对图片字节做 OCR，返回文本。需要 tesseract-ocr 已安装。"""
+    if not _ocr_available():
+        return None
+    try:
+        from PIL import Image
+        import pytesseract
+        import io
+        img = Image.open(io.BytesIO(img_bytes))
+        if img.width > 2000:
+            img = img.resize((2000, int(img.height * 2000 / img.width)))
+        text = pytesseract.image_to_string(img, lang=lang)
+        text = _clean_text(text)
+        return text if len(text) > 20 else None
+    except Exception:
+        return None
+
+
+def extract_text_from_image_url(url: str, lang: str = "chi_sim+eng") -> str | None:
+    """从 URL 下载图片并 OCR 提取文本。"""
+    headers = {"User-Agent": random.choice(UA_POOL), "Referer": "https://data.eastmoney.com/"}
+    try:
+        resp = requests.get(url, headers=headers, timeout=30)
+        resp.raise_for_status()
+        ct = resp.headers.get("Content-Type", "")
+        if "image" not in ct and not url.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
+            return None
+        return extract_text_from_image_bytes(resp.content, lang)
+    except Exception:
+        return None
+
+
+# ============================================================
+# 音频转录（占位）
+# ============================================================
+
+def extract_text_from_audio_url(url: str) -> str | None:
+    """从 URL 下载音频并转录（需要 whisper 模型）。"""
+    # TODO: pip install openai-whisper + 模型下载后启用
     return None
