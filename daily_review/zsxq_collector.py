@@ -41,29 +41,31 @@ def _extract_stock_codes(text: str) -> list[str]:
     return list(set(re.findall(r'[036]\d{5}', text)))
 
 
-def _extract_attachments(talk: dict) -> list[dict]:
-    """从 talk 中提取附件（图片/PDF/文件）。"""
+def _extract_attachments(raw_text: str) -> tuple[list[dict], str]:
+    """从原始 HTML 文本中提取附件 URL，同时移除 <img> 标签。
+
+    返回 (attachments_list, cleaned_html)。
+    """
     atts = []
-    # 1. images 字段
-    for img in talk.get("images", []) or []:
-        url = img.get("large_url") or img.get("original_url") or img.get("thumbnail_url", "")
-        if url:
-            atts.append({"type": "image", "url": url, "name": img.get("name", "")})
-    # 2. files / attachments 字段
-    for f in talk.get("files", []) or talk.get("attachments", []) or []:
-        url = f.get("url", "")
-        name = f.get("name", "") or f.get("title", "")
-        if url:
-            ext = (name.split(".")[-1] if "." in name else "").lower()
-            att_type = "pdf" if ext == "pdf" else "image" if ext in ("png","jpg","jpeg","gif","webp") else "file"
-            atts.append({"type": att_type, "url": url, "name": name})
-    return atts
+    # 提取 <img> 标签中的图片 URL
+    img_urls = re.findall(r'<img[^>]+src=["\\\']([^"\\\']+)["\\\']', raw_text, re.I)
+    for url in img_urls:
+        atts.append({"type": "image", "url": url, "name": ""})
+    # 提取 Markdown 风格的图片 ![](url)
+    md_imgs = re.findall(r'!\[.*?\]\((https?://[^\s)]+)\)', raw_text)
+    for url in md_imgs:
+        atts.append({"type": "image", "url": url, "name": ""})
+    # 移除 <img> 标签后返回清洗文本（避免 OCR 时重复）
+    cleaned = re.sub(r'<img[^>]+/?>', '', raw_text, flags=re.I)
+    return atts, cleaned
 
 
 def _parse_topic(raw: dict) -> dict:
     talk = raw.get("talk", {})
     raw_text = talk.get("text", "") or ""
-    text = clean_zsxq_text(raw_text)
+    # 先提取附件再清洗文本
+    attachments, img_cleaned = _extract_attachments(raw_text)
+    text = clean_zsxq_text(img_cleaned)
     title = text.split("\n")[0][:100] if text else ""
     author = talk.get("owner", {}).get("name", "")
 
@@ -78,7 +80,7 @@ def _parse_topic(raw: dict) -> dict:
         "likes_count": raw.get("likes_count", 0),
         "comments_count": raw.get("comments_count", 0),
         "stock_codes": _extract_stock_codes(text),
-        "attachments": json.dumps(_extract_attachments(talk), ensure_ascii=False),
+        "attachments": json.dumps(attachments, ensure_ascii=False),
     }
 
 
