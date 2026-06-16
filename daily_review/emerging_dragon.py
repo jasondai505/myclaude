@@ -33,6 +33,7 @@ def score_emerging_dragons(
     hot100_codes: set[str],
     major_concepts: set[str],
     strength_data: dict,
+    catalyst_codes: set[str] = None,
 ) -> list[dict]:
     """跨板块筛选将成龙：个股领先于板块，在板块前中期率先走强。
 
@@ -176,6 +177,8 @@ def score_emerging_dragons(
                 unpriced += 4
             if theme not in major_concepts:
                 unpriced += 4
+            if catalyst_codes and code in catalyst_codes:
+                unpriced += 3  # 有催化信号 + 走势领先 = 共振
 
             # 板块阶段乘数
             if stage == "爆发初期":

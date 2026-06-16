@@ -313,6 +313,33 @@ def _inject_deep_read_summary(today: str) -> str:
     return "\n".join(lines)
 
 
+def _inject_dossier_context(today: str, codes: list[str]) -> str:
+    """注入研报档案中的最新信号（调研/互动/业绩/研报）。"""
+    d = BASE / "reports" / "research_dossiers"
+    if not d.exists():
+        return "（暂无个股档案）"
+    if codes:
+        files = [f for c in codes for f in d.glob(f"{c}*.md")]
+    else:
+        files = sorted(d.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)[:30]
+    if not files:
+        return "（暂无个股档案）"
+
+    lines = []
+    for fp in files[:15]:
+        try:
+            text = fp.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        import re
+        sigs = re.findall(r"^- \[(\w+)\]\s*(.+?)(?:\s*\([+-]?\d+分\))?\s*$", text, re.MULTILINE)
+        if sigs:
+            latest = sigs[-3:]  # 最近 3 条信号
+            sig_str = "；".join(f"[{t}]{d}" for t, d in latest)
+            lines.append(f"- {fp.stem[:6]}: {sig_str}")
+    return "\n".join(lines) if lines else "（档案中暂无近期信号）"
+
+
 def _inject_wechat_analysis(today: str) -> str:
     """注入公众号分析报告；若为空则回退到原始 feed 摘要。"""
     path = BASE / "reports" / "wechat_analysis" / f"wechat_analysis_{today}.md"
@@ -2230,6 +2257,7 @@ def main():
     feeds = _inject_feeds(today, yesterday)
     wechat_analysis = _inject_wechat_analysis(today)
     feeds["%%WECHAT_ANALYSIS%%"] = wechat_analysis
+    feeds["%%DEEP_READ%%"] = _inject_deep_read_summary(today)
     bom_ctx = _inject_bom_context()
     supply_chain = _inject_supply_chain_intel(today)
     serenity_ctx = _inject_serenity_context()
@@ -2247,6 +2275,7 @@ def main():
     feeds["%%PRIMARY_SYNTHESIS%%"] = primary_synthesis
     codes = _extract_codes_from_feeds(feeds)
     stock_ctx = _inject_stock_context(codes)
+    feeds["%%DOSSIER_CONTEXT%%"] = _inject_dossier_context(today, codes)
 
     # 盘前先跑统一评分 (FEV + G-Factor) + Δ 评分
     print("  [PRE] 盘前统一评分 (FEV + G-Factor)...")
@@ -2310,6 +2339,8 @@ def main():
         .replace("%%GFACTOR_TABLE%%", gfactor_table)
         .replace("%%CATALYST_SCREEN%%", _inject_catalyst_screen(today))
         .replace("%%CATALYST_TRACK%%", _inject_catalyst_track(today))
+        .replace("%%DEEP_READ%%", feeds.get("%%DEEP_READ%%", ""))
+        .replace("%%DOSSIER_CONTEXT%%", feeds.get("%%DOSSIER_CONTEXT%%", ""))
     )
     for key, val in feeds.items():
         prompt = prompt.replace(key, val)
