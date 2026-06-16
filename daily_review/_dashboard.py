@@ -83,10 +83,15 @@ SOURCE_LABELS = {
     "news": "📰 个股新闻",
     "news_signals": "📰 新闻边际信号",
     "industry": "🏭 行业研报",
+    "industry_deep_read": "🏭 行业深度分析",
+    "catalyst_tracker": "📡 催化走势跟踪",
     "wechat": "💚 微信公众号",
     "weibo": "🐦 唐史主任微博",
     "zsxq": "⭐ 知识星球",
     "jiuyang": "📝 韭研脱水研报",
+    "lockups": "🔒 限售解禁",
+    "eps": "📐 一致预期EPS",
+    "financials": "💰 财务指标",
 }
 
 # === 可操作警报：异常 → 排查指引 ===
@@ -464,6 +469,105 @@ def _engine_status() -> list[dict]:
     return engines
 
 
+def _source_funnel(source: str, msg: str) -> str:
+    """从 collector 消息中提取吞吐量漏斗: 采集→初筛→深度产出。"""
+    import re
+    today = date.today().isoformat()
+
+    # 深度分析管线 — 查产出文件/DB
+    if source == "announcement_deep_read":
+        # 公告深研: deep_read_results 表
+        try:
+            with store._conn() as conn:
+                total = conn.execute(
+                    "SELECT COUNT(*) FROM deep_read_results WHERE date=?",
+                    (today,),
+                ).fetchone()[0]
+                a60 = conn.execute(
+                    "SELECT COUNT(*) FROM deep_read_results WHERE date=? AND total_score>=60",
+                    (today,),
+                ).fetchone()[0]
+            if total:
+                return f"公告→筛选→{total}篇LLM（{a60}≥60分）"
+        except Exception:
+            pass
+
+    if source == "research_deep_read":
+        # 研报跟踪: dossier 文件数
+        d = REPORT_DIR / "research_dossiers"
+        try:
+            n = len(list(d.glob("*.md"))) if d.exists() else 0
+            return f"研报→信号检测→{n}份档案"
+        except Exception:
+            pass
+
+    if source == "sentiment_track":
+        # 调研+互动情绪: 从消息提取（如 "调研3+互动10+业绩0=13只(13存档)"）
+        m = re.search(r"(\d+)存档", msg)
+        if m:
+            return f"调研+互动+业绩→{m.group(1)}只存档"
+
+    if source == "industry_deep_read":
+        # 行业深研: industry_daily 文件
+        ind_path = REPORT_DIR / "industry" / f"industry_daily_{today}.md"
+        if ind_path.exists():
+            try:
+                text = ind_path.read_text(encoding="utf-8")
+                m = re.search(r"(\d+)篇研报\s*\|\s*(\d+)家机构\s*\|\s*(\d+)个行业", text)
+                if m:
+                    return f"{m.group(1)}篇→筛选→{m.group(3)}行业研判"
+            except Exception:
+                pass
+
+    if source == "news_signals":
+        # 新闻边际信号: news_signals feed
+        sig_path = REPORT_DIR / "feeds" / f"news_signals_{today}.md"
+        if sig_path.exists():
+            try:
+                text = sig_path.read_text(encoding="utf-8")
+                m = re.search(r"(\d+)条边际信号", text)
+                if m:
+                    return f"新闻列表→Haiku扫描→{m.group(1)}条信号"
+            except Exception:
+                pass
+
+    if source == "catalyst_tracker":
+        # 催化跟踪: catalyst_track 文件
+        ct_path = REPORT_DIR / "catalyst" / f"catalyst_track_{today}.md"
+        if ct_path.exists():
+            try:
+                text = ct_path.read_text(encoding="utf-8")
+                m = re.search(r"(\d+)\s*条活性催化.*?确认\s*(\d+)\s*条", text)
+                if m:
+                    return f"{m.group(1)}活性→Redis扫描→{m.group(2)}确认"
+            except Exception:
+                pass
+
+    # 普通采集源 — 从消息提取关键数字
+    # 按优先级: 大数+明确单位 > 小数+模糊单位
+    patterns = [
+        (r"(\d+)\s*篇", "篇"),
+        (r"命中(\d+)", "条命中"),
+        (r"(\d+)\s*只\s*成功", "只"),
+        (r"(\d+)\s*条", "条"),
+        (r"新增\s*(\d+)", "条↑"),
+        (r"成功(\d+)", "只"),
+    ]
+    for pat, unit in patterns:
+        m = re.search(pat, msg)
+        if m:
+            n = int(m.group(1))
+            if "无新" in msg or "无帖子" in msg:
+                return f"采集 {n}{unit}（无新增）"
+            return f"采集 {n}{unit}"
+
+    # 无有效数字
+    if "超时" in msg:
+        return "⏰ 超时"
+    short = msg[:25] if msg else "—"
+    return short if short else "—"
+
+
 def generate(today_str: str = "") -> str:
     now_ts = datetime.now().strftime("%Y-%m-%d %H:%M")
     today = today_str or date.today().isoformat()
@@ -506,18 +610,15 @@ def generate(today_str: str = "") -> str:
     # === 采集管线 ===
     w("## 采集管线")
     w()
-    w("| 源 | 状态 | 最新数据 | 采集时间 | 新增 | 备注 |")
-    w("|----|:----:|---------|:------:|-----:|------|")
+    w("| 源 | 状态 | 数据日 | 时间 | 吞吐量（采集→初筛→深度产出） |")
+    w("|----|:----:|:-----:|:---:|---------|")
     for cs in _collector_status():
         icon = _status_icon(cs.get("status", "unknown"))
         label = SOURCE_LABELS.get(cs["source"], cs["source"])
         last = cs.get("last_date", "") or "—"
         rtime = cs.get("run_time", "") or "—"
-        added = cs.get("added_count", 0) or 0
-        msg = (cs.get("message", "") or "")[:40]
-        if cs.get("status") == "timeout":
-            msg += " ⏰"
-        w(f"| {label} | {icon} | {last} | {rtime} | {added} | {msg} |")
+        funnel = _source_funnel(cs["source"], cs.get("message", ""))
+        w(f"| {label} | {icon} | {last} | {rtime} | {funnel} |")
     w()
 
     # === 分析引擎 ===
