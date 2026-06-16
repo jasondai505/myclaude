@@ -210,6 +210,13 @@ def _fix_report_pdf_url(url: str) -> str | None:
 def _ocr_available() -> bool:
     try:
         import pytesseract
+        from pathlib import Path
+        # Windows 常见安装路径
+        for p in [r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+                  r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"]:
+            if Path(p).exists():
+                pytesseract.pytesseract.tesseract_cmd = p
+                break
         pytesseract.get_tesseract_version()
         return True
     except Exception:
