@@ -1508,6 +1508,9 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
                     code = s.get("code", "")
                     if not code or code in existing_codes:
                         continue
+                    # 过滤低置信度 LLM 直接映射（防幻觉，如 DeepSeek→东风汽车）
+                    if s.get("confidence") == "low" and s.get("method") == "llm_direct":
+                        continue
                     cand = candidate_map.get(code, {})
                     fv = fev_map.get(code, {})
                     d = delta_map.get(code, {})
