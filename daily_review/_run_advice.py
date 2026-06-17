@@ -982,7 +982,22 @@ def _validate_code_names(output: str) -> str:
     for llm_name, code in all_pairs:
         real_name = name_map.get(code, "")
         if not real_name:
-            print(f"  [WARN] 代码 {code} 查无数据，可能无效，LLM 标注为「{llm_name}」")
+            # L2: 无效代码直接删除对应行，不再只 warn
+            for template in [
+                f"{llm_name}({code})",
+                f"| {llm_name} | {code}",
+                f"| **{llm_name}** | {code}",
+                f"|{llm_name} | {code}",
+                f"| **{llm_name}**| {code}",
+                f"{llm_name}（{code}）",
+            ]:
+                if template in output:
+                    # 删除包含该模板的整行
+                    output = "\n".join(
+                        ln for ln in output.split("\n") if template not in ln
+                    )
+                    print(f"  [L2 REMOVE] 无效代码 {code}({llm_name})，已删除")
+                    fixed += 1
             continue
         if llm_name != real_name:
             for template in [

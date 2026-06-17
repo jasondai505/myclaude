@@ -129,7 +129,15 @@ def _analyze_single(client, feed: str, pub_date: str, title: str,
         )
         text = "".join(b.text for b in resp.content
                        if getattr(b, "type", "") == "text")
-        return _extract_json(text) or {}
+        data = _extract_json(text) or {}
+        # L2: 校验 tickers 代码
+        from llm_validator import validate_codes as _vc
+        for t in data.get("tickers", []):
+            code = t.get("code", "")
+            if code and not _vc([code]).get(code, {}).get("valid"):
+                t["code"] = ""
+                t["_invalid"] = True
+        return data
     except Exception as e:
         print(f"      [Haiku err] {e}")
         return {}

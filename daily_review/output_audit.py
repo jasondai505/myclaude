@@ -88,11 +88,17 @@ EXPECTED_OUTPUTS = [
     ("推荐追踪",   "reports/feeds/recap_{date}.md",                 "today",      "track",          "python daily_review/track_recommendations.py",       "LOW",      "23:00"),
     ("FEV评分",    "_check_fev_today",                               "today",      "unified",        "python daily_review/unified_scorer.py --from-feeds",  "HIGH",     "05:30"),
     ("Δ边际评分",  "_check_delta_today",                             "today",      "delta",          "python daily_review/feval.py --update-delta",        "HIGH",     "05:30"),
+    ("LLM输出质量", "_check_llm_quality",                              "today",      "audit",          "python daily_review/llm_validator.py --audit-all",    "HIGH",     "07:00"),
 ]
+
+def _check_llm_quality() -> tuple[bool, str]:
+    from llm_validator import _check_llm_quality as _f
+    return _f()
 
 DB_CHECKS = {
     "_check_fev_today": _check_fev_today,
     "_check_delta_today": _check_delta_today,
+    "_check_llm_quality": _check_llm_quality,
 }
 
 PRIORITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}

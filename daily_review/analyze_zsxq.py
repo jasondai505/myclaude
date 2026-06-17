@@ -107,7 +107,21 @@ def _haiku_analyze_batch(client, batch: list[dict]) -> list[dict]:
         text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
         m = re.search(r"\[.*\]", text, re.DOTALL)
         if m:
-            return json.loads(m.group(0))
+            articles = json.loads(m.group(0))
+            # L2: 校验 tickers 代码
+            from llm_validator import validate_codes as _vc
+            invalid_count = 0
+            for a in articles:
+                for t in a.get("tickers", []):
+                    if not t.get("code"): continue
+                    v = _vc([t["code"]]).get(t["code"], {})
+                    if not v.get("valid"):
+                        t["code"] = ""
+                        t["name"] = f"[无效代码]{t.get('name','')}"
+                        invalid_count += 1
+            if invalid_count:
+                print(f"    [L2] 过滤 {invalid_count} 个无效代码")
+            return articles
         return []
     except Exception as e:
         print(f"    [Haiku err] batch: {e}")
@@ -184,7 +198,27 @@ def _sonnet_synthesize(client, articles: list[dict], today: str) -> dict:
             thinking={"type": "disabled"},
         )
         text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
-        return _extract_json(text) or {}
+        data = _extract_json(text) or {}
+        # L2: 校验综合研判中的股票代码
+        from llm_validator import validate_codes as _vc
+        invalid = 0
+        for theme in data.get("themes", []):
+            valid_stocks = []
+            for c in theme.get("related_stocks", []):
+                if _vc([c]).get(c, {}).get("valid"):
+                    valid_stocks.append(c)
+                else:
+                    invalid += 1
+            theme["related_stocks"] = valid_stocks
+        for alert in data.get("watchlist_alerts", []):
+            code = alert.get("code", "")
+            if code and not _vc([code]).get(code, {}).get("valid"):
+                alert["code"] = ""
+                alert["_invalid"] = True
+                invalid += 1
+        if invalid:
+            print(f"    [L2] 综合研判过滤 {invalid} 个无效代码")
+        return data
     except Exception as e:
         print(f"  [Sonnet err] {e}")
         return {}

@@ -473,6 +473,21 @@ def _engine_status() -> list[dict]:
         "nums": ind_nums,
     })
 
+    # LLM 输出质量审计
+    llm_ok = True
+    llm_nums = ""
+    try:
+        from llm_validator import _check_llm_quality
+        llm_ok, llm_nums = _check_llm_quality()
+    except Exception:
+        llm_nums = "校验模块异常"
+        llm_ok = False
+    engines.append({
+        "name": "🤖 LLM输出质量", "key": "llm_quality",
+        "ok": llm_ok, "time": "—",
+        "nums": llm_nums,
+    })
+
     return engines
 
 

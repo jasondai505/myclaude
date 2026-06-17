@@ -757,13 +757,22 @@ def score_delta_from_feeds(date_str: str = "") -> list[dict]:
         code = str(item.get("code", "")).strip()
         if code not in name_map:
             continue
+        # L2: 代码白名单校验 + 信号一致性检查
+        from llm_validator import validate_codes as _vc
+        v = _vc([code]).get(code, {})
+        if not v.get("valid"):
+            continue
         ds = max(-10, min(10, int(item.get("delta", 0) or 0)))
+        signal = str(item.get("signal", "") or "")[:120]
+        # 减持信号一致性：减持+正分→可疑，减持无比例→降置信度
+        if "减持" in signal and ds > 0:
+            ds = min(ds, 0)  # 减持不可能是利好，clamp 到 ≤0
         results.append({
             "code": code,
-            "name": name_map[code],
+            "name": v.get("name", name_map.get(code, "")),
             "date": d,
             "delta_score": ds,
-            "signal": str(item.get("signal", "") or "")[:120],
+            "signal": signal,
             "source": str(item.get("source", "") or "feeds")[:40],
         })
 

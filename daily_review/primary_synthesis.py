@@ -164,7 +164,27 @@ def _call_haiku(prompt: str) -> dict | None:
         start = text.find("{")
         end = text.rfind("}")
         if start >= 0 and end > start:
-            return json.loads(text[start:end + 1])
+            data = json.loads(text[start:end + 1])
+            # L2: 校验所有股票代码
+            from llm_validator import validate_codes as _vc
+            invalid = 0
+            for theme in data.get("consensus_themes", []):
+                stocks = theme.get("stocks", [])
+                if isinstance(stocks, list):
+                    theme["stocks"] = [
+                        s for s in stocks
+                        if isinstance(s, str) and (len(s) == 6 and _vc([s]).get(s, {}).get("valid"))
+                    ]
+                    invalid += len(stocks) - len(theme["stocks"])
+            for entry in data.get("cross_validated_stocks", []):
+                code = entry.get("code", "")
+                if code and not _vc([code]).get(code, {}).get("valid"):
+                    entry["code"] = ""
+                    entry["_invalid"] = True
+                    invalid += 1
+            if invalid:
+                print(f"  [L2] 过滤 {invalid} 个无效代码")
+            return data
     except json.JSONDecodeError as e:
         print(f"  JSON 解析失败: {e}")
     except Exception as e:
