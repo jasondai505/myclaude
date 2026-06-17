@@ -1,279 +1,85 @@
-import sys, re, io, json, base64, requests
+"""MD → HTML → Playwright 渲染 → PNG。
+相比 PIL 手绘方案：全彩、表格专业、无重影、字体正常。
+"""
+import sys, io, json, base64, re
 from pathlib import Path
-from html.parser import HTMLParser
-from PIL import Image, ImageDraw, ImageFont
+
+import markdown
+import requests
+from playwright.sync_api import sync_playwright
 
 URL = 'http://data.xiaoxinren.cn:9003/Api/Agent/PostDaily'
 
-# --- HTML table extractor ---
-class TableExtractor(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.tables = []
-        self._in_table = self._in_tr = self._in_td = self._in_th = False
-        self._current_table = []
-        self._current_row = []
-        self._current_cell = ""
+CSS = """
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: "Microsoft YaHei", "PingFang SC", "Helvetica Neue", sans-serif;
+  font-size: 15px; line-height: 1.7; color: #1a1a1a;
+  background: #fff; padding: 40px 48px; max-width: 880px; margin: 0 auto;
+}
+h1 { font-size: 22px; color: #111; border-bottom: 2px solid #2563eb; padding-bottom: 8px; margin: 28px 0 14px; }
+h2 { font-size: 19px; color: #1e40af; margin: 24px 0 10px; padding-left: 8px; border-left: 3px solid #2563eb; }
+h3 { font-size: 16px; color: #333; margin: 18px 0 8px; }
+p { margin: 6px 0 10px; }
+blockquote { border-left: 3px solid #94a3b8; padding: 6px 14px; margin: 10px 0; color: #555; background: #f8fafc; font-size: 14px; }
+code { background: #f1f5f9; padding: 1px 5px; border-radius: 3px; font-size: 13px; font-family: "Cascadia Code", "Fira Code", Consolas, monospace; }
+pre { background: #1e293b; color: #e2e8f0; padding: 14px 18px; border-radius: 6px; overflow-x: auto; margin: 10px 0; font-size: 13px; line-height: 1.5; }
+pre code { background: none; padding: 0; color: inherit; }
+ul, ol { margin: 6px 0 10px 22px; }
+li { margin: 2px 0; }
+hr { border: none; border-top: 1px solid #e2e8f0; margin: 16px 0; }
+strong { color: #c2410c; }
+a { color: #2563eb; text-decoration: none; }
 
-    def handle_starttag(self, tag, attrs):
-        if tag == 'table': self._in_table = True; self._current_table = []
-        elif tag == 'tr': self._in_tr = True; self._current_row = []
-        elif tag in ('td', 'th'): self._in_td = True; self._current_cell = ""
+table { width: 100%; border-collapse: collapse; margin: 10px 0 16px; font-size: 14px; }
+th { background: #2563eb; color: #fff; font-weight: 600; padding: 8px 10px; text-align: left; white-space: nowrap; }
+td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; }
+tr:nth-child(even) td { background: #f8fafc; }
+tr:hover td { background: #eff6ff; }
 
-    def handle_endtag(self, tag):
-        if tag == 'table': self._in_table = False; self.tables.append(self._current_table)
-        elif tag == 'tr' and self._in_tr: self._in_tr = False; self._current_table.append(self._current_row)
-        elif tag in ('td', 'th') and self._in_td:
-            self._in_td = False; self._current_row.append(self._current_cell.strip())
+details { margin: 8px 0; padding: 8px 14px; background: #f8fafc; border-radius: 4px; font-size: 14px; }
+summary { cursor: pointer; color: #2563eb; font-weight: 500; }
+"""
 
-    def handle_data(self, data):
-        if self._in_td: self._current_cell += data
+HTML_TEMPLATE = """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>{css}</style>
+</head>
+<body>
+{body}
+</body>
+</html>"""
 
-# --- layout helpers ---
-def wrap_text(text, font, max_width, draw):
-    words = text.split(' ')
-    lines, current = [], ""
-    for w in words:
-        test = w if not current else current + ' ' + w
-        if draw.textbbox((0, 0), test, font=font)[2] <= max_width:
-            current = test
-        else:
-            if current: lines.append(current)
-            current = w
-    if current: lines.append(current)
-    return lines if lines else [' ']
 
-def render_table(draw, rows, fonts, x, y, max_w, pad=6):
-    if not rows: return y
-    ncols = max(len(r) for r in rows)
-    font = fonts['table']
-    col_w = [0] * ncols
-    for row in rows:
-        for i, cell in enumerate(row):
-            bbox = draw.textbbox((0, 0), cell, font=font)
-            col_w[i] = max(col_w[i], bbox[2] - bbox[0] + pad * 2)
-    total_w = sum(col_w)
-    if total_w > max_w:
-        scale = max_w / total_w
-        col_w = [int(w * scale) for w in col_w]
-    line_h = draw.textbbox((0, 0), 'X', font=font)[3] + pad
-    for ri, row in enumerate(rows):
-        cy = y
-        cell_lines_list = []
-        for i in range(ncols):
-            cell_text = row[i] if i < len(row) else ''
-            cell_lines_list.append(wrap_text(cell_text, font, col_w[i] - pad, draw))
-        max_lines = max(len(cl) for cl in cell_lines_list)
-        for li in range(max_lines):
-            cx = x
-            for i in range(ncols):
-                txt = cell_lines_list[i][li] if li < len(cell_lines_list[i]) else ''
-                draw.text((cx + pad, y + pad // 2), txt, font=font, fill='black')
-                cx += col_w[i]
-            y += line_h
-        if ri == 0:
-            y_sep = y
-            draw.line([(x, y_sep), (x + sum(col_w), y_sep)], fill='#333', width=2)
-        draw.line([(x, y), (x + sum(col_w), y)], fill='#ccc', width=1)
-    draw.line([(x, y), (x + sum(col_w), y)], fill='#333', width=2)
-    return y + pad
-
-# --- main converter ---
-def md_to_image(md_path: str, max_width=1100) -> bytes:
+def md_to_image(md_path: str, max_width=880) -> bytes:
     text = Path(md_path).read_text(encoding='utf-8')
 
-    font_paths = [
-        'C:/Windows/Fonts/msyh.ttc',
-        'C:/Windows/Fonts/simhei.ttf',
-        'C:/Windows/Fonts/simsun.ttc',
-    ]
-    title_font = body_font = table_font = small_font = None
-    for fp in font_paths:
-        try: title_font = ImageFont.truetype(fp, 22); break
-        except: pass
-    for fp in font_paths:
-        try: body_font = ImageFont.truetype(fp, 16); break
-        except: pass
-    for fp in font_paths:
-        try: table_font = ImageFont.truetype(fp, 14); break
-        except: pass
-    for fp in font_paths:
-        try: small_font = ImageFont.truetype(fp, 12); break
-        except: pass
-    if not body_font: body_font = ImageFont.load_default()
+    # MD → HTML
+    md_body = markdown.markdown(
+        text,
+        extensions=['tables', 'fenced_code', 'sane_lists'],
+    )
+    html = HTML_TEMPLATE.format(css=CSS, body=md_body)
 
-    fonts = {'title': title_font or body_font, 'body': body_font,
-             'table': table_font or body_font, 'small': small_font or body_font}
-    pad = 20
-    draw_test = ImageDraw.Draw(Image.new('RGB', (1, 1)))
-    line_h = draw_test.textbbox((0, 0), 'X', font=fonts['body'])[3] + 4
-
-    extractor = TableExtractor()
-    extractor.feed(text)
-    html_tables = extractor.tables
-
-    text_no_html = re.sub(r'<table[^>]*>.*?</table>', '', text, flags=re.DOTALL)
-    for i in range(len(html_tables)):
-        text_no_html += f'\n\n<!--HTML_TABLE_{i}-->\n\n'
-
-    lines = text_no_html.split('\n')
-    blocks = []
-    i = 0
-    in_code = False; code_lines = []
-    in_details = False; details_lines = []
-    in_table = False; table_rows = []
-
-    while i < len(lines):
-        line = lines[i]
-        if line.startswith('```'):
-            if in_code: blocks.append(('code', '\n'.join(code_lines))); code_lines = []
-            in_code = not in_code
-            i += 1; continue
-        if in_code: code_lines.append(line); i += 1; continue
-        if '<details>' in line: in_details = True; details_lines = []; i += 1; continue
-        if '</details>' in line and in_details:
-            in_details = False; blocks.append(('details', '\n'.join(details_lines))); i += 1; continue
-        if in_details: details_lines.append(line); i += 1; continue
-
-        table_match = re.match(r'<!--HTML_TABLE_(\d+)-->', line)
-        if table_match:
-            blocks.append(('html_table', html_tables[int(table_match.group(1))]))
-            i += 1; continue
-
-        if '|' in line and line.strip().startswith('|'):
-            if not in_table: table_rows = []
-            in_table = True
-            if not re.match(r'^[\|\s\-:]+$', line):
-                table_rows.append([c.strip() for c in line.split('|')[1:-1]])
-            i += 1
-            if i < len(lines) and '|' not in lines[i]:
-                blocks.append(('table', table_rows)); in_table = False
-            continue
-        if in_table: blocks.append(('table', table_rows)); in_table = False
-
-        if line.startswith('# '): blocks.append(('h1', line[2:])); i += 1; continue
-        if line.startswith('## '): blocks.append(('h2', line[3:])); i += 1; continue
-        if line.startswith('### '): blocks.append(('h3', line[4:])); i += 1; continue
-        if line.strip() in ('---', '***', '___'): blocks.append(('hr', '')); i += 1; continue
-
-        if line.startswith('> '):
-            bq_lines = []
-            while i < len(lines) and lines[i].startswith('> '):
-                bq_lines.append(lines[i][2:]); i += 1
-            blocks.append(('blockquote', '\n'.join(bq_lines))); continue
-
-        if not line.strip(): i += 1; continue
-
-        para_lines = []
-        while i < len(lines) and lines[i].strip() and not lines[i].startswith('#') \
-                and not lines[i].startswith('```') and '|' not in lines[i] \
-                and not lines[i].startswith('> ') and '<details>' not in lines[i] \
-                and not re.match(r'<!--HTML_TABLE_\d+-->', lines[i]) \
-                and lines[i].strip() not in ('---', '***', '___'):
-            para_lines.append(lines[i]); i += 1
-        if para_lines: blocks.append(('para', '\n'.join(para_lines)))
-        continue
-
-    # calculate height
-    y = pad
-    for btype, content in blocks:
-        font = fonts['body']
-        if btype == 'h1':
-            y += draw_test.textbbox((0, 0), content, font=fonts['title'])[3] + 8 + pad
-        elif btype == 'h2':
-            y += draw_test.textbbox((0, 0), content, font=fonts['title'])[3] + 4 + pad // 2
-        elif btype == 'h3':
-            y += draw_test.textbbox((0, 0), content, font=fonts['body'])[3] + 4 + pad // 2
-        elif btype == 'hr': y += pad // 2
-        elif btype == 'blockquote':
-            for l in content.split('\n'):
-                y += draw_test.textbbox((0, 0), l, font=fonts['small'])[3] + 2
-            y += pad // 2
-        elif btype == 'code':
-            for l in content.split('\n'):
-                y += draw_test.textbbox((0, 0), l, font=fonts['small'])[3] + 1
-            y += pad // 2
-        elif btype in ('table', 'html_table'):
-            rows = content
-            n_cols = max(len(r) for r in rows) if rows else 1
-            col_w = (max_width - pad * 2) // n_cols
-            cell_font = fonts['table']
-            for row in rows:
-                max_l = 0
-                for cell in row:
-                    wrapped = wrap_text(cell, cell_font, col_w - 6, draw_test)
-                    max_l = max(max_l, len(wrapped))
-                y += (draw_test.textbbox((0, 0), 'X', font=cell_font)[3] + 4) * max(max_l, 1)
-            y += pad
-        elif btype == 'details':
-            for l in content.split('\n'):
-                w = wrap_text(l, fonts['small'], max_width - pad * 2, draw_test)
-                y += (draw_test.textbbox((0, 0), 'X', font=fonts['small'])[3] + 2) * len(w)
-            y += pad // 2
-        else:
-            w = wrap_text(content, font, max_width - pad * 2, draw_test)
-            y += line_h * len(w) + pad // 4
-
-    img_h = y + pad
-    img = Image.new('RGB', (max_width, img_h), 'white')
-    draw = ImageDraw.Draw(img)
-
-    # render
-    y = pad
-    for btype, content in blocks:
-        font = fonts['body']
-        if btype == 'h1':
-            draw.text((pad, y), content, font=fonts['title'], fill='#111')
-            y += draw.textbbox((0, 0), content, font=fonts['title'])[3] + 8
-            draw.line([(pad, y), (max_width - pad, y)], fill='#333', width=2)
-            y += pad
-        elif btype == 'h2':
-            draw.text((pad, y), content, font=fonts['title'], fill='#222')
-            y += draw.textbbox((0, 0), content, font=fonts['title'])[3] + 4 + pad // 2
-        elif btype == 'h3':
-            draw.text((pad, y), content, font=fonts['body'], fill='#333')
-            y += draw.textbbox((0, 0), content, font=fonts['body'])[3] + 4 + pad // 2
-        elif btype == 'hr':
-            draw.line([(pad, y), (max_width - pad, y)], fill='#ddd', width=1)
-            y += pad // 2
-        elif btype == 'blockquote':
-            draw.rectangle([(pad, y), (pad + 3, y + line_h * len(content.split('\n')))], fill='#999')
-            for l in content.split('\n'):
-                draw.text((pad + 10, y), l, font=fonts['small'], fill='#555')
-                y += draw.textbbox((0, 0), l, font=fonts['small'])[3] + 2
-            y += pad // 2
-        elif btype == 'code':
-            for l in content.split('\n'):
-                draw.text((pad + 4, y), l, font=fonts['small'], fill='#333')
-                y += draw.textbbox((0, 0), l, font=fonts['small'])[3] + 1
-            y += pad // 2
-        elif btype in ('table', 'html_table'):
-            y = render_table(draw, content, fonts, pad, y, max_width - pad * 2)
-        elif btype == 'details':
-            draw.text((pad, y), '▸ 展开', font=fonts['small'], fill='#888')
-            y += draw.textbbox((0, 0), 'X', font=fonts['small'])[3] + 4
-            for l in content.split('\n'):
-                wrapped = wrap_text(l, fonts['small'], max_width - pad * 2 - 20, draw)
-                for wl in wrapped:
-                    draw.text((pad + 16, y), wl, font=fonts['small'], fill='#666')
-                    y += draw.textbbox((0, 0), wl, font=fonts['small'])[3] + 2
-            y += pad // 2
-        else:
-            wrapped = wrap_text(content, font, max_width - pad * 2, draw)
-            for wl in wrapped:
-                draw.text((pad, y), wl, font=font, fill='#222')
-                y += line_h
-            y += pad // 4
-
-    buf = io.BytesIO()
-    img.save(buf, format='PNG')
-    return buf.getvalue()
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": max_width + 80, "height": 800})
+        page.set_content(html, wait_until="networkidle")
+        # 获取完整页面高度
+        page.set_viewport_size({"width": max_width + 80, "height": 6000})
+        height = page.evaluate("document.body.scrollHeight")
+        page.set_viewport_size({"width": max_width + 80, "height": height + 20})
+        buf = page.screenshot(full_page=True, type="png")
+        browser.close()
+        return buf
 
 
 if __name__ == '__main__':
     md_path = sys.argv[1] if len(sys.argv) > 1 else 'daily_review/reports/advice/advice_2026-06-16.md'
 
-    print(f'Converting {md_path} to PNG...')
+    print(f'Converting {md_path} to PNG (MD→HTML→Playwright)...')
     png_bytes = md_to_image(md_path)
     print(f'PNG size: {len(png_bytes)} bytes ({len(png_bytes)/1024:.1f} KB)')
 
