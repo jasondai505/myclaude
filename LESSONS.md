@@ -2,6 +2,56 @@
 
 工作笔记，AI 做相关任务时可 Read 参考。不自动加载。
 
+---
+
+## LLM 输出全链路校验体系建设 (2026-06-17)
+
+### 背景
+
+发现 advice 精选标的中，DeepSeek 融资催化被映射到东风汽车(600006)、华能水电(600025)——与催化逻辑零关系。追踪发现 catalyst_screen.py 的 stock_maps 全部 65 个映射均为 `method=llm_direct`（LLM 直接猜测），零校验通过。
+
+扩展到全项目审计：35 个 LLM 调用点分布在 15+ 个文件中，**9 个高风险点零校验**。
+
+### 审计发现的全部风险点
+
+| 风险 | 文件 | 问题 |
+|:---:|------|------|
+| 🔴 | `catalyst_screen.py` | stock_maps 65条全部 llm_direct，LLM 不知道600006=东风汽车(商用车) |
+| 🔴 | `analyze_zsxq.py` | Haiku tickers + Sonnet related_stocks 零校验 |
+| 🔴 | `primary_synthesis.py` | 四源交叉 consensus_themes stocks 零校验 |
+| 🔴 | `feval.py` Δ | code 只交叉 feed 文本（可能漏），signal 文本无验证 |
+| 🟡 | `_run_advice.py` | `_validate_code_names` 无效代码只 warn 不拒绝 |
+| 🟡 | `analyze_wechat.py` | Haiku/Sonnet 原始输出无校验，仅引擎层有 `^\d{6}$` |
+
+### 修复方案：四层防御
+
+**第一轮：catalyst_screen 专项**
+
+| 层 | 做什么 | 效果 |
+|:--:|------|------|
+| L0 数据层 | `_load_multi_map_filtered()` 过滤覆盖率>5%的概念 | DeepSeek概念(761只) + 52个噪音概念被排除 |
+| L1 Prompt层 | `_build_stock_context()` 注入名称+主业+FEV | LLM 看到候选标的的行业信息，不再盲猜 |
+| L2 校验层 | `_validate_stock_mapping()` 行业一致性+FEV+名称三验 | 不匹配 → rejected，不入库，不进入下游 |
+| L3 审计层 | `_audit_stock_maps()` + Dashboard 指标 | 映射质量实时可见 |
+
+**第二轮：全链路校验基础设施**
+
+- 新建 `llm_validator.py`（6个函数，共享校验层）
+- 5 个高风险文件接入：analyze_zsxq / primary_synthesis / feval / _run_advice / analyze_wechat
+- `_run_advice.py` 无效代码从 warn 升级为 remove（直接删除整行）
+- Dashboard 新增 `🤖 LLM输出质量` 行（当日 187/196 有效, 4.6%）
+- output_audit 新增 LLM 输出质量检查项
+
+### 关键经验
+
+1. **LLM 输出必须有机模校验层**：LLM 定性 + 机械定量 = 防幻觉底座。catalyst_screen 修了 4 层才算完整。
+2. **共享基础设施 > 各文件自造轮子**：`llm_validator.py` 替代了原本分散在 5+ 个文件中的零散校验逻辑。
+3. **概念覆盖率是数据质量的先行指标**：multi_concept_map 中 53 个概念覆盖率>5%，全是噪音。与 防混锅铁律 的富集比阈值共用同一逻辑。
+4. **减持信号必须带比例判断烈度**：feval.py prompt 加了比例分档规则 + 机械校验（减持+正分→clamp）。
+5. **管线自检必须按日期精确匹配**：output_audit 之前回退到昨天文件就标 ✅，修复后只检查目标日期文件，过期标 ⚠️。
+6. **C轨 llm_direct 全部不可靠**：catalyst_screen 的 stock_maps 全部 65 条都是 llm_direct（LLM 不知道600006是做什么的）。已全量过滤，回退到 FEVΔ 补位。
+7. **Windows 任务计划 + Claude Code cron 双保险**：防止管线漏跑。5 条管线 + 08:58 星球末轮补充。
+
 ## G-Factor 全量部署 (2026-06-15)
 
 **状态**: ✅ 224 只全量评分入库，双轨筛选器就位，档案集成完成，advice 三轨化升级。
