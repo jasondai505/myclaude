@@ -33,10 +33,44 @@ TOP_CATALYSTS_FOR_MAPPING = 5
 # ============================================================
 # 数据加载
 # ============================================================
+MAX_CONCEPT_COVERAGE = 0.05  # 覆盖率>5%的概念视为噪音，排除
+
+_filtered_map_cache = None
+
 def _load_multi_map():
+    global _filtered_map_cache
+    if _filtered_map_cache is not None:
+        return _filtered_map_cache
     if not MULTI_MAP_PATH.exists():
         return None
-    return json.loads(MULTI_MAP_PATH.read_text(encoding="utf-8"))
+    mm = json.loads(MULTI_MAP_PATH.read_text(encoding="utf-8"))
+    _filtered_map_cache = _filter_noisy_concepts(mm)
+    return _filtered_map_cache
+
+def _filter_noisy_concepts(mm: dict) -> dict:
+    """排除覆盖率>5%的噪音概念（如由帖子共现自动生成的伪概念）"""
+    stocks = mm.get("stocks", {})
+    if not stocks:
+        return mm
+    total = len(stocks)
+    # 计算每个概念的标的数
+    concept_counts = defaultdict(int)
+    for concepts in stocks.values():
+        for c in concepts:
+            concept_counts[c] += 1
+    noisy = {c for c, cnt in concept_counts.items()
+             if cnt / total > MAX_CONCEPT_COVERAGE}
+    if noisy:
+        filtered = {}
+        for code, concepts in stocks.items():
+            clean = [c for c in concepts if c not in noisy]
+            if clean:
+                filtered[code] = clean
+        mm = {**mm, "stocks": filtered}
+        names = sorted(noisy, key=lambda c: -concept_counts[c])[:8]
+        print(f"  [L0] 过滤 {len(noisy)} 个噪音概念 ({total}→{len(filtered)}标的): "
+              f"{', '.join(f'{n}({concept_counts[n]})' for n in names)}")
+    return mm
 
 def _load_sources(today_str: str) -> dict[str, list[dict]]:
     """加载当日+前一日信息源数据（盘前需要看昨晚的帖子）"""
@@ -381,6 +415,67 @@ def _sonnet_validate(client, model, all_extractions: list[dict]) -> dict:
 # ============================================================
 # Phase 3: 标的映射
 # ============================================================
+
+def _validate_stock_mapping(mapping: dict, catalyst: dict) -> dict:
+    """校验 LLM 输出的标的映射是否合理。行业不匹配+F EV=0 → rejected"""
+    code = mapping.get("code", "")
+    if not code:
+        mapping["confidence"] = "rejected"
+        mapping["reject_reason"] = "无代码"
+        return mapping
+
+    checks = []
+    # 1. 行业一致性: 标的主概念 vs 催化关键实体
+    try:
+        from config import STOCK_PRIMARY_CONCEPT
+        stock_concept = STOCK_PRIMARY_CONCEPT.get(code, "")
+        key_entities = {e.get("name", "").lower() for e in
+                        catalyst.get("key_entities", [])}
+        suggested = {c.lower() for c in catalyst.get("suggested_concepts", [])}
+        all_catalyst_terms = key_entities | suggested
+        # 检查标的主概念是否与催化术语有交集
+        if stock_concept and all_catalyst_terms:
+            overlap = any(
+                t in stock_concept or stock_concept in t
+                for t in all_catalyst_terms
+            )
+            if not overlap:
+                checks.append(f"行业无交集({stock_concept})")
+    except ImportError:
+        pass
+
+    # 2. FEV 校验
+    try:
+        import sqlite3
+        db = Path(__file__).parent / "data" / "serenity.db"
+        if db.exists():
+            conn = sqlite3.connect(str(db))
+            fev = conn.execute(
+                "SELECT fev_total FROM feval_scores "
+                "WHERE code=? AND date=(SELECT MAX(date) FROM feval_scores)",
+                (code,)
+            ).fetchone()
+            conn.close()
+            fev_val = fev[0] if fev else 0
+            if fev_val == 0:
+                checks.append("无FEV")
+    except Exception:
+        pass
+
+    # 3. 名称校验: 标的名称是否含有催化关键词
+    name = mapping.get("name", "").lower()
+    catalyst_name = catalyst.get("catalyst_name", "").lower()
+    name_keywords = set(catalyst_name.replace("、", " ").replace("，", " ").split())
+    name_match = any(kw in name for kw in name_keywords if len(kw) >= 2)
+
+    if not name_match and len([c for c in checks if "行业" in c]) > 0 and any("无FEV" in c for c in checks):
+        mapping["confidence"] = "rejected"
+        mapping["reject_reason"] = "; ".join(checks)
+    elif not name_match:
+        mapping["confidence"] = "low"
+        mapping["_warning"] = "; ".join(checks) if checks else "名称无关键词匹配"
+
+    return mapping
 def _keyword_match_stocks(catalyst_name: str, key_entities: list[dict]) -> list[dict]:
     """Layer 1: 关键词匹配 multi_concept_map 中的概念→反查股票"""
     mm = _load_multi_map()
@@ -411,36 +506,93 @@ def _keyword_match_stocks(catalyst_name: str, key_entities: list[dict]) -> list[
 
     return matched[:30]  # 上限30只，避免噪音
 
+def _build_stock_context(codes: set[str]) -> dict[str, str]:
+    """为标的列表构建防幻觉上下文: code → '名称 | 主业:xxx | FEV:N'"""
+    if not codes:
+        return {}
+    # 名称映射
+    try:
+        import data
+        name_map = data._load_name_to_code_map()
+    except Exception:
+        name_map = {}
+    code_to_name = {v: k for k, v in name_map.items()}
+    # 主概念
+    try:
+        from config import STOCK_PRIMARY_CONCEPT
+    except ImportError:
+        STOCK_PRIMARY_CONCEPT = {}
+    # FEV
+    fev_map = {}
+    try:
+        import sqlite3
+        db = Path(__file__).parent / "data" / "serenity.db"
+        if db.exists():
+            conn = sqlite3.connect(str(db))
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT code, fev_total FROM feval_scores "
+                "WHERE date=(SELECT MAX(date) FROM feval_scores)"
+            ).fetchall()
+            fev_map = {r["code"]: r["fev_total"] for r in rows}
+            conn.close()
+    except Exception:
+        pass
+
+    ctx = {}
+    for code in codes:
+        name = code_to_name.get(code, "?")
+        industry = STOCK_PRIMARY_CONCEPT.get(code, "?")
+        fev = fev_map.get(code, 0)
+        ctx[code] = f"{name} | 主业:{industry} | FEV:{fev}"
+    return ctx
+
+
 def _haiku_map_stocks(client, model, catalyst: dict, keyword_results: list[dict]) -> list[dict]:
-    """Layer 3: LLM 直接映射标的（仅 Top 5 催化）"""
+    """Layer 3: LLM 直接映射标的（仅 Top 5 催化），注入标的上下文防幻觉"""
     mm = _load_multi_map()
     if not mm:
         return keyword_results
 
-    # 准备概念摘要（只发相关概念，不发全量）
+    # 构建候选标的集合并注入上下文
+    candidate_codes = {r["code"] for r in keyword_results[:30]}
+    stock_ctx = _build_stock_context(candidate_codes)
+
+    # 准备概念摘要
     suggested = catalyst.get("suggested_concepts", [])
     related_concepts = set(suggested)
     for kr in keyword_results[:20]:
         related_concepts.add(kr["concept"])
 
     concept_summary = []
-    for c in list(related_concepts)[:15]:
-        stocks = [code for code, concepts in mm["stocks"].items() if c in concepts]
-        concept_summary.append(f"- {c}: {len(stocks)}只标的 (如{', '.join(stocks[:5])})")
+    for c in list(related_concepts)[:10]:
+        stocks = [code for code, concepts in mm["stocks"].items() if c in concepts][:5]
+        concept_summary.append(f"- {c}: {', '.join(stocks)}")
 
-    prompt = f"""你是A股概念板块专家。给定一个催化事件，找出所有可能受益的A股标的。
+    # 带上下文的候选清单
+    ctx_lines = []
+    for r in keyword_results[:20]:
+        code = r["code"]
+        ctx_lines.append(
+            f"{code} {stock_ctx.get(code, '?')} [{r['concept']}]"
+        )
+    ctx_text = "\n".join(ctx_lines)
+
+    prompt = f"""你是A股概念板块专家。给定一个催化事件，从候选标的中筛选真正受益的标的。
 
 催化: {catalyst.get('catalyst_name')}
 逻辑: {catalyst.get('thesis', '')[:300]}
 类型: {catalyst.get('catalyst_type')}
 
-相关概念板块及标的:
-{chr(10).join(concept_summary)}
+候选标的（代码 名称 | 主业 | FEV评分 [匹配概念]）:
+{ctx_text}
 
-已有关键词匹配结果:
-{[f"{r['code']}({r['concept']})" for r in keyword_results[:15]]}
+筛选规则:
+1. 主业与催化逻辑无关的标的 → 必须排除
+2. FEV=0 且主业不匹配的 → 排除
+3. 只保留有真实产业链关联的标的
 
-请确认、修正、补充标的映射。输出JSON:
+输出JSON（只输出真正相关的标的，不相关的不要输出）:
 [{{"code": "6位代码", "name": "股票简称", "concept": "匹配概念",
    "relevance": "具体关联逻辑(为什么利好)", "confidence": "high/medium/low"}}]
 
@@ -462,6 +614,28 @@ def _haiku_map_stocks(client, model, catalyst: dict, keyword_results: list[dict]
         print(f"  [WARN] Haiku stock map failed: {e}")
 
     return keyword_results
+
+def _audit_stock_maps(stock_maps: dict) -> dict:
+    """审计催化剂→标的映射质量"""
+    total = sum(len(v) for v in stock_maps.values())
+    if total == 0:
+        return {"total_mappings": 0, "llm_direct_pct": 0, "rejected": 0,
+                "no_fev": 0, "health": "ok"}
+    llm_direct = sum(1 for v in stock_maps.values() for m in v
+                     if m.get("method") == "llm_direct")
+    rejected = sum(1 for v in stock_maps.values() for m in v
+                   if m.get("confidence") == "rejected")
+    no_fev = sum(1 for v in stock_maps.values() for m in v
+                 if m.get("_warning", "").find("无FEV") >= 0)
+    llm_pct = llm_direct / total * 100
+    return {
+        "total_mappings": total,
+        "llm_direct_pct": round(llm_pct),
+        "rejected": rejected,
+        "no_fev": no_fev,
+        "health": "warn" if llm_pct > 30 else "ok",
+    }
+
 
 # ============================================================
 # 报告生成
@@ -517,9 +691,10 @@ def _generate_report(catalysts: list[dict], stock_maps: dict, today: str) -> Pat
     out.write_text("\n".join(L), encoding="utf-8")
     return out
 
-def _save_json(catalysts: list[dict], stock_maps: dict, today: str):
+def _save_json(catalysts: list[dict], stock_maps: dict, today: str, audit: dict = None):
     out = CATALYST_DIR / f"catalyst_screen_{today}.json"
-    data = {"date": today, "catalysts": catalysts, "stock_maps": stock_maps}
+    data = {"date": today, "catalysts": catalysts, "stock_maps": stock_maps,
+            "stock_map_audit": audit or {}}
     out.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 # ============================================================
@@ -606,14 +781,31 @@ def main(today_str: str, phase: int = 12, max_per_source: int = 50):
 
     # --- Phase 3: 标的映射（仅 Top 5）---
     stock_maps = {}
+    rejected_total = 0
     if phase >= 2:
         print("  [Phase 3] 标的映射...")
         for cat in catalysts[:TOP_CATALYSTS_FOR_MAPPING]:
             name = cat.get("catalyst_name", "")
             kw = _keyword_match_stocks(name, cat.get("key_entities", []))
             full = _haiku_map_stocks(scan_client, scan_model, cat, kw)
-            stock_maps[name] = full
-            print(f"    {name}: {len(full)}只标的")
+            # L2: 逐条校验
+            validated = [_validate_stock_mapping(m, cat) for m in full]
+            rejected = [m for m in validated if m.get("confidence") == "rejected"]
+            kept = [m for m in validated if m.get("confidence") != "rejected"]
+            if rejected:
+                rejected_total += len(rejected)
+                rej_codes = ", ".join(f"{m['code']}({m.get('reject_reason','?')})" for m in rejected[:5])
+                print(f"    {name}: {len(kept)}只标的 (L2过滤{len(rejected)}: {rej_codes})")
+            else:
+                print(f"    {name}: {len(kept)}只标的")
+            stock_maps[name] = kept
+
+    # --- L3: 映射质量审计 ---
+    audit = _audit_stock_maps(stock_maps)
+    print(f"  [L3] 映射质量: {audit['total_mappings']}只, "
+          f"llm_direct={audit['llm_direct_pct']:.0f}%, "
+          f"rejected={audit['rejected']}, no_fev={audit['no_fev']}, "
+          f"健康度={audit['health']}")
 
     # --- 入库 ---
     try:
@@ -667,7 +859,7 @@ def main(today_str: str, phase: int = 12, max_per_source: int = 50):
 
     # --- 生成报告 ---
     report_path = _generate_report(catalysts, stock_maps, today_str)
-    _save_json(catalysts, stock_maps, today_str)
+    _save_json(catalysts, stock_maps, today_str, audit)
     print(f"  报告: {report_path}")
 
     # 输出摘要

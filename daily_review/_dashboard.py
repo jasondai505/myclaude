@@ -334,6 +334,13 @@ def _engine_status() -> list[dict]:
             high_n = sum(1 for c in cats if c.get("final_actionability", 0) >= 40)
             crit_n = sum(1 for c in cats if c.get("final_actionability", 0) >= 60)
             cs_nums = f"{len(cats)}催化, {high_n} HIGH+, {crit_n} CRITICAL"
+            # 映射质量审计
+            audit = data.get("stock_map_audit", {})
+            if audit:
+                total_m = audit.get("total_mappings", 0)
+                llm_pct = audit.get("llm_direct_pct", 0)
+                health = audit.get("health", "?")
+                cs_nums += f" | 映射:{total_m}只(llm {llm_pct}%)[{health}]"
         except Exception:
             cs_nums = ""
     engines.append({
