@@ -67,6 +67,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
             {"id": "unified", "name": "统一FEV+G-Factor评分", "cmd": "python daily_review/unified_scorer.py --from-feeds"},
             {"id": "delta", "name": "Δ边际变化评分", "cmd": "python daily_review/feval.py --update-delta"},
             {"id": "marginal", "name": "边际变化检测", "cmd": "python daily_review/engine_marginal.py"},
+            {"id": "zsxq_analysis", "name": "星球两阶段AI分析", "cmd": "python daily_review/analyze_zsxq.py"},
             {"id": "serenity", "name": "标的FEV评分更新", "cmd": "python daily_review/serenity_kb.py --update-stocks"},
             {"id": "audit", "name": "输出自检(pre_dawn)", "cmd": "python daily_review/output_audit.py --fix --pipeline pre_dawn"},
         ],

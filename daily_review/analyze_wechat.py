@@ -352,6 +352,7 @@ def _write_report(data: dict, single_results: list[dict],
     if failed:
         buf[-1] += f" | {failed} 篇无正文"
     buf.append("")
+    _existing_report = path.exists()
 
     # 来源概览
     feed_counts: dict[str, int] = {}
@@ -519,7 +520,22 @@ def _write_report(data: dict, single_results: list[dict],
                 buf.append("")
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(buf), encoding="utf-8")
+
+    if _existing_report:
+        old_content = path.read_text(encoding="utf-8")
+        detail_start = None
+        for i, line in enumerate(buf):
+            if line.startswith("## 逐篇拆解"):
+                detail_start = i
+                break
+        if detail_start is not None:
+            new_sections = "\n".join(buf[detail_start:])
+            merged = old_content.rstrip() + "\n\n---\n\n## 🆕 增量更新 " + now_ts + "\n\n" + new_sections
+            path.write_text(merged, encoding="utf-8")
+        else:
+            path.write_text("\n".join(buf), encoding="utf-8")
+    else:
+        path.write_text("\n".join(buf), encoding="utf-8")
     print(f"\n  报告: {path}")
     return path
 
