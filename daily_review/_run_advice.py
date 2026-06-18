@@ -1179,10 +1179,29 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
     if pool_start == -1:
         return output
 
-    # 找到候选池结束位置（下一个 ## 或 📊 模块贡献摘要）
+    # 找到候选池结束位置：
+    # LLM 可能在候选池内使用 --- 分隔，所以优先找 ## 📊 模块贡献摘要
+    # 回退到 --- 后紧跟 > 或 ## （非 ###）的模式
     rest = output[pool_start:]
-    next_section = re.search(r"\n## (?!\#)", rest[5:])  # skip the first ##
-    pool_end = pool_start + 5 + next_section.start() if next_section else len(output)
+    header_end = rest.find("\n\n")
+    if header_end < 0:
+        header_end = rest.find("\n")
+    search_start = max(header_end, 0)
+    # 优先：模块贡献摘要（唯一且稳定）
+    pool_end_marker = re.search(r"\n##\s*📊\s*模块贡献摘要", rest[search_start:])
+    if not pool_end_marker:
+        # 回退：--- 后紧跟空行和 > 或 ## （排除 ### 股票条目）
+        pool_end_marker = re.search(r"\n---\n\n(?:>|##\s)", rest[search_start:])
+    if not pool_end_marker:
+        # 最后回退：文件末尾前的最后一个 ### 之后 200 字符
+        all_details = list(re.finditer(r"\n### [^\n]+\n", rest))
+        if all_details:
+            last = all_details[-1]
+            pool_end = pool_start + last.end() + 200
+        else:
+            pool_end = len(output)
+    else:
+        pool_end = pool_start + search_start + pool_end_marker.start()
     pool_text = output[pool_start:pool_end]
 
     # 解析候选标的: 支持三种格式
