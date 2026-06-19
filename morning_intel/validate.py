@@ -108,6 +108,15 @@ def run(today: str = None) -> Path | None:
     if today is None:
         today = date.today().isoformat()
 
+    try:
+        sys.path.insert(0, str(BASE.parent))
+        from daily_review.trade_calendar import is_trading_day
+        if not is_trading_day():
+            print("[validate] 今日休市，跳过盘中验证")
+            return None
+    except ImportError:
+        pass
+
     data = _read_morning_json(today)
     if data is None:
         return None

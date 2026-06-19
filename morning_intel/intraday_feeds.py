@@ -108,6 +108,15 @@ def run(today: str = None) -> dict:
     if today is None:
         today = date.today().isoformat()
 
+    try:
+        sys.path.insert(0, str(BASE.parent))
+        from daily_review.trade_calendar import is_trading_day
+        if not is_trading_day():
+            print("[intraday] 今日休市，跳过盘中情报")
+            return {"status": "holiday"}
+    except ImportError:
+        pass
+
     state = _load_state()
     last_run_str = state.get("last_run")
     last_run = datetime.fromisoformat(last_run_str) if last_run_str else None
