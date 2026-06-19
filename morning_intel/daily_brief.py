@@ -96,7 +96,8 @@ def _morning_summary(today: str) -> str:
 
 
 def _validation_summary(today: str) -> str:
-    fm = _read_frontmatter(REPORT_DIR / f"validation_{today}.md")
+    vp = REPORT_DIR / f"validation_{today}.md"
+    fm = _read_frontmatter(vp)
 
     lines = ["## 二、盘中验证 — 假设检验"]
     lines.append("")
@@ -109,9 +110,42 @@ def _validation_summary(today: str) -> str:
         lines.append(f"| 背离 | {fm.get('miss', '—')} |")
         lines.append(f"| 待定 | {fm.get('pending', '—')} |")
         lines.append(f"| 命中率 | {fm.get('hit_rate', '—')}% |")
+        lines.append("")
+        lines.append("### 逐只验证详情")
+        lines.append("")
+        lines.append("| 代码 | 名称 | 涨跌% | 量比 | DDE | 结果 |")
+        lines.append("|------|------|-------|------|-----|------|")
+        # 从 validation 报告中提取表格行
+        if vp.exists():
+            text = vp.read_text(encoding="utf-8")
+            in_table = False
+            for line in text.split("\n"):
+                if line.startswith("|") and "代码" in line and "涨跌%" in line:
+                    in_table = True
+                    continue
+                if in_table:
+                    if line.startswith("|") and "---" not in line and line.strip():
+                        # 只取前 6 列: 代码 名称 涨跌% 量比 成交 DDE 人气 结果 → 精简为 代码 名称 涨跌% 量比 DDE 结果
+                        cols = [c.strip() for c in line.split("|")]
+                        if len(cols) >= 8:
+                            code, name, chg, vol = cols[1], cols[2], cols[3], cols[4]
+                            dde = cols[6] if len(cols) > 6 else "—"
+                            result = cols[-2] if len(cols) > 7 else cols[-1]
+                            lines.append(f"| {code} | {name} | {chg} | {vol} | {dde} | {result} |")
+                            continue
+                    if not line.startswith("|"):
+                        break
+            if len(lines) <= 5:
+                # 表格没有数据行，回退到只显示链接
+                lines = ["## 二、盘中验证 — 假设检验", ""]
+                lines.append("| 指标 | 数值 |")
+                lines.append("|------|------|")
+                lines.append(f"| 标的数 | {fm.get('total', '—')} |")
+                lines.append(f"| 命中 | {fm.get('hit', '—')} |")
+                lines.append(f"| 背离 | {fm.get('miss', '—')} |")
+                lines.append(f"| 待定 | {fm.get('pending', '—')} |")
+                lines.append(f"| 命中率 | {fm.get('hit_rate', '—')}% |")
     else:
-        # 无 frontmatter: 尝试从旧格式报告提取
-        vp = REPORT_DIR / f"validation_{today}.md"
         if vp.exists():
             text = vp.read_text(encoding="utf-8")
             m = re.search(r"标的数:\s*(\d+)\s*\|\s*命中:\s*(\d+)\s*\|\s*背离:\s*(\d+)\s*\|\s*待定:\s*(\d+)", text)
@@ -131,9 +165,6 @@ def _validation_summary(today: str) -> str:
             lines.append("_盘中验证未运行_")
 
     lines.append("")
-    validate_path = REPORT_DIR / f"validation_{today}.md"
-    if validate_path.exists():
-        lines.append(f"> 详细验证: [validation_{today}.md](validation_{today}.md)")
 
     return "\n".join(lines)
 
@@ -443,12 +474,48 @@ def run(today: str = None) -> Path | None:
     brief_path.write_text("\n".join(parts), encoding="utf-8")
     print(f"[daily_brief] 报告已生成: {brief_path}")
 
-    # 微信推送
-    fm = _read_frontmatter(REPORT_DIR / f"validation_{today}.md")
+    # 微信推送 — 包含逐只验证结果
+    vp = REPORT_DIR / f"validation_{today}.md"
+    fm = _read_frontmatter(vp)
     total_v = int(fm.get("total", 0)) if fm else 0
     hit_v = int(fm.get("hit", 0)) if fm else 0
+    miss_v = int(fm.get("miss", 0)) if fm else 0
+    pending_v = int(fm.get("pending", 0)) if fm else 0
     hr = round(hit_v / total_v * 100, 1) if total_v > 0 else 0.0
-    push_daily(today, hr, hit_v, total_v)
+
+    # 提取逐只验证行
+    validation_rows = []
+    if vp.exists():
+        text = vp.read_text(encoding="utf-8")
+        in_table = False
+        for line in text.split("\n"):
+            if line.startswith("|") and "代码" in line and "涨跌%" in line:
+                in_table = True
+                continue
+            if in_table:
+                if line.startswith("|") and "---" not in line and line.strip():
+                    cols = [c.strip() for c in line.split("|")]
+                    if len(cols) >= 8:
+                        code = cols[1]
+                        name = cols[2]
+                        try:
+                            chg_str = cols[3].rstrip("%")
+                            chg = float(chg_str.replace("+", ""))
+                        except (ValueError, IndexError):
+                            chg = 0
+                        # 解析结果列
+                        result = cols[-2] if len(cols) > 7 else "—"
+                        validated = 1 if "✅" in result or "命中" in result else (
+                            -1 if "❌" in result or "背离" in result else 0)
+                        validation_rows.append({
+                            "code": code, "name": name, "change_pct": chg,
+                            "validated": validated, "label": result,
+                        })
+                        continue
+                if not line.startswith("|"):
+                    break
+
+    push_daily(today, hr, hit_v, total_v, 0, 0, 0, validation_rows)
 
     return brief_path
 

@@ -73,11 +73,13 @@ HTML_TPL = """<!DOCTYPE html>
 
 
 def _latest_advice() -> Path | None:
-    """返回最新的 advice 文件路径"""
+    """返回最新的 advice 文件路径。优先主版本(advice_{date}.md)而非 _0730 变体。"""
     if not ADVICE_DIR.exists():
         return None
-    files = sorted(ADVICE_DIR.glob("advice_*.md"), reverse=True)
-    return files[0] if files else None
+    files = sorted(ADVICE_DIR.glob("advice_2*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+    # 同一天有 _0730 和主版本时，优先主版本
+    main_files = [f for f in files if "_0730" not in f.name]
+    return main_files[0] if main_files else (files[0] if files else None)
 
 
 def _parse_stocks(content: str) -> list[dict]:
@@ -139,7 +141,7 @@ class AdviceHandler(BaseHTTPRequestHandler):
             self._send(500, f"读取失败: {e}")
             return
 
-        advice_date = latest.stem.replace("advice_", "")
+        advice_date = latest.stem.replace("advice_", "").replace("_0730", "")
 
         if path == "/json" or path == "/stocks":
             stocks = _parse_stocks(content)

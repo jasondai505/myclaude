@@ -1,15 +1,18 @@
-"""统一调度器 — 四段流水线编排。
+"""统一调度器 — 五段流水线编排。
 
 时序:
     close     17:00  收盘复盘 + 催化走势确认 (~15min)
     night     22:00  批量采集 + 所有深度分析 (~45min)
-    pre_dawn   5:00  美股收盘数据 + FEV/Δ 刷新 (~10min)
-    pre        6:30  最终盘前建议生成 (~5min)
+    pre_dawn   6:30  美股收盘数据 + FEV/Δ 刷新 (~10min)
+    pre        7:30  首份盘前建议生成 (美股数据已到位)
+    pre_game   9:00  星球+唐史增量刷新 → 守门员第二份建议
 
 用法:
-    python orchestrator.py close / night / pre_dawn / pre
+    python orchestrator.py close / night / pre_dawn / pre / pre_game
     python orchestrator.py pre --dry-run
     python orchestrator.py list
+
+休市日: 流水线自动跳过不需要的步骤（盘中不推、盘后不生成）
 """
 from __future__ import annotations
 
@@ -29,8 +32,9 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 PIPELINES: dict[str, dict[str, Any]] = {
     "close": {
         "name": "收盘流水线",
-        "desc": "复盘 + 催化走势确认 + 日报简报",
+        "desc": "复盘 + 催化走势确认 + 日报简报。休市日自动跳过。",
         "trigger": "17:00",
+        "skip_on_holiday": True,
         "steps": [
             {"id": "health", "name": "系统健康检查", "cmd": "python daily_review/health_check.py"},
             {"id": "review", "name": "收盘复盘", "cmd": "python daily_review/run.py"},
@@ -61,7 +65,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
     "pre_dawn": {
         "name": "凌晨刷新",
         "desc": "美股收盘数据 + FEV/G-Factor/Δ 评分 + 边际变化",
-        "trigger": "05:00",
+        "trigger": "06:30",
         "steps": [
             {"id": "health", "name": "系统健康检查", "cmd": "python daily_review/health_check.py"},
             {"id": "unified", "name": "统一FEV+G-Factor评分", "cmd": "python daily_review/unified_scorer.py --from-feeds"},
@@ -73,16 +77,30 @@ PIPELINES: dict[str, dict[str, Any]] = {
         ],
     },
     "pre": {
-        "name": "盘前建议",
+        "name": "盘前建议 (07:30)",
         "desc": "健康 → 解读 → 盘前建议 → 启动服务",
-        "trigger": "06:30",
+        "trigger": "07:30",
         "steps": [
             {"id": "audit", "name": "输出自检(全量)", "cmd": "python daily_review/output_audit.py --fix"},
             {"id": "health", "name": "系统健康检查", "cmd": "python daily_review/health_check.py"},
             {"id": "interpret", "name": "盘前解读", "cmd": "python morning_intel/run_morning.py --phase pre"},
-            {"id": "advice", "name": "生成盘前建议", "cmd": "python daily_review/_run_advice.py"},
+            {"id": "advice", "name": "生成盘前建议 (07:30)", "cmd": "python daily_review/_run_advice.py"},
             {"id": "advice_upload", "name": "上传 advice 图片", "cmd": "python daily_review/upload_advice.py"},
             {"id": "advice_server", "name": "启动Advice HTTP服务", "cmd": "python daily_review/advice_server.py --daemon"},
+        ],
+    },
+    "pre_game": {
+        "name": "盘前增量刷新 (09:00 守门员)",
+        "desc": "刷新星球+唐史 → 补全美股(如需) → 第二份advice",
+        "trigger": "09:00",
+        "steps": [
+            {"id": "health", "name": "系统健康检查", "cmd": "python daily_review/health_check.py"},
+            {"id": "zsxq_sync", "name": "星球增量同步", "cmd": "python daily_review/zsxq_collector.py"},
+            {"id": "zsxq_analysis", "name": "星球两阶段AI分析", "cmd": "python daily_review/analyze_zsxq.py"},
+            {"id": "weibo", "name": "唐史微博增量抓取", "cmd": "python morning_intel/weibo_watch.py"},
+            {"id": "pre_market", "name": "盘前增量分析+推送", "cmd": "python morning_intel/pre_market_refresh.py"},
+            {"id": "advice", "name": "生成盘前建议 (09:00 守门员)", "cmd": "python daily_review/_run_advice.py --goalkeeper"},
+            {"id": "audit", "name": "输出自检(pre_game)", "cmd": "python daily_review/output_audit.py --fix --pipeline pre_game"},
         ],
     },
     "bom": {
@@ -102,8 +120,9 @@ PIPELINES: dict[str, dict[str, Any]] = {
     },
     "intraday": {
         "name": "盘中流水线",
-        "desc": "⚠️ 已由 run_intraday_loop.py 双频自循环替代，保留仅作手动备用",
+        "desc": "⚠️ 已由 run_intraday_loop.py 双频自循环替代，保留仅作手动备用。休市日自动跳过。",
         "trigger": "10:30 / 14:00",
+        "skip_on_holiday": True,
         "steps": [
             {"id": "health", "name": "系统健康检查", "cmd": "python daily_review/health_check.py"},
             {"id": "feeds", "name": "盘中情报", "cmd": "python morning_intel/intraday_feeds.py"},
@@ -180,6 +199,16 @@ def run_pipeline(name: str, *, dry_run: bool = False, from_step: str = None) -> 
     skip = from_step is not None
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = LOG_DIR / f"{name}_{ts}.log"
+
+    # 休市日检查
+    if cfg.get("skip_on_holiday"):
+        try:
+            from daily_review.trade_calendar import is_trading_day
+            if not is_trading_day():
+                print(f"\n[SKIP] {cfg['name']}: 今日休市，跳过")
+                return True
+        except ImportError:
+            pass
 
     print(f"\n{'='*60}")
     print(f"  {cfg['name']}")

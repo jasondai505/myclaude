@@ -776,6 +776,8 @@ def _inject_yesterday_logic(yesterday: str) -> str:
     """提取昨日 advice 中候选池的 W1-W5 逻辑，供 LLM 判断是否延续。"""
     path = BASE / "reports" / "advice" / f"advice_{yesterday}.md"
     if not path.exists():
+        path = BASE / "reports" / "advice" / f"advice_{yesterday}_0730.md"
+    if not path.exists():
         return f"（{yesterday} advice 不存在）"
     try:
         text = path.read_text(encoding="utf-8")
@@ -1448,6 +1450,8 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
     from datetime import date as _dt, timedelta as _td
     _yesterday = _last_trading_day().isoformat()
     y_path = BASE / "reports" / "advice" / f"advice_{_yesterday}.md"
+    if not y_path.exists():
+        y_path = BASE / "reports" / "advice" / f"advice_{_yesterday}_0730.md"
     yesterday_holds: dict[str, str] = {}  # code -> hold_period
     if y_path.exists():
         try:
@@ -1799,6 +1803,8 @@ def _build_daily_diff(today_output: str, yesterday: str, today: str) -> str:
     """比较今日与昨日精选标的，生成日间变化说明。"""
     path = BASE / "reports" / "advice" / f"advice_{yesterday}.md"
     if not path.exists():
+        path = BASE / "reports" / "advice" / f"advice_{yesterday}_0730.md"
+    if not path.exists():
         return ""
 
     try:
@@ -1946,6 +1952,8 @@ def _backtrack_labels(today: str) -> str:
     for label, dates in check_dates.items():
         for d in dates:
             path = BASE / "reports" / "advice" / f"advice_{d}.md"
+            if not path.exists():
+                path = BASE / "reports" / "advice" / f"advice_{d}_0730.md"
             if not path.exists():
                 continue
             try:
@@ -2244,7 +2252,9 @@ def _scan_recurring_themes(today: str) -> str:
 
 def _diff_chokemap(new_output: str, today: str) -> str:
     """当日重跑时，对比新旧 ChokeMap 主题变化。"""
-    path = BASE / "reports" / "advice" / f"advice_{today}.md"
+    path = BASE / "reports" / "advice" / f"advice_{today}_0730.md"
+    if not path.exists():
+        path = BASE / "reports" / "advice" / f"advice_{today}.md"
     if not path.exists():
         return ""
 
@@ -2302,19 +2312,64 @@ def _diff_chokemap(new_output: str, today: str) -> str:
 
 
 def _last_trading_day(ref: date | None = None) -> date:
-    """最近一个交易日（跳过周末）。"""
+    """最近一个交易日（跳过周末和节假日）。"""
     d = ref or date.today()
-    d = d - timedelta(days=1)
-    while d.weekday() >= 5:  # 周六=5, 周日=6
+    try:
+        from daily_review.trade_calendar import prev_trading_day
+        return prev_trading_day(d)
+    except ImportError:
         d = d - timedelta(days=1)
-    return d
+        while d.weekday() >= 5:
+            d = d - timedelta(days=1)
+        return d
 
 
 def main():
-    today = sys.argv[1] if len(sys.argv) > 1 else date.today().isoformat()
-    yesterday = sys.argv[2] if len(sys.argv) > 2 else _last_trading_day().isoformat()
+    is_goalkeeper = "--goalkeeper" in sys.argv
+    today = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("--") else date.today().isoformat()
+    yesterday = sys.argv[2] if len(sys.argv) > 2 and not sys.argv[2].startswith("--") else _last_trading_day().isoformat()
     today_dow = DOW_CN[date.fromisoformat(today).weekday()]
     yesterday_dow = DOW_CN[date.fromisoformat(yesterday).weekday()]
+
+    # 休市日跳过（非手动调用时）
+    if not is_goalkeeper:
+        try:
+            from daily_review.trade_calendar import is_trading_day
+            if not is_trading_day():
+                print("[SKIP] 今日休市，跳过 advice 生成")
+                return
+        except ImportError:
+            pass
+
+    if is_goalkeeper:
+        print("[GK] 守门员模式: 检查 07:30 建议中的美股数据是否新鲜...")
+        # 检查 07:30 的建议
+        early_path = BASE / "reports" / "advice" / f"advice_{today}_0730.md"
+        needs_us_fix = False
+        if early_path.exists():
+            early_text = early_path.read_text(encoding="utf-8")
+            if "美股数据暂不可用" in early_text or "is_fresh\": false" in early_text.lower() or "⚠️ 以下美股指数数据陈旧" in early_text:
+                needs_us_fix = True
+                print("[GK] 07:30 美股数据陈旧，09:00 重新拉取")
+        else:
+            # 检查默认路径
+            default_path = BASE / "reports" / "advice" / f"advice_{today}.md"
+            if default_path.exists():
+                default_text = default_path.read_text(encoding="utf-8")
+                if "美股数据暂不可用" in default_text or "⚠️ 以下美股指数数据陈旧" in default_text:
+                    needs_us_fix = True
+                    print("[GK] 07:30 美股数据陈旧，09:00 重新拉取")
+            else:
+                needs_us_fix = True
+                print("[GK] 07:30 建议不存在，09:00 全新生成")
+
+        if needs_us_fix:
+            # 清除旧的美股数据缓存，让 _fetch_market_data 重新拉取
+            import data
+            if hasattr(data, '_indices_cache'):
+                data._indices_cache = {}
+            if hasattr(data, '_us_movers_cache'):
+                data._us_movers_cache = None
 
     tpl = (BASE / "claude_prompt.txt").read_text(encoding="utf-8")
     us_movers, us_indices, kr_jp, ov_map = _fetch_market_data()
@@ -2409,7 +2464,10 @@ def main():
     for key, val in feeds.items():
         prompt = prompt.replace(key, val)
 
-    advice_path = BASE / "reports" / "advice" / f"advice_{today}.md"
+    if is_goalkeeper:
+        advice_path = BASE / "reports" / "advice" / f"advice_{today}.md"
+    else:
+        advice_path = BASE / "reports" / "advice" / f"advice_{today}_0730.md"
 
     try:
         client = _rc("deep", timeout=600)

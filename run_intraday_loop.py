@@ -1,4 +1,5 @@
 """盘中流水线循环执行 — 双频：监控5分钟 + 全管线30分钟，9:30-15:00。
+休市日自动退出。
 
 用法:
     python run_intraday_loop.py
@@ -16,6 +17,14 @@ FULL_INTERVAL = 30     # 全管线（健康+情报+验证）慢频
 START_TIME = dtime(9, 30)
 END_TIME = dtime(15, 0)
 PROJECT = Path(__file__).resolve().parent
+
+
+def _is_holiday() -> bool:
+    try:
+        from daily_review.trade_calendar import is_trading_day
+        return not is_trading_day()
+    except ImportError:
+        return False
 
 
 def _in_trading_hours() -> bool:
@@ -55,6 +64,10 @@ FAST_STEPS = [
 
 
 def main():
+    if _is_holiday():
+        print("今日休市，盘中循环退出")
+        return
+
     cycles_per_full = FULL_INTERVAL // MONITOR_INTERVAL
     print(f"盘中双频扫描 | 监控 {MONITOR_INTERVAL}min + 全管线 {FULL_INTERVAL}min | "
           f"{START_TIME.strftime('%H:%M')}-{END_TIME.strftime('%H:%M')}")
