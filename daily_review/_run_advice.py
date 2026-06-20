@@ -1511,14 +1511,28 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
     fev_sorted = sorted(candidates, key=lambda x: -x["fevd_adjusted"])
     g_sorted = sorted(candidates, key=lambda x: -x["g_rank_score"])
 
-    # F轨: FEVΔ 前5
+    # F轨: FEVΔ 前5, 市值分层防大盘股垄断
     track_f = []
     track_f_codes: set[str] = set()
+    caps_used: dict[str, int] = {"L": 0, "M": 0, "S": 0}
+    CAP_LIMITS = {"L": 2, "M": 2, "S": 1}  # 大盘≤2席 中盘≤2席 小盘≥1席
     for c in fev_sorted:
         if len(track_f) >= 5:
             break
+        mcap = c.get("mcap_yi", 0) or 0
+        bucket = "L" if mcap >= 500 else ("M" if mcap >= 100 else "S")
+        if caps_used[bucket] >= CAP_LIMITS[bucket]:
+            continue
         track_f.append(c)
         track_f_codes.add(c["code"])
+        caps_used[bucket] += 1
+    # 不足5席时不限市值补满
+    for c in fev_sorted:
+        if len(track_f) >= 5:
+            break
+        if c["code"] not in track_f_codes:
+            track_f.append(c)
+            track_f_codes.add(c["code"])
 
     # G轨: G-Factor 前3 (排除F轨已入选，需 G_composite >= 10)
     track_g = []
