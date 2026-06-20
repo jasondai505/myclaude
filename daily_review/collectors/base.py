@@ -1,6 +1,7 @@
 """每日采集共用工具：交易日判定、重试、日期范围、报告路径。"""
 from __future__ import annotations
 
+import json
 import time
 import functools
 from datetime import date, datetime, timedelta
@@ -36,23 +37,45 @@ def fmt_iso(d: date) -> str:
 
 
 _TRADE_CAL_CACHE: set[str] | None = None
+_TRADE_CAL_PATH = Path(__file__).resolve().parent.parent / "data" / "trade_calendar.json"
 
 
 def _load_trade_cal() -> set[str]:
     global _TRADE_CAL_CACHE
     if _TRADE_CAL_CACHE is not None:
         return _TRADE_CAL_CACHE
+    # 1) 文件缓存 (24h 有效)
+    try:
+        if _TRADE_CAL_PATH.exists():
+            mtime = datetime.fromtimestamp(_TRADE_CAL_PATH.stat().st_mtime)
+            if (datetime.now() - mtime).total_seconds() < 86400:
+                data = json.loads(_TRADE_CAL_PATH.read_text(encoding="utf-8"))
+                _TRADE_CAL_CACHE = set(data.get("dates", []))
+                return _TRADE_CAL_CACHE
+    except Exception:
+        pass
+    # 2) 从 akshare 下载
     try:
         import akshare as ak
         from daily_review.data import _run_with_timeout
         df = _run_with_timeout(lambda: ak.tool_trade_date_hist_sina(), 30, default=None)
-        if df is None or df.empty:
-            _TRADE_CAL_CACHE = set()
-        else:
+        if df is not None and not df.empty:
             _TRADE_CAL_CACHE = {str(d)[:10] for d in df["trade_date"]}
+        else:
+            _TRADE_CAL_CACHE = set()
     except Exception as e:
         print(f"  [WARN] 交易日历加载失败，退化为按自然日(排除周末)补全: {e}")
         _TRADE_CAL_CACHE = set()
+    # 3) 写文件缓存
+    if _TRADE_CAL_CACHE:
+        try:
+            _TRADE_CAL_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _TRADE_CAL_PATH.write_text(
+                json.dumps({"dates": sorted(_TRADE_CAL_CACHE)}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
     return _TRADE_CAL_CACHE
 
 

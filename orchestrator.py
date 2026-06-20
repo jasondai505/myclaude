@@ -52,12 +52,12 @@ PIPELINES: dict[str, dict[str, Any]] = {
             {"id": "health", "name": "系统健康检查", "cmd": "python daily_review/health_check.py"},
             {"id": "collect", "name": "数据采集(日更·含行业深研+新闻信号)", "cmd": "python daily_review/daily_collect.py --tier daily"},
             {"id": "collect_weekly", "name": "数据采集(低频·仅周五)", "cmd": "python daily_review/daily_collect.py --tier weekly", "only_on": [4]},
-            {"id": "wechat", "name": "公众号两阶段AI分析", "cmd": "python daily_review/analyze_wechat.py"},
+            {"id": "wechat", "name": "公众号两阶段AI分析", "cmd": "python daily_review/analyze_wechat.py", "depends_on": ["collect"]},
             {"id": "zsxq_analysis", "name": "星球两阶段AI分析", "cmd": "python daily_review/analyze_zsxq.py"},
             {"id": "summary", "name": "复盘摘要", "cmd": "python daily_review/review_summary.py"},
             {"id": "track", "name": "推荐追踪", "cmd": "python daily_review/track_recommendations.py"},
-            {"id": "synthesis", "name": "四源交叉验证", "cmd": "python daily_review/primary_synthesis.py"},
-            {"id": "catalyst_screen", "name": "催化快速筛查", "cmd": "python daily_review/catalyst_screen.py"},
+            {"id": "synthesis", "name": "四源交叉验证", "cmd": "python daily_review/primary_synthesis.py", "depends_on": ["collect"]},
+            {"id": "catalyst_screen", "name": "催化快速筛查", "cmd": "python daily_review/catalyst_screen.py", "depends_on": ["collect"]},
             {"id": "serenity", "name": "产业链卡脖子更新", "cmd": "python daily_review/serenity_kb.py --update-all"},
             {"id": "audit", "name": "输出自检(night)", "cmd": "python daily_review/output_audit.py --fix --pipeline night"},
         ],
@@ -145,8 +145,10 @@ def _notify(title: str, content: str):
         sys.path.insert(0, str(PROJECT_ROOT / "morning_intel"))
         from notify import push
         push(title, content)
-    except Exception:
-        pass
+    except Exception as e:
+        nf = LOG_DIR / "notify_errors.log"
+        with open(nf, "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {title}: {e}\n")
 
 
 def run_step(step: dict, log_file) -> bool:
@@ -188,10 +190,42 @@ def run_step(step: dict, log_file) -> bool:
     return rc == 0
 
 
+
+def _acquire_lock():
+    lock = LOG_DIR / ".pipeline.lock"
+    if lock.exists():
+        try:
+            ts = float(lock.read_text().strip())
+            age_h = (datetime.now().timestamp() - ts) / 3600
+            if age_h < 2:
+                return False
+        except (ValueError, OSError):
+            pass
+    lock.write_text(str(datetime.now().timestamp()))
+    return True
+
+def _release_lock():
+    (LOG_DIR / ".pipeline.lock").unlink(missing_ok=True)
+
+
+def _rotate_logs(keep_days: int = 30):
+    cutoff = datetime.now().timestamp() - keep_days * 86400
+    for f in LOG_DIR.glob("*.log"):
+        try:
+            if f.stat().st_mtime < cutoff:
+                f.unlink()
+        except OSError:
+            pass
+
+
 def run_pipeline(name: str, *, dry_run: bool = False, from_step: str = None) -> bool:
     if name not in PIPELINES:
         print(f"未知流水线: {name}")
         print(f"可用: {', '.join(PIPELINES.keys())}")
+        return False
+
+    if not _acquire_lock():
+        print("另一条流水线正在运行中，退出")
         return False
 
     cfg = PIPELINES[name]
@@ -228,6 +262,7 @@ def run_pipeline(name: str, *, dry_run: bool = False, from_step: str = None) -> 
         return True
 
     failed = []
+    failed_ids: set[str] = set()
     with open(log_path, "w", encoding="utf-8") as log:
         log.write(f"=== {cfg['name']} ===\n")
         log.write(f"启动: {datetime.now()}\n")
@@ -249,11 +284,21 @@ def run_pipeline(name: str, *, dry_run: bool = False, from_step: str = None) -> 
                 log.write(f"[SKIP] {step['name']} (only_on={only_on})\n\n")
                 continue
 
+            deps = step.get("depends_on", [])
+            if deps and failed_ids:
+                broken = [d for d in deps if d in failed_ids]
+                if broken:
+                    msg = f"[SKIP] 前置 {', '.join(broken)} 失败"
+                    print(f"  [{i+1}/{len(steps)}] {msg}")
+                    log.write(f"{msg}\n\n")
+                    continue
+
             print(f"  [{i+1}/{len(steps)}] [RUN] {step['name']}...", end=" ", flush=True)
             ok = run_step(step, log)
             print("OK" if ok else "FAIL")
             if not ok:
                 failed.append(step["name"])
+                failed_ids.add(step["id"])
 
         log.write(f"\n{'='*60}\n")
         if failed:
@@ -265,10 +310,14 @@ def run_pipeline(name: str, *, dry_run: bool = False, from_step: str = None) -> 
     if failed:
         _notify(f"❌ {cfg['name']} 失败", f"失败步骤: {', '.join(failed)}\n日志: {log_path}")
         print(f"\n[FAIL] 失败步骤: {', '.join(failed)}")
+        _rotate_logs()
+        _release_lock()
         return False
 
     _notify(f"[OK] {cfg['name']} 完成", f"全部 {len(steps)} 步成功\n日志: {log_path}")
     print(f"\n[OK] 全部完成 ({len(steps)} 步)")
+    _rotate_logs()
+    _release_lock()
     return True
 
 
