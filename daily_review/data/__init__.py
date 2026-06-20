@@ -1031,15 +1031,54 @@ def _em_quote_single(secid: str) -> dict | None:
         return None
 
 
+_GLOBAL_CACHE_FILE = Path(__file__).resolve().parent / "us_market_cache.json"
+_GLOBAL_CACHE_TTL = timedelta(hours=24)
+
+
+def _load_global_cache() -> dict | None:
+    """加载海外市场快照缓存。超过 24h 仍返回但标记 _stale=True。"""
+    import json
+    try:
+        if not _GLOBAL_CACHE_FILE.exists():
+            return None
+        data = json.loads(_GLOBAL_CACHE_FILE.read_text(encoding="utf-8"))
+        saved = datetime.fromisoformat(data.get("_saved_at", "2000-01-01"))
+        data["_stale"] = (datetime.now() - saved) > _GLOBAL_CACHE_TTL
+        return data
+    except Exception:
+        return None
+
+
+def _save_global_cache(data: dict):
+    """保存海外市场快照（含 indices + watchlist）。过滤不可序列化字段。"""
+    import json
+    clean = {"_saved_at": datetime.now().isoformat()}
+    for section in ("indices", "watchlist"):
+        clean[section] = {}
+        for k, v in data.get(section, {}).items():
+            # 只保留可序列化的原始值
+            clean[section][k] = {
+                sk: sv for sk, sv in v.items()
+                if isinstance(sv, (str, int, float, bool, type(None)))
+            }
+    try:
+        _GLOBAL_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _GLOBAL_CACHE_FILE.write_text(json.dumps(clean, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def fetch_global_markets() -> dict:
-    """拉取外围市场指数 + 关注标的"""
+    """拉取外围市场指数 + 关注标的。优先 push2，失败回退 JSON 缓存。"""
     result = {"indices": {}, "watchlist": {}}
+    push2_ok = 0
 
     for label, secid in GLOBAL_INDICES_EM.items():
         q = _em_quote_single(secid)
         if q:
             q["change_pct_5d"] = _em_kline_5d_pct(secid)
             result["indices"][label] = q
+            push2_ok += 1
         time.sleep(0.2)
 
     for item in GLOBAL_WATCHLIST_EM:
@@ -1049,20 +1088,39 @@ def fetch_global_markets() -> dict:
             q["tag"] = item.get("tag", "")
             q["change_pct_5d"] = _em_kline_5d_pct(item["secid"])
             result["watchlist"][item["label"]] = q
+            push2_ok += 1
         time.sleep(0.2)
 
-    if len(result["indices"]) < len(GLOBAL_INDICES_EM):
-        fallback = _fetch_indices_akshare()
-        for k, v in fallback.items():
-            if k not in result["indices"] or not result["indices"][k].get("price"):
-                result["indices"][k] = v
+    indices_ok = len(result["indices"])
+    indices_total = len(GLOBAL_INDICES_EM)
 
-    us_missing = [
-        item for item in GLOBAL_WATCHLIST_EM
-        if item.get("tag", "").startswith("us_") and item["label"] not in result["watchlist"]
-    ]
-    if us_missing:
-        result["watchlist"].update(_fetch_us_stocks_akshare(us_missing))
+    if indices_ok < indices_total:
+        # push2 不全 → JSON 缓存降级（覆盖全部 7 指数，不再依赖不稳定的 akshare）
+        cached = _load_global_cache()
+        if cached:
+            for label in GLOBAL_INDICES_EM:
+                if label not in result["indices"] or not result["indices"][label].get("price"):
+                    fallback = cached.get("indices", {}).get(label)
+                    if fallback and fallback.get("price"):
+                        fallback["_from_cache"] = True
+                        result["indices"][label] = fallback
+            if cached.get("_stale"):
+                print("  [WARN] 海外指数缓存超过24h，数据可能过时")
+
+    # 美股 watchlist 缺项同样从缓存补齐
+    cached_for_wl = _load_global_cache()
+    if cached_for_wl:
+        for item in GLOBAL_WATCHLIST_EM:
+            label = item["label"]
+            if label not in result["watchlist"] or not result["watchlist"][label].get("price"):
+                fallback = cached_for_wl.get("watchlist", {}).get(label)
+                if fallback and fallback.get("price"):
+                    fallback["_from_cache"] = True
+                    result["watchlist"][label] = fallback
+
+    # 成功后写缓存
+    if indices_ok >= indices_total * 0.7:
+        _save_global_cache(result)
 
     return result
 

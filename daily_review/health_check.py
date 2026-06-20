@@ -205,6 +205,33 @@ def check_engines():
                 ISSUES.append(f"引擎: {name} 近2天均未产出")
 
 
+def check_system_resources():
+    """磁盘使用率 + 内存余量监控。"""
+    try:
+        import psutil
+    except ImportError:
+        print("  [系统资源] psutil 未安装，跳过")
+        return
+
+    # 磁盘 — 项目盘
+    disk = psutil.disk_usage(str(PROJECT))
+    pct = disk.percent
+    free_gb = disk.free / (1024 ** 3)
+    print(f"  [磁盘] {PROJECT.drive}: 已用 {pct:.0f}% / 剩余 {free_gb:.0f}GB")
+    if pct > 90:
+        ISSUES.append(f"磁盘: {pct:.0f}%已用 (剩余{free_gb:.0f}GB)")
+    elif pct > 80:
+        print(f"  [磁盘] WARN: 已用 {pct:.0f}%，建议关注")
+
+    # 内存
+    mem = psutil.virtual_memory()
+    mem_pct = mem.percent
+    avail_gb = mem.available / (1024 ** 3)
+    print(f"  [内存] 已用 {mem_pct:.0f}% / 可用 {avail_gb:.0f}GB")
+    if mem_pct > 90:
+        ISSUES.append(f"内存: {mem_pct:.0f}%已用 (可用{avail_gb:.0f}GB)")
+
+
 def check_advice_server():
     """检查 advice HTTP 服务 (端口 8900) 是否存活"""
     import socket
@@ -228,6 +255,7 @@ def main():
     check_pipeline_logs()
     check_engines()
     check_advice_server()
+    check_system_resources()
 
     if ISSUES:
         msg = "\n".join(f"- {i}" for i in ISSUES)

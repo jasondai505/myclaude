@@ -561,10 +561,6 @@ def _inject_stock_context(codes: set[str]) -> str:
 def _inject_bom_context() -> str:
     """注入 BOM 产业链知识库摘要。"""
     try:
-        import sys
-        parent = str(BASE.parent)
-        if parent not in sys.path:
-            sys.path.insert(0, parent)
         from bom_analyzer import chain_db
         chain_db.init_db()
         industries = chain_db.list_industries()
@@ -594,10 +590,6 @@ def _inject_bom_context() -> str:
 def _inject_serenity_context() -> str:
     """注入 Serenity 产业链卡脖子分析 — 卡脖子排行 + FEV 高分标的。"""
     try:
-        import sys
-        parent = str(BASE.parent)
-        if parent not in sys.path:
-            sys.path.insert(0, parent)
         from daily_review.serenity_kb import (
             init_db, get_all_chain_summary, get_stock_scores,
         )
