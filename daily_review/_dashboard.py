@@ -659,188 +659,322 @@ def _render_output_checklist(w, today_str: str = ""):
     w("")
 
 
+def _load_name_cache() -> dict[str, str]:
+    """加载全市场股票名称缓存。"""
+    name_map = {}
+    try:
+        import json
+        cache = json.loads(Path("data/stock_codes.json").read_text(encoding="utf-8"))
+        for item in cache.get("codes", []):
+            name_map[item["code"]] = item["name"]
+    except Exception:
+        pass
+    return name_map
+
+
 def _aggregate_signals(dr: dict) -> dict:
-    """聚合 deep_read + catalyst_signals + research dossiers → 深度分析/初步关注两级。"""
-    today = date.today()
-    week_ago = today - timedelta(days=7)
+    """6源信号矩阵：公告deep_read + 研报 + 新闻信号 + 行业深研 + 社交源 + 催化信号。
+
+    权重原则：
+      - 研报是机构专业研究，1篇即进初步筛选，2篇+其他源可进深度分析
+      - 社交源（公众号/微博）是人工精选信息源，提及即进初步筛选
+      - 行业深研提到代表跨行业共识，权重高
+      - 公告deep_read通过Stage1硬筛选的至少值10分（已是精选）
+      - 新闻边际信号经Haiku扫描已过滤无关内容
+    """
+    week_ago = (date.today() - timedelta(days=7)).isoformat()
+    names = _load_name_cache()
     scores: dict[str, dict] = {}
 
-    def _ensure(code, name=""):
+    def _ensure(code):
         code = str(code).zfill(6)
         if code not in scores:
-            scores[code] = {"code": code, "name": name, "dr_max": 0, "cat_max": 0,
-                            "dossier_stars": "", "dossier_score": 0,
-                            "latest_signal": "", "latest_date": ""}
+            scores[code] = {"code": code, "name": names.get(code, ""),
+                            "dr_score": 0, "dr_count": 0,
+                            "rpt_count": 0, "ns_count": 0,
+                            "ind_count": 0, "social_count": 0,
+                            "cat_score": 0, "cat_count": 0,
+                            "sources": 0, "total": 0}
 
-    # 1. deep_read_results (>=60)
+    # ====== 1. 公告 deep_read（>=20 分即纳入，<20 也给基础分） ======
     try:
         with store._conn() as conn:
             rows = conn.execute(
-                "SELECT code, name, MAX(total_score) as ms, event_type, investment_thesis, date "
-                "FROM deep_read_results WHERE date >= ? AND total_score >= 60 "
-                "GROUP BY code ORDER BY ms DESC LIMIT 50",
-                (week_ago.isoformat(),),
+                "SELECT code, MAX(total_score) as ms, COUNT(*) as cnt "
+                "FROM deep_read_results WHERE date >= ? AND total_score >= 10 "
+                "GROUP BY code",
+                (week_ago,),
             ).fetchall()
         for r in rows:
-            _ensure(r["code"], r["name"])
-            scores[r["code"]]["dr_max"] = r["ms"]
-            if r["date"] > scores[r["code"]]["latest_date"]:
-                scores[r["code"]]["latest_date"] = r["date"]
-                scores[r["code"]]["latest_signal"] = f"[{r['event_type']}] {r['investment_thesis'][:40] if r['investment_thesis'] else r['code']}"
+            _ensure(r["code"])
+            s = scores[r["code"]]
+            s["dr_score"] = max(r["ms"], 10)  # 至少值10分（通过了Stage1硬筛选）
+            s["dr_count"] = r["cnt"]
+            s["sources"] += 1
     except Exception:
         pass
 
-    # 2. catalyst_signals (>=40)
+    # ====== 2. 研报采集（每篇研报都算信号） ======
     try:
         with store._conn() as conn:
             rows = conn.execute(
-                "SELECT mentioned_codes, MAX(actionability) as ms, catalyst_type, thesis, date "
-                "FROM catalyst_signals WHERE date >= ? AND actionability >= 40 "
-                "GROUP BY mentioned_codes ORDER BY ms DESC LIMIT 50",
-                (week_ago.isoformat(),),
+                "SELECT code, COUNT(*) as cnt FROM research_reports "
+                "WHERE report_date >= ? GROUP BY code",
+                (week_ago,),
             ).fetchall()
-        for r in rows:
-            code = str(r["mentioned_codes"] or "").zfill(6)
+        for r2 in rows:
+            code = str(r2["code"]).zfill(6)
             if len(code) != 6:
                 continue
             _ensure(code)
-            scores[code]["cat_max"] = max(scores[code]["cat_max"], r["ms"])
-            if r["date"] > scores[code]["latest_date"]:
-                scores[code]["latest_date"] = r["date"]
-                scores[code]["latest_signal"] = f"[{r['catalyst_type']}] {r['thesis'][:40] if r['thesis'] else ''}"
+            s = scores[code]
+            s["rpt_count"] = r2["cnt"]
+            s["sources"] += 1
     except Exception:
         pass
 
-    # 3. research dossiers (star rating)
-    d = REPORT_DIR / "research_dossiers"
-    if d.exists():
-        for fp in d.glob("*.md"):
-            if fp.name == "README.md":
-                continue
-            try:
-                text = fp.read_text(encoding="utf-8")
-            except Exception:
-                continue
-            raw, _, plain_stars = _score_dossier(text, "")
-            code = fp.stem[:6]
-            _ensure(code)
-            if raw >= 30:
-                scores[code]["dossier_stars"] = plain_stars
-                scores[code]["dossier_score"] = raw
-                try:
-                    import re as re2
-                    dates = re2.findall(r"### (\d{4}-\d{2}-\d{2})", text)
-                    dates += re2.findall(r"## .+ \((\d{4}-\d{2}-\d{2})\)", text)
-                    if dates:
-                        max_d = max(dates)
-                        if max_d > scores[code]["latest_date"]:
-                            scores[code]["latest_date"] = max_d
-                            sig_m = re2.search(rf"{max_d}.*?\n- \[(\w+)\]\s*(.+?)(?:\s*\([+-]?\d+分\))?\s*$", text, re2.MULTILINE)
-                            if not sig_m:
-                                blocks = text.split(f"({max_d})")
-                                sig_m = re2.search(r"- \[(\w+)\]\s*(.+?)(?:\([+-]?\d+分\))?\s*$", blocks[-1] if len(blocks) > 1 else text, re2.MULTILINE)
-                            if sig_m:
-                                scores[code]["latest_signal"] = f"[{sig_m.group(1)}] {sig_m.group(2)[:40]}"
-                except Exception:
-                    pass
-
-    # 补全名称（优先本地缓存，再查 DB/API）
-    codes_need_name = [c for c, s in scores.items() if not s["name"]]
-    if codes_need_name:
-        name_map = {}
-        # 1. 本地 stock_codes.json 缓存（最快最可靠）
+    # ====== 3. 新闻边际信号（Haiku提取的每条边际变化） ======
+    for d_dir in range(7):
+        d_str = (date.today() - timedelta(days=d_dir)).isoformat()
+        fp = REPORT_DIR / "feeds" / "news_signals" / f"news_signals_{d_str}.md"
+        if not fp.exists():
+            continue
         try:
-            import json
-            cache = json.loads(Path("data/stock_codes.json").read_text(encoding="utf-8"))
-            for item in cache.get("codes", []):
-                name_map[item["code"]] = item["name"]
+            for line in fp.read_text(encoding="utf-8").split("\n"):
+                if line.startswith("| ") and line[2:3].isdigit():
+                    parts = [p.strip() for p in line.split("|")]
+                    if len(parts) >= 3:
+                        code = parts[1]
+                        if len(code) == 6 and code.isdigit():
+                            _ensure(code)
+                            scores[code]["ns_count"] += 1
+                            scores[code]["sources"] += 1
         except Exception:
             pass
-        # 2. 从 research dossiers frontmatter 补
-        for code in codes_need_name:
-            if code in name_map and name_map[code]:
-                continue
+
+    # ====== 4. 行业深研 — 从 industry_daily 报告中提取提及标的 ======
+    ind_dir = REPORT_DIR / "industry"
+    if ind_dir.exists():
+        for fp in sorted(ind_dir.glob("industry_daily_2026-06-*.md")):
             try:
-                fp = d / f"{code}.md"
-                if fp.exists():
-                    text = fp.read_text(encoding="utf-8")
-                    nm = re.search(r'^name:\s*"?(.+?)"?\s*$', text, re.MULTILINE)
-                    if nm:
-                        name_map[code] = nm.group(1).strip()
+                text = fp.read_text(encoding="utf-8")
+                for m in re.finditer(r"(\d{6})\s", text):
+                    code = m.group(1)
+                    _ensure(code)
+                    scores[code]["ind_count"] += 1
+                    scores[code]["sources"] += 1
             except Exception:
                 pass
-        for code in codes_need_name:
-            if code in name_map and name_map[code]:
-                scores[code]["name"] = name_map[code]
 
-    # 计算复合分：deep_read * 1.0 + catalyst * 0.8 + dossier * 0.6
+    # ====== 5. 社交源：公众号分析 + 微博 ======
+    # 公众号分析
+    wc_dir = REPORT_DIR / "wechat_analysis"
+    if wc_dir.exists():
+        for fp in sorted(wc_dir.glob("wechat_analysis_2026-06-*.md")):
+            try:
+                text = fp.read_text(encoding="utf-8")
+                for m in re.finditer(r"\b(\d{6})\b", text):
+                    code = m.group(1)
+                    _ensure(code)
+                    scores[code]["social_count"] += 1
+                    scores[code]["sources"] += 1
+            except Exception:
+                pass
+    # 微博 feeds
+    wb_dir = REPORT_DIR / "feeds" / "weibo"
+    if wb_dir.exists():
+        for fp in sorted(wb_dir.glob("weibo_2026-06-*.md")):
+            try:
+                text = fp.read_text(encoding="utf-8")
+                for m in re.finditer(r"\b(\d{6})\b", text):
+                    code = m.group(1)
+                    _ensure(code)
+                    scores[code]["social_count"] += 1
+                    scores[code]["sources"] += 1
+            except Exception:
+                pass
+
+    # ====== 6. 催化信号（星球+deep_read产出） ======
+    try:
+        with store._conn() as conn:
+            rows = conn.execute(
+                "SELECT mentioned_codes, MAX(actionability) as ms, COUNT(*) as cnt "
+                "FROM catalyst_signals WHERE date >= ? AND actionability >= 10 "
+                "GROUP BY mentioned_codes",
+                (week_ago,),
+            ).fetchall()
+        for r3 in rows:
+            code = str(r3["mentioned_codes"] or "").strip()
+            if not code or len(code) != 6 or not code.isdigit():
+                continue
+            _ensure(code)
+            s = scores[code]
+            s["cat_score"] = max(s["cat_score"], r3["ms"])
+            s["cat_count"] = r3["cnt"]
+            s["sources"] += 1
+    except Exception:
+        pass
+
+    # ====== 计算复合分 + 交叉源加分 ======
     for s in scores.values():
-        s["total"] = int(s["dr_max"] * 1.0 + s["cat_max"] * 0.8 + s["dossier_score"] * 0.6)
+        # 重新计算来源数（基于字段是否有数据，而非逐条累加）
+        src_count = 0
+        if s["dr_count"] > 0: src_count += 1
+        if s["rpt_count"] > 0: src_count += 1
+        if s["ns_count"] > 0: src_count += 1
+        if s["ind_count"] > 0: src_count += 1
+        if s["social_count"] > 0: src_count += 1
+        if s["cat_count"] > 0: src_count += 1
+        s["sources"] = src_count
+
+        base = (s["dr_score"] * 1.0           # 公告 deep_read: max(score,10) → 10~85
+                + s["rpt_count"] * 20          # 研报: 20分/篇，1篇即进初步筛选
+                + s["ns_count"] * 8            # 新闻边际信号: 8分/条，Haiku已初筛
+                + s["ind_count"] * 10          # 行业深研提及: 10分/次
+                + s["social_count"] * 10       # 社交源提及: 10分/次（公众号/微博）
+                + s["cat_score"] * 0.8)        # 催化行动分
+        cross = 0
+        if s["sources"] >= 5: cross = 50
+        elif s["sources"] >= 4: cross = 35
+        elif s["sources"] >= 3: cross = 20
+        elif s["sources"] >= 2: cross = 10
+        s["total"] = int(base + cross)
         if not s["name"]:
-            s["name"] = ""
+            s["name"] = names.get(s["code"], "")
 
     ranked = sorted(scores.values(), key=lambda x: -x["total"])
 
-    deep = [s for s in ranked if s["total"] >= 100]
-    watch = [s for s in ranked if 50 <= s["total"] < 100]
+    deep = [s for s in ranked if s["total"] >= 80]    # 深度分析: ≥80
+    watch = [s for s in ranked if 20 <= s["total"] < 80]  # 初步关注: ≥20（1篇研报或2次社交提及即达标）
 
-    return {"deep": deep[:15], "watch": watch[:15]}
+    return {"deep": deep[:20], "watch": watch[:20]}
 
 
 def _hot_themes() -> list[dict]:
-    """统计本周 catalyst_signals 中的主题热度（按 catalyst_type + thesis 关键词聚合）。"""
+    """多源交叉主题热度：catalyst_signals + 行业研报 + 星球 + 公众号。"""
     week_ago = (date.today() - timedelta(days=7)).isoformat()
     themes: dict[str, dict] = {}
+    names = _load_name_cache()
 
+    def _add_theme(keyword, source, stocks=None):
+        if not keyword or keyword in ("—", "other", "deep_read", "tech_breakthrough", "policy_change"):
+            return
+        if keyword not in themes:
+            themes[keyword] = {"theme": keyword, "count": 0, "sources": set(), "stocks": set()}
+        themes[keyword]["count"] += 1
+        themes[keyword]["sources"].add(source)
+        if stocks:
+            for s in stocks:
+                if re.match(r"\d{6}", str(s)):
+                    themes[keyword]["stocks"].add(str(s))
+
+    KW_MAP = [
+        ("PCB",), ("MLCC",), ("AI芯片",), ("GPU",), ("HBM",), ("算力",), ("存储",), ("液冷",),
+        ("光模块",), ("CPO",), ("先进封装",), ("半导体设备",), ("碳化硅",), ("覆铜板",),
+        ("断供",), ("缺货",), ("供不应求",), ("涨价",), ("产能扩张",),
+        ("新能源",), ("锂电",), ("光伏",), ("储能",), ("机器人",), ("军工",), ("航天",),
+        ("邮轮", "VLCC", "航运"), ("稀土",), ("收购",), ("重组",), ("跨界",),
+        ("技术突破",), ("业绩暴",), ("股权激励",), ("减持",),
+        ("华为",), ("特斯拉",), ("比亚迪",), ("宁德",),
+    ]
+
+    # 1. catalyst_signals
     try:
         with store._conn() as conn:
             rows = conn.execute(
                 "SELECT catalyst_type, thesis, mentioned_codes FROM catalyst_signals "
-                "WHERE date >= ? AND actionability >= 30",
+                "WHERE date >= ? AND actionability >= 20",
                 (week_ago,),
             ).fetchall()
     except Exception:
-        return []
-
-    import re
+        rows = []
     for r in rows:
-        ctype = r["catalyst_type"] or "other"
-        thesis = r["thesis"] or ""
+        thesis = (r["thesis"] or "") + " " + (r["catalyst_type"] or "")
+        found = False
+        for kw_group in KW_MAP:
+            for kw in kw_group:
+                if kw in thesis:
+                    codes = [c.strip() for c in str(r["mentioned_codes"] or "").split(",") if c.strip()]
+                    _add_theme(kw_group[0], "催化", codes)
+                    found = True
+                    break
+            if found:
+                break
+        if not found and "减持" not in thesis and "订单" not in thesis:
+            _add_theme(r["catalyst_type"], "催化")
 
-        # 提取核心关键词（特异性优先，排除噪音标签）
-        keywords = []
-        for kw in ["PCB", "MLCC", "AI芯片", "GPU", "HBM", "算力", "存储", "液冷", "光模块",
-                    "CPO", "先进封装", "半导体设备", "半导体材料", "碳化硅", "覆铜板",
-                    "断供", "缺货", "需求暴", "供不应求", "产能扩张", "涨价",
-                    "新能源", "锂电", "光伏", "储能", "机器人", "军工", "航天",
-                    "邮轮", "VLCC", "航运", "稀土", "钨", "锑", "铟",
-                    "收购", "重组", "跨界", "技术突破", "业绩暴", "股权激励",
-                    "政策", "减持", "华为", "特斯拉", "比亚迪", "宁德"]:
-            if kw in thesis or kw in ctype:
-                keywords.append(kw)
+    # 2. 行业深研合成报告
+    ind_dir = REPORT_DIR / "industry"
+    if ind_dir.exists():
+        for fp in sorted(ind_dir.glob("industry_daily_2026-06-*.md")):
+            try:
+                text = fp.read_text(encoding="utf-8")
+                in_consensus = False
+                for line in text.split("\n"):
+                    if "今日共识方向" in line:
+                        in_consensus = True
+                        continue
+                    if in_consensus and line.startswith("##"):
+                        break
+                    if in_consensus and line.startswith("- "):
+                        direction = line[2:].strip()
+                        for kw_group in KW_MAP:
+                            for kw in kw_group:
+                                if kw in direction:
+                                    codes = re.findall(r"(\d{6})", direction)
+                                    _add_theme(kw_group[0], "行业深研", codes)
+                                    break
+            except Exception:
+                pass
 
-        theme = keywords[0] if keywords else ctype
-        # 过滤无意义关键字
-        if theme in ("订单", "deep_read", "—", "other"):
-            theme = ctype if ctype not in ("deep_read", "other", "—") else keywords[1] if len(keywords) > 1 else "综合"
-        if theme not in themes:
-            themes[theme] = {"theme": theme, "count": 0, "top_type": ctype, "stocks": set()}
+    # 3. 公众号分析
+    wc_dir = REPORT_DIR / "wechat_analysis"
+    if wc_dir.exists():
+        for fp in sorted(wc_dir.glob("wechat_analysis_2026-06-*.md")):
+            try:
+                text = fp.read_text(encoding="utf-8")
+                for m in re.finditer(r"###\s+(.+?)(?:\n|$)", text):
+                    title = m.group(1)
+                    for kw_group in KW_MAP:
+                        for kw in kw_group:
+                            if kw in title:
+                                codes = re.findall(r"\b(\d{6})\b", text[m.start():m.start()+500])
+                                _add_theme(kw_group[0], "公众号", codes)
+                                break
+            except Exception:
+                pass
 
-        themes[theme]["count"] += 1
-        if r["mentioned_codes"]:
-            for code in str(r["mentioned_codes"]).split(",")[:2]:
-                code = code.strip()
-                if re.match(r"\d{6}", code):
-                    themes[theme]["stocks"].add(code)
+    # 4. 星球分析
+    za_dir = REPORT_DIR / "zsxq_analysis"
+    if za_dir.exists():
+        for fp in sorted(za_dir.glob("zsxq_analysis_2026-06-*.md")):
+            try:
+                text = fp.read_text(encoding="utf-8")
+                for m in re.finditer(r"###\s+(.+?)(?:\n|$)", text):
+                    title = m.group(1)
+                    for kw_group in KW_MAP:
+                        for kw in kw_group:
+                            if kw in title:
+                                codes = re.findall(r"\b(\d{6})\b", text[m.start():m.start()+500])
+                                _add_theme(kw_group[0], "星球", codes)
+                                break
+            except Exception:
+                pass
 
     result = []
     for t in themes.values():
-        t["stocks"] = " ".join(list(t["stocks"])[:3])
-        t["heat"] = min(t["count"] // 3 + 1, 3)
+        stock_list = list(t["stocks"])
+        named = []
+        for s in stock_list[:3]:
+            nm = names.get(s, "")
+            named.append(f"{nm}({s})" if nm else s)
+        t["stocks"] = " ".join(named)
+        t["heat"] = min(t["count"] // 5 + 1, 3)
+        t["source_list"] = "+".join(sorted(t["sources"]))
         result.append(t)
 
     result.sort(key=lambda x: -x["count"])
-    return result
+    return result[:15]
 
 
 def generate(today_str: str = "") -> str:
@@ -945,29 +1079,23 @@ def generate(today_str: str = "") -> str:
     if signals["deep"] or signals["watch"]:
         w("### 🔬 建议深度分析")
         w()
-        w("| 代码 | 名称 | 信号分 | 公告深研 | 催化 | 档案 | 最新信号 |")
-        w("|------|------|:-----:|:------:|:---:|:---:|---------|")
+        w("| 代码 | 名称 | 信号分 | 公告 | 研报 | 新闻 | 行业 | 社交 | 催化 | 来源数 |")
+        w("|------|------|:-----:|:---:|:---:|:---:|:---:|:---:|:---:|:-----:|")
         for s in signals["deep"]:
-            dr_score = s.get("dr_max", 0)
-            cat_score = s.get("cat_max", 0)
-            star = s.get("dossier_stars", "")
             w(f"| {s['code']} | {s['name']} | **{s['total']}** | "
-              f"{'✅'+str(dr_score) if dr_score else '—'} | "
-              f"{'🔥'+str(cat_score) if cat_score else '—'} | "
-              f"{star or '—'} | {s['latest_signal'][:30]} |")
+              f"{s['dr_count'] or '—'} | {s['rpt_count'] or '—'} | {s['ns_count'] or '—'} | "
+              f"{s['ind_count'] or '—'} | {s['social_count'] or '—'} | {s['cat_count'] or '—'} | "
+              f"{s['sources']} |")
         w()
         w("### 👀 建议初步关注")
         w()
-        w("| 代码 | 名称 | 信号分 | 公告深研 | 催化 | 档案 | 最新信号 |")
-        w("|------|------|:-----:|:------:|:---:|:---:|---------|")
+        w("| 代码 | 名称 | 信号分 | 公告 | 研报 | 新闻 | 行业 | 社交 | 催化 | 来源数 |")
+        w("|------|------|:-----:|:---:|:---:|:---:|:---:|:---:|:---:|:-----:|")
         for s in signals["watch"]:
-            dr_score = s.get("dr_max", 0)
-            cat_score = s.get("cat_max", 0)
-            star = s.get("dossier_stars", "")
             w(f"| {s['code']} | {s['name']} | {s['total']} | "
-              f"{'✅'+str(dr_score) if dr_score else '—'} | "
-              f"{'🔥'+str(cat_score) if cat_score else '—'} | "
-              f"{star or '—'} | {s['latest_signal'][:30]} |")
+              f"{s['dr_count'] or '—'} | {s['rpt_count'] or '—'} | {s['ns_count'] or '—'} | "
+              f"{s['ind_count'] or '—'} | {s['social_count'] or '—'} | {s['cat_count'] or '—'} | "
+              f"{s['sources']} |")
         w()
     else:
         w("_本周暂无强信号标的_")
@@ -978,10 +1106,10 @@ def generate(today_str: str = "") -> str:
     if hot:
         w("### 🔥 信号热度 TOP 主题")
         w()
-        w("| 热度 | 主题 | 信号数 | 催化类型 | 代表标的 |")
-        w("|:----:|------|:-----:|---------|---------|")
-        for h in hot[:10]:
-            w(f"| {'⭐'*min(h['heat'],3)} | {h['theme']} | {h['count']} | {h['top_type']} | {h['stocks']} |")
+        w("| 热度 | 主题 | 信号数 | 来源 | 代表标的 |")
+        w("|:----:|------|:-----:|------|---------|")
+        for h in hot[:15]:
+            w(f"| {'⭐'*min(h['heat'],3)} | {h['theme']} | {h['count']} | {h['source_list']} | {h['stocks']} |")
         w()
 
     # === 本周趋势 ===
