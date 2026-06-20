@@ -363,14 +363,21 @@ def main():
 
     _build_theme_index()
 
-    # 生成每日仪表盘（复制到根目录方便 Obsidian 首页打开）
+    # 生成每日仪表盘 + 同步框架文档到 reports vault (Obsidian 首页)
     try:
         from _dashboard import generate, DASHBOARD_PATH
         generate()
         import shutil
-        vault_dashboard = Path("C:/Users/daixin/Documents/Obsidian Vault/Dashboard.md")
-        shutil.copy(str(DASHBOARD_PATH), str(vault_dashboard))
-        print("📊 仪表盘: reports/Dashboard.md (已同步到 Obsidian Vault)")
+        shutil.copy(str(DASHBOARD_PATH), str(Path(__file__).parent.parent / "Dashboard.md"))
+        # 同步核心框架文档到 reports vault
+        for src, dst_name in [
+            ("../CLAUDE.md", "CLAUDE.md"),
+            ("../docs/评分体系架构图.md", "评分体系架构图.md"),
+        ]:
+            src_path = Path(__file__).parent / src
+            if src_path.exists():
+                shutil.copy(str(src_path.resolve()), str(REPORT_DIR / dst_name))
+        print("📊 仪表盘: reports/Dashboard.md (已同步到根目录 + reports vault)")
     except Exception as e:
         print(f"  [WARN] 仪表盘生成失败: {e}")
 
