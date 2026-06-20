@@ -95,7 +95,19 @@
       "Bash(mkdir -p advice review)",
       "Bash(mv advice_*.md advice/)",
       "Bash(mv review_*.md review_*.xlsx review_*.bak review/)",
-      "Bash(mv review_*修改建议.xlsx review/)"
+      "Bash(mv review_*修改建议.xlsx review/)",
+      "Bash(findstr /i \"close\\\\|review\\\\|orchestrator\\\\|myclaude\\\\|run_close\\\\|run_pre\\\\|run_bom\\\\|run_intra\")",
+      "Bash(choco list *)",
+      "Bash(dir /s /b C:\\\\Users\\\\daixin\\\\myclaude\\\\zsxq_cross*)",
+      "Bash(dir /s /b C:\\\\Users\\\\daixin\\\\zsxq_cross*)",
+      "PowerShell(schtasks *)",
+      "PowerShell(schtasks /create /tn \"\\\\myclaude_pre_dawn\" /tr \"C:\\\\Users\\\\daixin\\\\myclaude\\\\run_pre_dawn.bat\" /sc weekly /d MON,TUE,WED,THU,FRI /st 06:30 /ru SYSTEM /f)",
+      "PowerShell(\\(Get-Item \"C:\\\\Users\\\\daixin\\\\myclaude\\\\daily_review\\\\reports\\\\dashboard.md\"\\).LastWriteTime.ToString\\(\"yyyy-MM-dd HH:mm:ss\"\\))",
+      "Bash(copy *)",
+      "Bash(sort -t- -k1,1 -k2,2 -k3,3)",
+      "Bash(sed 's/_.*//')",
+      "Bash(sort -k2)",
+      "Bash(taskkill //F //IM python.exe)"
     ]
   },
   "PreToolUse": [
