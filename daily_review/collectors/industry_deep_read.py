@@ -48,63 +48,90 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> dict:
-    """主入口：对今日行业研报执行深度分析。"""
+    """主入口：对日期范围内的行业研报逐 report_date 执行深度分析。"""
     store.init_feeds_tables()
 
-    today = since.isoformat()  # 日更只用当日数据
+    from .base import fmt_iso
 
-    # Stage 1: 筛选
-    reports = _stage1_select(today, today)
-    if not reports:
-        return {"last_date": today, "status": "ok",
-                "message": f"今日 ({today}) 无行业研报数据",
+    # 查询日期范围内有数据的 report_date
+    since_str = since.isoformat()
+    until_str = until.isoformat()
+    with store._conn() as conn:
+        dates_row = conn.execute(
+            "SELECT DISTINCT report_date FROM industry_reports "
+            "WHERE report_date >= ? AND report_date <= ? ORDER BY report_date",
+            (since_str, until_str),
+        ).fetchall()
+    report_dates = [r[0] for r in dates_row]
+
+    if not report_dates:
+        # 兜底：查最近一天（行业研报日更采集时间与报告日期可能偏移）
+        latest = _stage1_select_latest()
+        if latest:
+            report_dates = [latest]
+
+    if not report_dates:
+        return {"last_date": until_str, "status": "ok",
+                "message": f"日期范围 ({since_str}~{until_str}) 无行业研报数据",
                 "stage1_count": 0, "stage2_count": 0, "saved_count": 0}
 
-    # Stage 2: PDF + Haiku 提取
-    extracted = _stage2_extract(reports)
-    scored = [e for e in extracted if e and e.get("core_thesis")]
+    total_s1 = 0
+    total_s2 = 0
+    total_saved = 0
+    msgs = []
 
-    # Stage 3: Sonnet 综合研判
-    if scored:
-        md = _stage3_synthesize(scored, today)
-        out_path = OUT_DIR / f"industry_daily_{today}.md"
-        out_path.write_text(md, encoding="utf-8")
-        print(f"  [industry_deep_read] 报告: {out_path} ({len(scored)}篇有效提取)")
-    else:
-        md = ""
-        print("  [industry_deep_read] 无有效提取，跳过合成")
+    for rd in report_dates:
+        reports = _stage1_select_by_date(rd)
+        if not reports:
+            msgs.append(f"({rd}) 无入选研报")
+            continue
 
-    return {
-        "last_date": today, "status": "ok",
-        "message": f"筛选{len(reports)}篇→提取{len(scored)}篇→合成{'完成' if md else '跳过'}",
-        "stage1_count": len(reports), "stage2_count": len(scored),
-        "saved_count": 1 if md else 0,
-    }
+        extracted = _stage2_extract(reports)
+        scored = [e for e in extracted if e and e.get("core_thesis")]
+
+        if scored:
+            md = _stage3_synthesize(scored, rd)
+            out_path = OUT_DIR / f"industry_daily_{rd}.md"
+            out_path.write_text(md, encoding="utf-8")
+            print(f"  [industry_deep_read] 报告: {out_path} ({len(scored)}篇有效提取)")
+        else:
+            md = ""
+            print(f"  [industry_deep_read] ({rd}) 无有效提取，跳过合成")
+
+        total_s1 += len(reports)
+        total_s2 += len(scored)
+        total_saved += 1 if md else 0
+        msgs.append(f"({rd}) S1={len(reports)}→S2={len(scored)}→{'合成' if md else '跳过'}")
+
+    msg = f"{len(report_dates)}个报告日: S1={total_s1}→S2={total_s2}→存档{total_saved} | {'; '.join(msgs[-3:])}"
+    return {"last_date": until_str, "status": "ok", "message": msg,
+            "stage1_count": total_s1, "stage2_count": total_s2, "saved_count": total_saved}
 
 
-# ============================================================
-# Stage 1: 筛选
-# ============================================================
-
-def _stage1_select(start: str, end: str) -> list[dict]:
-    """查询最近一个有数据的 report_date 的研报（日更采集时间与报告日期可能偏移1天）。"""
+def _stage1_select_by_date(report_date: str) -> list[dict]:
+    """按指定 report_date 筛选研报。"""
     with store._conn() as conn:
-        # 找到最近有数据的 report_date
+        rows = conn.execute(
+            "SELECT * FROM industry_reports WHERE report_date = ? ORDER BY institution",
+            (report_date,),
+        ).fetchall()
+    all_reports = [dict(r) for r in rows]
+    return _apply_quotas(all_reports)
+
+
+def _stage1_select_latest() -> str | None:
+    """查询最近一个有数据的 report_date。"""
+    with store._conn() as conn:
         latest = conn.execute(
             "SELECT MAX(report_date) FROM industry_reports"
         ).fetchone()[0]
-        if not latest:
-            return []
-        rows = conn.execute(
-            "SELECT * FROM industry_reports WHERE report_date = ? "
-            "ORDER BY institution",
-            (latest,),
-        ).fetchall()
-    all_reports = [dict(r) for r in rows]
+    return latest
+
+
+def _apply_quotas(all_reports: list[dict]) -> list[dict]:
+    """按 subtype 分桶 + 机构加权 + 分层配额筛选。"""
     if not all_reports:
         return []
-
-    # 按 subtype 分桶，机构加权排序
     buckets: dict[str, list[dict]] = {"industry": [], "strategy": [], "macro": []}
     for r in all_reports:
         st = r.get("report_subtype", "industry")
@@ -127,7 +154,6 @@ def _stage1_select(start: str, end: str) -> list[dict]:
             seen_industries[ind] = seen_industries.get(ind, 0) + 1
             selected.append(r)
 
-    # 按 subtype 排序便于阅读
     subtype_order = {"industry": 0, "strategy": 1, "macro": 2}
     selected.sort(key=lambda r: subtype_order.get(r.get("report_subtype", "industry"), 9))
     print(f"  [Stage1] {len(all_reports)}篇→{len(selected)}篇入选")

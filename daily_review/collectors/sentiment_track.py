@@ -63,9 +63,7 @@ tags: [research_dossier]
     return True
 
 
-def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> dict:
-    today_str = since.isoformat()
-
+def _process_one_day(today_str: str) -> dict:
     survey_signals = detect_survey_signals(today_str)
     interaction_signals = detect_interaction_signals(today_str)
     earnings_signals = detect_earnings_signals(today_str)
@@ -81,12 +79,33 @@ def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> di
                 updated += 1
 
     total = len(survey_signals) + len(interaction_signals) + len(earnings_signals)
-    msg = f"调研{len(survey_signals)}+互动{len(interaction_signals)}+业绩{len(earnings_signals)}={total}只({updated}存档)"
-    store.upsert_collect_status(SOURCE_NAME, today_str, "ok", msg, updated)
-    return {
-        "last_date": today_str, "status": "ok", "message": msg,
-        "survey_count": len(survey_signals),
-        "interaction_count": len(interaction_signals),
-        "earnings_count": len(earnings_signals),
-        "dossier_updates": updated,
-    }
+    return {"survey": len(survey_signals), "interaction": len(interaction_signals),
+            "earnings": len(earnings_signals), "total": total, "updated": updated,
+            "msg": f"({today_str}) 调研{len(survey_signals)}+互动{len(interaction_signals)}+业绩{len(earnings_signals)}={total}只"}
+
+
+def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> dict:
+    from .base import daterange, fmt_iso
+
+    total_survey = 0
+    total_interaction = 0
+    total_earnings = 0
+    total_updated = 0
+    total_signals = 0
+    msgs = []
+    last_date = fmt_iso(until)
+
+    for d in daterange(since, until):
+        day = _process_one_day(d.isoformat())
+        total_survey += day["survey"]
+        total_interaction += day["interaction"]
+        total_earnings += day["earnings"]
+        total_signals += day["total"]
+        total_updated += day["updated"]
+        msgs.append(day["msg"])
+
+    msg = f"{len(msgs)}天: 调研{total_survey}+互动{total_interaction}+业绩{total_earnings}={total_signals}只({total_updated}存档)"
+    store.upsert_collect_status(SOURCE_NAME, last_date, "ok", msg, total_updated)
+    return {"last_date": last_date, "status": "ok", "message": msg,
+            "survey_count": total_survey, "interaction_count": total_interaction,
+            "earnings_count": total_earnings, "dossier_updates": total_updated}

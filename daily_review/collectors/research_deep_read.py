@@ -60,25 +60,17 @@ def _parse_json(text: str) -> dict:
         return {}
 
 
-def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> dict:
-    today_str = since.isoformat()
-
-    # 1. 检测信号
+def _process_one_day(today_str: str) -> dict:
     results = detect_signals(today_str)
     if not results:
-        return {
-            "last_date": today_str, "signal_count": 0, "llm_count": 0,
-            "dossier_count": 0, "status": "ok",
-            "message": "当日无研报信号",
-        }
+        return {"signal_count": 0, "llm_count": 0, "dossier_count": 0,
+                "msg": f"({today_str}) 无研报信号"}
 
-    # 2. 对有信号的个股触发 LLM
     llm_count = 0
     dossier_count = 0
 
     for r in results:
         if not r.get("trigger_llm"):
-            # 纯负面信号，仍存档但不跑LLM
             try:
                 upsert_stock_dossier(r)
                 dossier_count += 1
@@ -86,7 +78,6 @@ def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> di
                 print(f"  [WARN] 存档失败 {r['code']}: {e}")
             continue
 
-        # LLM 分析
         try:
             from roles import get_client, get_model
             client = get_client("deep", timeout=90)
@@ -102,7 +93,6 @@ def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> di
                 for rep in r.get("reports", [])[:5]
             )
 
-            # 下载研报正文（PDF → HTML 降级）
             report_text = "（研报正文暂不可用）"
             reports = r.get("reports", [])
             if reports:
@@ -149,17 +139,35 @@ def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> di
             r["investment_thesis"] = ""
             r["total_score"] = 0
 
-        # 3. 更新 Obsidian 档案
         try:
             upsert_stock_dossier(r)
             dossier_count += 1
         except Exception as e:
             print(f"  [WARN] 存档失败 {r['code']}: {e}")
 
-    msg = f"{len(results)} 只股票有信号, {llm_count} 只触发LLM, {dossier_count} 份档案更新"
-    store.upsert_collect_status(SOURCE_NAME, today_str, "ok", msg, dossier_count)
-    return {
-        "last_date": today_str, "signal_count": len(results),
-        "llm_count": llm_count, "dossier_count": dossier_count,
-        "status": "ok", "message": msg,
-    }
+    return {"signal_count": len(results), "llm_count": llm_count,
+            "dossier_count": dossier_count,
+            "msg": f"({today_str}) {len(results)}只有信号, {llm_count}只LLM, {dossier_count}份档案"}
+
+
+def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> dict:
+    from .base import daterange, fmt_iso
+
+    total_signals = 0
+    total_llm = 0
+    total_dossiers = 0
+    msgs = []
+    last_date = fmt_iso(until)
+
+    for d in daterange(since, until):
+        day = _process_one_day(d.isoformat())
+        total_signals += day["signal_count"]
+        total_llm += day["llm_count"]
+        total_dossiers += day["dossier_count"]
+        msgs.append(day["msg"])
+
+    msg = f"{len(msgs)}天: {total_signals}只有信号, {total_llm}只LLM, {total_dossiers}份档案"
+    store.upsert_collect_status(SOURCE_NAME, last_date, "ok", msg, total_dossiers)
+    return {"last_date": last_date, "signal_count": total_signals,
+            "llm_count": total_llm, "dossier_count": total_dossiers,
+            "status": "ok", "message": msg}

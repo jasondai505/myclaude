@@ -169,9 +169,13 @@ def run(since: date, until: date,
     added = store.save_wechat_articles(rows)
     progress(f"拉取 {len(raw)} 篇，窗口内 {len(rows)} 篇，新增 {added}")
 
-    today_str = fmt_iso(until)
-    today_rows = [r for r in rows if r["pub_date"][:10] == today_str]
-    _write_md(until, today_rows or rows)
+    # 按日期拆分写 MD
+    from .base import daterange
+    for d in daterange(since, until):
+        d_str = fmt_iso(d)
+        day_rows = [r for r in rows if r["pub_date"][:10] == d_str]
+        if day_rows:
+            _write_md(d, day_rows)
 
     status = "ok" if added >= 0 else "error"
     msg = f"拉取 {len(raw)} 篇，新增 {added}"

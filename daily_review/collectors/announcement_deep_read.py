@@ -20,43 +20,33 @@ from deep_read.obsidian_archive import write_obsidian_file
 SOURCE_NAME = "announcement_deep_read"
 
 
-def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> dict:
-    """主入口：对指定日期范围的公告执行深度研读。
-
-    返回: {"last_date": str, "stage1_count": int, "stage2_count": int, "saved_count": int, "status": str, "message": str}
-    """
-    store.init_feeds_tables()
-    today = since  # 公告深度研读按天处理
-
-    date_str = today.isoformat()
+def _process_one_day(date_str: str) -> dict:
+    """处理单日公告深度研读，返回 {stage1_count, stage2_count, saved_count, msg, raw_count}。"""
     stage1_count = 0
     stage2_count = 0
     saved_count = 0
+    raw_count = 0
 
-    # 1. 加载猎场缓存（首次运行或缓存过期时重建）
+    # 幂等：已处理过的日期跳过
+    conn = store.get_conn()
     try:
-        from deep_read.knowledge_base import load_hunting_ground
-        hg = load_hunting_ground()
-        if not hg:
-            from deep_read.knowledge_base import build_hunting_ground
-            hg = build_hunting_ground()
-    except Exception as e:
-        return {
-            "last_date": date_str, "stage1_count": 0, "stage2_count": 0,
-            "saved_count": 0, "status": "error",
-            "message": f"猎场缓存构建失败: {e}",
-        }
+        already = conn.execute(
+            "SELECT COUNT(*) FROM deep_read_results WHERE date = ?", (date_str,)
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    if already > 0:
+        return {"stage1_count": 0, "stage2_count": 0, "saved_count": 0,
+                "raw_count": 0, "msg": f"({date_str}) 已有{already}条结果，跳过"}
 
-    # 2. 从 SQLite 读取当日公告
     announcements = store.query_announcements(date_str)
     if not announcements:
-        return {
-            "last_date": date_str, "stage1_count": 0, "stage2_count": 0,
-            "saved_count": 0, "status": "ok",
-            "message": f"当日 ({date_str}) 无公告数据",
-        }
+        return {"stage1_count": 0, "stage2_count": 0, "saved_count": 0,
+                "raw_count": 0, "msg": f"({date_str}) 无公告数据"}
 
-    # 3. 补全股票名称（公告表 name 字段为空）
+    raw_count = len(announcements)
+
+    # 补全股票名称
     codes_needed = list({str(a.get("code", "")).zfill(6) for a in announcements})
     name_map = {}
     try:
@@ -66,7 +56,6 @@ def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> di
     except Exception:
         pass
 
-    # 4. 转换为硬筛选需要的格式（优先从缓存读取 PDF 正文）
     from pdf_utils import download_announcement_pdf
 
     raw_anns = []
@@ -88,32 +77,22 @@ def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> di
             "date": a.get("date", ""),
         })
 
-    # 4. Stage 1: 硬筛选
     qualified = stage1_filter(raw_anns)
     stage1_count = len(qualified)
 
     if not qualified:
-        return {
-            "last_date": date_str, "stage1_count": 0, "stage2_count": 0,
-            "saved_count": 0, "status": "ok",
-            "message": f"Stage 1 完成，{len(raw_anns)} 条公告中 0 条通过硬筛选",
-        }
+        return {"stage1_count": 0, "stage2_count": 0, "saved_count": 0,
+                "raw_count": raw_count, "msg": f"({date_str}) {raw_count}条公告→0条通过硬筛选"}
 
-    # 保存到 deep_read_queue
     store.save_deep_read_queue(qualified)
 
-    # 5. Stage 2: LLM 精读
     scored = deep_read_batch(qualified)
     stage2_count = len(scored)
 
     if not scored:
-        return {
-            "last_date": date_str, "stage1_count": stage1_count, "stage2_count": 0,
-            "saved_count": 0, "status": "ok",
-            "message": f"Stage 1 通过 {stage1_count} 条，Stage 2 全部失败或未达到阈值",
-        }
+        return {"stage1_count": stage1_count, "stage2_count": 0, "saved_count": 0,
+                "raw_count": raw_count, "msg": f"({date_str}) Stage1={stage1_count}, Stage2全部失败"}
 
-    # 6. 存档到 DB + Obsidian
     from config import DEEP_READ_RULES
     min_score = DEEP_READ_RULES.get("min_deep_read_score", 60)
 
@@ -122,7 +101,6 @@ def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> di
         event_type = "deep_read"
         ann_type = r.get("ann_type", "")
 
-        # 推断 event_type
         if "收购" in ann_type or "重组" in ann_type:
             event_type = "acquisition" if not r.get("chokepoint_key") else "chokepoint_acquisition"
         elif "业绩" in ann_type:
@@ -141,7 +119,6 @@ def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> di
             except Exception as e:
                 print(f"  [WARN] Obsidian 存档失败: {e}")
 
-        # 写入 catalyst_signals（深度研读结果作为催化剂信号）
         try:
             signal_id = f"dr_{r['code']}_{date_str}_{event_type}"
             store.save_catalyst_signals([{
@@ -167,7 +144,6 @@ def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> di
         except Exception as e:
             print(f"  [WARN] catalyst_signals 写入失败: {e}")
 
-        # 写入 deep_read_results
         try:
             store.save_deep_read_results([{
                 "date": date_str,
@@ -197,13 +173,49 @@ def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> di
         except Exception as e:
             print(f"  [WARN] deep_read_results 保存失败: {e}")
 
-    msg = (
-        f"{len(raw_anns)} 条公告 → Stage 1 通过 {stage1_count} 条 → "
-        f"Stage 2 完成 {stage2_count} 条 → 存档 {saved_count} 条"
-    )
-    store.upsert_collect_status(SOURCE_NAME, date_str, "ok", msg, saved_count)
-    return {
-        "last_date": date_str, "stage1_count": stage1_count,
-        "stage2_count": stage2_count, "saved_count": saved_count,
-        "status": "ok", "message": msg,
-    }
+    return {"stage1_count": stage1_count, "stage2_count": stage2_count,
+            "saved_count": saved_count, "raw_count": raw_count,
+            "msg": f"({date_str}) {raw_count}条→S1={stage1_count}→S2={stage2_count}→存档{saved_count}条"}
+
+
+def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> dict:
+    """主入口：对指定日期范围的公告执行深度研读，遍历每一天。"""
+    store.init_feeds_tables()
+
+    # 加载猎场缓存（所有日期共享）
+    try:
+        from deep_read.knowledge_base import load_hunting_ground
+        hg = load_hunting_ground()
+        if not hg:
+            from deep_read.knowledge_base import build_hunting_ground
+            hg = build_hunting_ground()
+    except Exception as e:
+        return {"last_date": fmt_iso(until), "stage1_count": 0, "stage2_count": 0,
+                "saved_count": 0, "status": "error", "message": f"猎场缓存构建失败: {e}"}
+
+    from .base import daterange, fmt_iso
+
+    days = list(daterange(since, until))
+    if not days:
+        days = [since]
+
+    total_stage1 = 0
+    total_stage2 = 0
+    total_saved = 0
+    total_raw = 0
+    msgs = []
+    last_date = fmt_iso(days[-1])
+
+    for d in days:
+        day_result = _process_one_day(d.isoformat())
+        total_raw += day_result["raw_count"]
+        total_stage1 += day_result["stage1_count"]
+        total_stage2 += day_result["stage2_count"]
+        total_saved += day_result["saved_count"]
+        msgs.append(day_result["msg"])
+
+    msg = f"{len(days)}天: {total_raw}条公告→S1={total_stage1}→S2={total_stage2}→存档{total_saved}条 | {'; '.join(msgs[-3:])}"
+    store.upsert_collect_status(SOURCE_NAME, last_date, "ok", msg, total_saved)
+    return {"last_date": last_date, "stage1_count": total_stage1,
+            "stage2_count": total_stage2, "saved_count": total_saved,
+            "status": "ok", "message": msg}

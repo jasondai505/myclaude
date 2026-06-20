@@ -74,7 +74,17 @@ def run(since: date, until: date,
     verdict = result.get("verdict")
 
     if posts_data:
-        _write_md(until, posts_data, verdict)
+        from .base import daterange
+        # 按创建日期分组写 MD
+        by_date: dict[str, list] = {}
+        for p in posts_data:
+            d = p.get("created_at", "")[:10] or fmt_iso(until)
+            by_date.setdefault(d, []).append(p)
+
+        for d in daterange(since, until):
+            d_str = fmt_iso(d)
+            if d_str in by_date:
+                _write_md(d, by_date[d_str], verdict)
         msg = f"新帖 {len(posts_data)} 条"
         status = "ok"
     else:

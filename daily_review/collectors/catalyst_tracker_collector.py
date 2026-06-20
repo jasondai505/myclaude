@@ -20,7 +20,7 @@ SOURCE_NAME = "catalyst_tracker"
 
 def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> dict:
     """盘后调用 catalyst_tracker.track() 并记录状态。"""
-    today = since.isoformat()
+    today = until.isoformat()
     store.init_feeds_tables()
 
     try:
