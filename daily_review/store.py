@@ -1758,6 +1758,25 @@ def init_feed_cache_table():
         """)
 
 
+def is_llm_processed(source: str, date_str: str, pipeline: str) -> bool:
+    with _conn() as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS llm_processed (source TEXT, process_date TEXT, pipeline TEXT, completed_at TEXT, PRIMARY KEY (source, process_date, pipeline))")
+        row = conn.execute(
+            "SELECT 1 FROM llm_processed WHERE source=? AND process_date=? AND pipeline=?",
+            (source, date_str, pipeline),
+        ).fetchone()
+        return row is not None
+
+
+def mark_llm_processed(source: str, date_str: str, pipeline: str):
+    with _conn() as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS llm_processed (source TEXT, process_date TEXT, pipeline TEXT, completed_at TEXT, PRIMARY KEY (source, process_date, pipeline))")
+        conn.execute(
+            "INSERT OR IGNORE INTO llm_processed VALUES (?, ?, ?, ?)",
+            (source, date_str, pipeline, datetime.now().isoformat()),
+        )
+
+
 def save_feed_cache(source: str, date_str: str, content: str) -> bool:
     if not content or not content.strip():
         return False
