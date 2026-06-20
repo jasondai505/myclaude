@@ -4,6 +4,38 @@
 
 ---
 
+## 2026-06-20 架构大重构
+
+### 完成项 (10 commits)
+- feeds/ 553 文件 → 20 子目录 + feed_index 7 大类折叠 `597678c`
+- 流水线：执行锁 + depends_on 失败阻断 + 通知日志 + 日志30天轮转 `7bb9ef5`
+- config.py 11213→464 行：4 大字典惰性加载 JSON `9da0507`
+- store.py WAL + foreign_keys + 版本化迁移框架 `9da0507`
+- data.py 1819→3 行：data/ 包结构 `a73f99f`
+- 线程泄漏修复：_run_with_timeout → ThreadPoolExecutor `9676cdf`
+- LLM 缓存基础设施：llm_cache.py + roles.cached_create() `9676cdf`
+- 密钥外提：config.py → .env `9676cdf`
+- 重试指数退避 + jitter `9676cdf` + RateLimiter 统一限速
+- PHASE 日期驱动自动切换 + DB 大小监控 + RSS 6h `f88cff7`
+- F轨市值分层：大盘≤2 中盘≤2 小盘≥1 `e176cdb`
+- G2 催化去重 prompt 修正 `890d577`
+- LLM 管线去重：llm_processed 追踪表 `4ac5bb4`
+- 三份审计文档：架构图谱 / 代码审计 / 逻辑架构功能审计
+
+### 踩坑
+- Edit 工具对 Tab 缩进文件匹配敏感，用 Python 脚本 patch 更可靠
+- File has been modified since read → 需要 Read 后立即 Edit
+- .env.example 被 .env.* 规则误杀，需 git add -f
+- `reports/` 在 .gitignore，dashboard/feed_index 不能 git add
+- 探索 Agent 审计可能出现误报（engine_focus/emerging_dragon 实际被 run.py 调用，单主因归因实际已正确）
+- 理杏仁并行化因 Tab 缩进问题中途放弃（revert 了文件），下次用 Write 工具重写整个函数
+
+### 下次会话建议
+- 走势归因分析（最大功能缺口）：`engine_attribution.py` — 个股涨跌 α/β/γ 分解
+- 盘前建议仓位管理：止损线、仓位比例、行业集中度
+- 理杏仁并行化：用 Write 重写 `fetch_financial_indicators_lixinger`
+- 行业双表合并：`industry_reports` + `industry_research` → 单表
+
 ## LLM 输出全链路校验体系建设 (2026-06-17)
 
 ### 背景
