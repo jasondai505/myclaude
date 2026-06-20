@@ -5,6 +5,7 @@ Obsidian 中可用 Homepage 插件设为首页，或固定标签页。
 """
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -658,6 +659,190 @@ def _render_output_checklist(w, today_str: str = ""):
     w("")
 
 
+def _aggregate_signals(dr: dict) -> dict:
+    """聚合 deep_read + catalyst_signals + research dossiers → 深度分析/初步关注两级。"""
+    today = date.today()
+    week_ago = today - timedelta(days=7)
+    scores: dict[str, dict] = {}
+
+    def _ensure(code, name=""):
+        code = str(code).zfill(6)
+        if code not in scores:
+            scores[code] = {"code": code, "name": name, "dr_max": 0, "cat_max": 0,
+                            "dossier_stars": "", "dossier_score": 0,
+                            "latest_signal": "", "latest_date": ""}
+
+    # 1. deep_read_results (>=60)
+    try:
+        with store._conn() as conn:
+            rows = conn.execute(
+                "SELECT code, name, MAX(total_score) as ms, event_type, investment_thesis, date "
+                "FROM deep_read_results WHERE date >= ? AND total_score >= 60 "
+                "GROUP BY code ORDER BY ms DESC LIMIT 50",
+                (week_ago.isoformat(),),
+            ).fetchall()
+        for r in rows:
+            _ensure(r["code"], r["name"])
+            scores[r["code"]]["dr_max"] = r["ms"]
+            if r["date"] > scores[r["code"]]["latest_date"]:
+                scores[r["code"]]["latest_date"] = r["date"]
+                scores[r["code"]]["latest_signal"] = f"[{r['event_type']}] {r['investment_thesis'][:40] if r['investment_thesis'] else r['code']}"
+    except Exception:
+        pass
+
+    # 2. catalyst_signals (>=40)
+    try:
+        with store._conn() as conn:
+            rows = conn.execute(
+                "SELECT mentioned_codes, MAX(actionability) as ms, catalyst_type, thesis, date "
+                "FROM catalyst_signals WHERE date >= ? AND actionability >= 40 "
+                "GROUP BY mentioned_codes ORDER BY ms DESC LIMIT 50",
+                (week_ago.isoformat(),),
+            ).fetchall()
+        for r in rows:
+            code = str(r["mentioned_codes"] or "").zfill(6)
+            if len(code) != 6:
+                continue
+            _ensure(code)
+            scores[code]["cat_max"] = max(scores[code]["cat_max"], r["ms"])
+            if r["date"] > scores[code]["latest_date"]:
+                scores[code]["latest_date"] = r["date"]
+                scores[code]["latest_signal"] = f"[{r['catalyst_type']}] {r['thesis'][:40] if r['thesis'] else ''}"
+    except Exception:
+        pass
+
+    # 3. research dossiers (star rating)
+    d = REPORT_DIR / "research_dossiers"
+    if d.exists():
+        for fp in d.glob("*.md"):
+            if fp.name == "README.md":
+                continue
+            try:
+                text = fp.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            raw, _, plain_stars = _score_dossier(text, "")
+            code = fp.stem[:6]
+            _ensure(code)
+            if raw >= 30:
+                scores[code]["dossier_stars"] = plain_stars
+                scores[code]["dossier_score"] = raw
+                try:
+                    import re as re2
+                    dates = re2.findall(r"### (\d{4}-\d{2}-\d{2})", text)
+                    dates += re2.findall(r"## .+ \((\d{4}-\d{2}-\d{2})\)", text)
+                    if dates:
+                        max_d = max(dates)
+                        if max_d > scores[code]["latest_date"]:
+                            scores[code]["latest_date"] = max_d
+                            sig_m = re2.search(rf"{max_d}.*?\n- \[(\w+)\]\s*(.+?)(?:\s*\([+-]?\d+分\))?\s*$", text, re2.MULTILINE)
+                            if not sig_m:
+                                blocks = text.split(f"({max_d})")
+                                sig_m = re2.search(r"- \[(\w+)\]\s*(.+?)(?:\([+-]?\d+分\))?\s*$", blocks[-1] if len(blocks) > 1 else text, re2.MULTILINE)
+                            if sig_m:
+                                scores[code]["latest_signal"] = f"[{sig_m.group(1)}] {sig_m.group(2)[:40]}"
+                except Exception:
+                    pass
+
+    # 补全名称（优先本地缓存，再查 DB/API）
+    codes_need_name = [c for c, s in scores.items() if not s["name"]]
+    if codes_need_name:
+        name_map = {}
+        # 1. 本地 stock_codes.json 缓存（最快最可靠）
+        try:
+            import json
+            cache = json.loads(Path("data/stock_codes.json").read_text(encoding="utf-8"))
+            for item in cache.get("codes", []):
+                name_map[item["code"]] = item["name"]
+        except Exception:
+            pass
+        # 2. 从 research dossiers frontmatter 补
+        for code in codes_need_name:
+            if code in name_map and name_map[code]:
+                continue
+            try:
+                fp = d / f"{code}.md"
+                if fp.exists():
+                    text = fp.read_text(encoding="utf-8")
+                    nm = re.search(r'^name:\s*"?(.+?)"?\s*$', text, re.MULTILINE)
+                    if nm:
+                        name_map[code] = nm.group(1).strip()
+            except Exception:
+                pass
+        for code in codes_need_name:
+            if code in name_map and name_map[code]:
+                scores[code]["name"] = name_map[code]
+
+    # 计算复合分：deep_read * 1.0 + catalyst * 0.8 + dossier * 0.6
+    for s in scores.values():
+        s["total"] = int(s["dr_max"] * 1.0 + s["cat_max"] * 0.8 + s["dossier_score"] * 0.6)
+        if not s["name"]:
+            s["name"] = ""
+
+    ranked = sorted(scores.values(), key=lambda x: -x["total"])
+
+    deep = [s for s in ranked if s["total"] >= 100]
+    watch = [s for s in ranked if 50 <= s["total"] < 100]
+
+    return {"deep": deep[:15], "watch": watch[:15]}
+
+
+def _hot_themes() -> list[dict]:
+    """统计本周 catalyst_signals 中的主题热度（按 catalyst_type + thesis 关键词聚合）。"""
+    week_ago = (date.today() - timedelta(days=7)).isoformat()
+    themes: dict[str, dict] = {}
+
+    try:
+        with store._conn() as conn:
+            rows = conn.execute(
+                "SELECT catalyst_type, thesis, mentioned_codes FROM catalyst_signals "
+                "WHERE date >= ? AND actionability >= 30",
+                (week_ago,),
+            ).fetchall()
+    except Exception:
+        return []
+
+    import re
+    for r in rows:
+        ctype = r["catalyst_type"] or "other"
+        thesis = r["thesis"] or ""
+
+        # 提取核心关键词（特异性优先，排除噪音标签）
+        keywords = []
+        for kw in ["PCB", "MLCC", "AI芯片", "GPU", "HBM", "算力", "存储", "液冷", "光模块",
+                    "CPO", "先进封装", "半导体设备", "半导体材料", "碳化硅", "覆铜板",
+                    "断供", "缺货", "需求暴", "供不应求", "产能扩张", "涨价",
+                    "新能源", "锂电", "光伏", "储能", "机器人", "军工", "航天",
+                    "邮轮", "VLCC", "航运", "稀土", "钨", "锑", "铟",
+                    "收购", "重组", "跨界", "技术突破", "业绩暴", "股权激励",
+                    "政策", "减持", "华为", "特斯拉", "比亚迪", "宁德"]:
+            if kw in thesis or kw in ctype:
+                keywords.append(kw)
+
+        theme = keywords[0] if keywords else ctype
+        # 过滤无意义关键字
+        if theme in ("订单", "deep_read", "—", "other"):
+            theme = ctype if ctype not in ("deep_read", "other", "—") else keywords[1] if len(keywords) > 1 else "综合"
+        if theme not in themes:
+            themes[theme] = {"theme": theme, "count": 0, "top_type": ctype, "stocks": set()}
+
+        themes[theme]["count"] += 1
+        if r["mentioned_codes"]:
+            for code in str(r["mentioned_codes"]).split(",")[:2]:
+                code = code.strip()
+                if re.match(r"\d{6}", code):
+                    themes[theme]["stocks"].add(code)
+
+    result = []
+    for t in themes.values():
+        t["stocks"] = " ".join(list(t["stocks"])[:3])
+        t["heat"] = min(t["count"] // 3 + 1, 3)
+        result.append(t)
+
+    result.sort(key=lambda x: -x["count"])
+    return result
+
+
 def generate(today_str: str = "") -> str:
     now_ts = datetime.now().strftime("%Y-%m-%d %H:%M")
     today = today_str or date.today().isoformat()
@@ -752,6 +937,52 @@ def generate(today_str: str = "") -> str:
     else:
         w("✅ 全部采集源正常，无异常。")
     w()
+
+    # === 多维度信号聚合 — 值得分析 ===
+    w("## 🎯 值得关注的标的")
+    w()
+    signals = _aggregate_signals(dr)
+    if signals["deep"] or signals["watch"]:
+        w("### 🔬 建议深度分析")
+        w()
+        w("| 代码 | 名称 | 信号分 | 公告深研 | 催化 | 档案 | 最新信号 |")
+        w("|------|------|:-----:|:------:|:---:|:---:|---------|")
+        for s in signals["deep"]:
+            dr_score = s.get("dr_max", 0)
+            cat_score = s.get("cat_max", 0)
+            star = s.get("dossier_stars", "")
+            w(f"| {s['code']} | {s['name']} | **{s['total']}** | "
+              f"{'✅'+str(dr_score) if dr_score else '—'} | "
+              f"{'🔥'+str(cat_score) if cat_score else '—'} | "
+              f"{star or '—'} | {s['latest_signal'][:30]} |")
+        w()
+        w("### 👀 建议初步关注")
+        w()
+        w("| 代码 | 名称 | 信号分 | 公告深研 | 催化 | 档案 | 最新信号 |")
+        w("|------|------|:-----:|:------:|:---:|:---:|---------|")
+        for s in signals["watch"]:
+            dr_score = s.get("dr_max", 0)
+            cat_score = s.get("cat_max", 0)
+            star = s.get("dossier_stars", "")
+            w(f"| {s['code']} | {s['name']} | {s['total']} | "
+              f"{'✅'+str(dr_score) if dr_score else '—'} | "
+              f"{'🔥'+str(cat_score) if cat_score else '—'} | "
+              f"{star or '—'} | {s['latest_signal'][:30]} |")
+        w()
+    else:
+        w("_本周暂无强信号标的_")
+        w()
+
+    # 行业/主题信号热度
+    hot = _hot_themes()
+    if hot:
+        w("### 🔥 信号热度 TOP 主题")
+        w()
+        w("| 热度 | 主题 | 信号数 | 催化类型 | 代表标的 |")
+        w("|:----:|------|:-----:|---------|---------|")
+        for h in hot[:10]:
+            w(f"| {'⭐'*min(h['heat'],3)} | {h['theme']} | {h['count']} | {h['top_type']} | {h['stocks']} |")
+        w()
 
     # === 本周趋势 ===
     w("## 📈 本周公告深研趋势")
