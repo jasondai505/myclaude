@@ -137,7 +137,7 @@ if __name__ == "__main__":
     review_path = REPORT_DIR / "review" / f"review_{target.isoformat()}.md"
     md = generate(review_path, target.isoformat())
 
-    out = FEEDS_DIR / f"review_summary_{target.isoformat()}.md"
+    out = FEEDS_DIR / "review_summary" / f"review_summary_{target.isoformat()}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(md, encoding="utf-8")
     print(f"  -> {out}  ({len(md)} chars)")

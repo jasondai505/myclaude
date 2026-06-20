@@ -85,7 +85,10 @@ def with_retry(retries: int = 2, delay: float = 1.0, on_fail=None):
 
 
 def feed_md_path(source: str, d: date) -> Path:
-    return FEEDS_DIR / f"{source}_{fmt_iso(d)}.md"
+    """feeds/{source}/{source}_{date}.md — 按来源分目录，Obsidian 可折叠"""
+    subdir = FEEDS_DIR / source
+    subdir.mkdir(parents=True, exist_ok=True)
+    return subdir / f"{source}_{fmt_iso(d)}.md"
 
 
 def md_header(title: str, d: date, count: int, universe_size: int) -> list[str]:

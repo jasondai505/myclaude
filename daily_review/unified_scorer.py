@@ -519,7 +519,7 @@ def score_from_feeds(date_str: str = "") -> tuple[list[dict], list[dict]]:
     feeds_dir = BASE / "reports" / "feeds"
 
     codes_found: set[str] = set()
-    for pattern in ["zsxq_*.md", "news_*.md", "announcements_*.md", "industry_*.md"]:
+    for pattern in ["zsxq/zsxq_*.md", "news/news_*.md", "announcements/announcements_*.md", "industry/industry_*.md"]:
         for f in sorted(feeds_dir.glob(pattern)):
             if d in f.name:
                 try:
@@ -529,7 +529,7 @@ def score_from_feeds(date_str: str = "") -> tuple[list[dict], list[dict]]:
                     pass
 
     for stem in ["recap", "review_summary"]:
-        path = feeds_dir / f"{stem}_{d}.md"
+        path = feeds_dir / stem / f"{stem}_{d}.md"
         if path.exists():
             try:
                 text = path.read_text(encoding="utf-8")

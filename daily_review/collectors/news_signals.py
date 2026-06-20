@@ -51,7 +51,7 @@ _SIGNAL_PROMPT = """你是A股研究员。从以下个股新闻列表中，只�
 
 def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> dict:
     today = since.isoformat()
-    feed_path = FEEDS_DIR / f"news_{today}.md"
+    feed_path = FEEDS_DIR / "news" / f"news_{today}.md"
     if not feed_path.exists():
         return {"last_date": today, "status": "skip",
                 "message": f"news_{today}.md 未生成，跳过", "signal_count": 0}
@@ -84,7 +84,7 @@ def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> di
             unique.append(s)
 
     # 写输出
-    out_path = FEEDS_DIR / f"news_signals_{today}.md"
+    out_path = FEEDS_DIR / "news_signals" / f"news_signals_{today}.md"
     _write_signals_md(out_path, unique, today)
     store.upsert_collect_status(SOURCE_NAME, today, "ok",
                                 f"{len(unique)}条边际信号/{len(items)}条新闻", len(unique))
@@ -174,4 +174,5 @@ def _write_signals_md(path: Path, signals: list[dict], today: str):
                 f"{s.get('confidence','')} |"
             )
     buf.append("")
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(buf), encoding="utf-8")

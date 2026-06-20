@@ -178,7 +178,7 @@ def check_engines():
     engines = [
         ("催化筛查", f"daily_review/reports/catalyst/catalyst_screen_{today.isoformat()}.md", True),
         ("催化跟踪", f"daily_review/reports/catalyst/catalyst_track_{today.isoformat()}.md", False),
-        ("四源交叉", f"daily_review/reports/feeds/primary_synthesis_{today.isoformat()}.md", True),
+        ("四源交叉", f"daily_review/reports/feeds/primary_synthesis/primary_synthesis_{today.isoformat()}.md", True),
         ("公众号分析", f"daily_review/reports/wechat_analysis/wechat_analysis_{today.isoformat()}.md", True),
         ("星球分析", f"daily_review/reports/zsxq_analysis/zsxq_analysis_{today.isoformat()}.md", True),
         ("边际变化", f"daily_review/reports/marginal/marginal_{today.isoformat()}.md", True),

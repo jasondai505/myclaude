@@ -262,7 +262,7 @@ def _inject_feeds(today: str, yesterday: str) -> dict[str, str]:
             cached = store.get_feed_cache(stem, date_str)
             if cached:
                 return cached
-        path = FEEDS_DIR / f"{stem}_{date_str}.md"
+        path = FEEDS_DIR / stem / f"{stem}_{date_str}.md"
         if path.exists():
             return path.read_text(encoding="utf-8")
         return None
@@ -431,7 +431,7 @@ def _extract_codes_from_feeds(feeds: dict[str, str]) -> set[str]:
     name_map = data._load_name_to_code_map()
     if name_map:
         for stem in ["zsxq", "wechat", "jiuyang"]:
-            path = FEEDS_DIR / f"{stem}_{today}.md"
+            path = FEEDS_DIR / stem / f"{stem}_{today}.md"
             if not path.exists():
                 continue
             try:

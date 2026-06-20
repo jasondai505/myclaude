@@ -204,7 +204,7 @@ if __name__ == "__main__":
     perf = _get_performance(stocks, target.isoformat())
     md = _generate_recap(perf, advice_date, target.isoformat())
 
-    recap_path = FEEDS_DIR / f"recap_{target.isoformat()}.md"
+    recap_path = FEEDS_DIR / "recap" / f"recap_{target.isoformat()}.md"
     recap_path.parent.mkdir(parents=True, exist_ok=True)
     recap_path.write_text(md, encoding="utf-8")
     print(f"  -> {recap_path}")

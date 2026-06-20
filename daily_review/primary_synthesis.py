@@ -38,11 +38,12 @@ _ZSXQ_ANALYSIS_PREFIX = "zsxq_analysis"
 
 def _read_zsxq(target_date: str) -> str:
     """优先读星球两阶段分析结果，回退 raw feed。"""
-    analysis_path = FEEDS_DIR / f"{_ZSXQ_ANALYSIS_PREFIX}_{target_date}.md"
+    pfx = _ZSXQ_ANALYSIS_PREFIX
+    analysis_path = FEEDS_DIR / pfx / f"{pfx}_{target_date}.md"
     if analysis_path.exists():
         return analysis_path.read_text(encoding="utf-8")[:MAX_CHARS_PER_SOURCE]
     prev = date.fromisoformat(target_date) - timedelta(days=1)
-    analysis_path = FEEDS_DIR / f"{_ZSXQ_ANALYSIS_PREFIX}_{prev.isoformat()}.md"
+    analysis_path = FEEDS_DIR / pfx / f"{pfx}_{prev.isoformat()}.md"
     if analysis_path.exists():
         return analysis_path.read_text(encoding="utf-8")[:MAX_CHARS_PER_SOURCE]
     return _read_source("zsxq", target_date)
@@ -116,11 +117,11 @@ def _load_api_key() -> str:
 
 
 def _read_source(stem: str, target_date: str) -> str:
-    path = FEEDS_DIR / f"{stem}_{target_date}.md"
+    path = FEEDS_DIR / stem / f"{stem}_{target_date}.md"
     if path.exists():
         return path.read_text(encoding="utf-8")[:MAX_CHARS_PER_SOURCE]
     prev = date.fromisoformat(target_date) - timedelta(days=1)
-    path = FEEDS_DIR / f"{stem}_{prev.isoformat()}.md"
+    path = FEEDS_DIR / stem / f"{stem}_{prev.isoformat()}.md"
     if path.exists():
         return path.read_text(encoding="utf-8")[:MAX_CHARS_PER_SOURCE]
     return ""
@@ -193,7 +194,7 @@ def _call_haiku(prompt: str) -> dict | None:
 
 
 def _write_report(data: dict, target_date: str) -> Path:
-    path = FEEDS_DIR / f"primary_synthesis_{target_date}.md"
+    path = FEEDS_DIR / "primary_synthesis" / f"primary_synthesis_{target_date}.md"
     buf = [
         f"# 四源交叉验证 {target_date}",
         "",
@@ -264,6 +265,7 @@ def _write_report(data: dict, target_date: str) -> Path:
             )
         buf.append("")
 
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(buf), encoding="utf-8")
     return path
 

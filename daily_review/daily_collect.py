@@ -87,6 +87,17 @@ SOURCE_LABELS = {
     "jiuyang": "韭研脱水研报",
     "weibo": "唐史主任微博",
 }
+# === Feed 索引分类 ===
+FEED_INDEX_CATEGORIES = [
+    ("📄 公告", ["announcements", "announcement_deep_read"]),
+    ("📊 研报", ["research", "research_deep_read"]),
+    ("🔍 调研+互动", ["surveys", "sentiment_track", "interactions"]),
+    ("📈 业绩+新闻", ["earnings", "news", "news_signals"]),
+    ("🏭 行业", ["industry", "industry_deep_read"]),
+    ("💬 社交信息源", ["wechat", "weibo", "zsxq", "jiuyang"]),
+    ("📡 跟踪+数据", ["catalyst_tracker", "lockups", "eps", "financials"]),
+]
+
 
 SOURCE_TABLE = {
     "zsxq": ("zsxq_topics", "create_time"),
@@ -203,29 +214,45 @@ def _write_index():
 
     buf.append(f"## 今日 ({today_str}) 各源报告")
     buf.append("")
-    for src in ALL_SOURCES.keys():
-        label = SOURCE_LABELS.get(src, src)
-        fp = FEEDS_DIR / f"{src}_{today_str}.md"
-        if fp.exists():
-            buf.append(f"- [{label}](feeds/{src}_{today_str}.md)")
-        else:
-            buf.append(f"- {label}: _今日未生成_")
+    today_found = False
+    for cat_label, cat_sources in FEED_INDEX_CATEGORIES:
+        for src in cat_sources:
+            if src not in ALL_SOURCES:
+                continue
+            label = SOURCE_LABELS.get(src, src)
+            fp = FEEDS_DIR / src / f"{src}_{today_str}.md"
+            if fp.exists():
+                buf.append(f"- [{label}](feeds/{src}/{src}_{today_str}.md)")
+                today_found = True
+    if not today_found:
+        buf.append("_今日暂无数据_")
     buf.append("")
 
     buf.append("## 最近 7 天报告")
     buf.append("")
-    for src in ALL_SOURCES.keys():
-        label = SOURCE_LABELS.get(src, src)
-        buf.append(f"### {label}")
-        for i in range(7):
-            d = date.today() - timedelta(days=i)
-            fp = FEEDS_DIR / f"{src}_{fmt_iso(d)}.md"
-            if fp.exists():
-                buf.append(f"- [{fmt_iso(d)}](feeds/{src}_{fmt_iso(d)}.md)")
+    for cat_label, cat_sources in FEED_INDEX_CATEGORIES:
+        buf.append(f"### {cat_label}")
+        buf.append("")
+        for src in cat_sources:
+            if src not in ALL_SOURCES:
+                continue
+            label = SOURCE_LABELS.get(src, src)
+            links = []
+            for i in range(7):
+                d = date.today() - timedelta(days=i)
+                fp = FEEDS_DIR / src / f"{src}_{fmt_iso(d)}.md"
+                if fp.exists():
+                    links.append(f"[{fmt_iso(d)}](feeds/{src}/{src}_{fmt_iso(d)}.md)")
+            if links:
+                sep = " · "
+                buf.append(f"- **{label}**: {sep.join(links)}")
+            else:
+                buf.append(f"- **{label}**: _—")
         buf.append("")
 
-    path.write_text("\n".join(buf), encoding="utf-8")
-    print(f"\n📋 索引页: {path}")
+    path.write_text(chr(10).join(buf), encoding="utf-8")
+    print(chr(10) + "📋 索引页: " + str(path))
+
 
 
 COLLECTOR_TIMEOUTS = {
@@ -325,8 +352,9 @@ def main():
     cached = 0
     for src in sources:
         for d in daterange(since, until):
-            fp = FEEDS_DIR / f"{src}_{fmt_iso(d)}.md"
+            fp = FEEDS_DIR / src / f"{src}_{fmt_iso(d)}.md"
             if fp.exists():
+
                 content = fp.read_text(encoding="utf-8")
                 if store.save_feed_cache(src, fmt_iso(d), content):
                     cached += 1
@@ -362,4 +390,3 @@ def _build_theme_index():
 
 if __name__ == "__main__":
     main()
-
