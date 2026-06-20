@@ -1,11 +1,12 @@
 """每日复盘系统 - 分析引擎（re-export facade）
 所有实现已拆分到子模块：
-  engine_market   — 大盘/风格/行业/北向/外围
-  engine_themes   — 题材词频/分级/三池合并/审美
-  engine_sentiment — 情绪面/连板梯队/逻辑情绪四维分类
-  engine_stocks   — 个股扫描/基本面/FEV三脚凳
-  engine_advice   — 交易建议生成
-  engine_focus    — 聚焦池/综合评分
+  engine_market       — 大盘/风格/行业/北向/外围
+  engine_themes       — 题材词频/分级/三池合并/审美
+  engine_sentiment    — 情绪面/连板梯队/逻辑情绪四维分类
+  engine_stocks       — 个股扫描/基本面/FEV三脚凳
+  engine_advice       — 交易建议生成
+  engine_focus        — 聚焦池/综合评分
+  engine_attribution  — 走势归因 α/β/γ 分解
 """
 from engine_market import (
     analyze_market, analyze_style, analyze_sectors,
@@ -28,4 +29,7 @@ from engine_advice import generate_suggestions
 from utils import extract_rsi as _extract_rsi
 from engine_focus import (
     build_focus_pool, compute_composite_score,
+)
+from engine_attribution import (
+    attribute_return, attribute_batch, format_report,
 )

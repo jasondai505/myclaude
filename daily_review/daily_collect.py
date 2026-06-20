@@ -113,7 +113,7 @@ SOURCE_TABLE = {
     "sentiment_track": ("inst_survey", "notice_date"),
     "lockups": ("lockups", "release_date"),
     "eps": ("eps_forecast", "fetched_at"),
-    "industry": ("industry_research", "publish_date"),
+    "industry": ("industry_reports", "report_date"),
     "industry_deep_read": ("industry_reports", "fetched_at"),
     "catalyst_tracker": ("catalyst_signals", "created_at"),
     "financials": ("financial_indicators", "fetched_at"),

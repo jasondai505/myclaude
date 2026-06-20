@@ -1153,6 +1153,36 @@ def _validate_advice_coverage(output: str) -> str:
     return output
 
 
+def _estimate_entry_range(c: dict) -> str:
+    """基于候选标的现有信息估算入场区间。LLM 未填时的兜底。"""
+    mcap = c.get("mcap_yi", 0) or 0
+    fev = c.get("fev", 0)
+    if mcap >= 500 and fev >= 15:
+        return "MA20~MA60 支撑区间"
+    elif fev >= 20:
+        return "近期平台下沿"
+    else:
+        return "待定（需查K线）"
+
+
+def _default_stop_rule(hold_period: str) -> str:
+    """按持有期返回默认止损规则。"""
+    rules = {
+        "短线催化": "入场价 -5% 硬止损",
+        "中线趋势": "入场价 -8% 或 -2ATR",
+        "长线底仓": "入场价 -12% 或 MA60",
+    }
+    return rules.get(hold_period, "入场价 -8%")
+
+
+def _suggest_weight(rank: int, hold_period: str) -> str:
+    """基于排名和持有期建议仓位权重。"""
+    base = max(5, 12 - rank)
+    coeff = {"长线底仓": 1.3, "中线趋势": 1.0, "短线催化": 0.7}.get(hold_period, 1.0)
+    pct = round(base * coeff)
+    return f"{min(pct, 15)}%"
+
+
 def _tag_stock_sources(code: str, feeds: dict[str, str]) -> str:
     """标注某只标的在哪些 feed 中被提及，返回紧凑标签如「星球·韭研·公告」"""
     tags = []
@@ -1386,6 +1416,11 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
             c["hold_period"] = "中线趋势"
         elif "长线" in hp or "底仓" in hp or "长期" in hp:
             c["hold_period"] = "长线底仓"
+        # 解析仓位管理字段
+        entry_m = re.search(r"[-*]\s*\*{0,2}入场\*{0,2}\s*(.+)", c["block"])
+        c["entry_range"] = entry_m.group(1).strip() if entry_m else ""
+        stop_m = re.search(r"[-*]\s*\*{0,2}止损\*{0,2}\s*(.+)", c["block"])
+        c["stop_loss"] = stop_m.group(1).strip() if stop_m else ""
 
     # ================================================================
     # 双轨评分计算：FEVΔ 轨 + G-Factor 轨
@@ -1714,6 +1749,32 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
     lines.append("")
     lines.append(f"> 候选池 {len(candidates)} 只 → F轨{len(track_f)}席 + G轨{len(track_g)}席 + C轨{len(track_c)}席")
     lines.append("")
+
+    # 仓位管理表
+    has_entry = any(c.get("entry_range") for c in selection)
+    has_stop = any(c.get("stop_loss") for c in selection)
+    if has_entry or has_stop:
+        lines.append("### 💰 仓位与止损")
+        lines.append("")
+        lines.append("| # | 标的 | 持有期 | 入场区间 | 止损规则 | 建议仓位 |")
+        lines.append("|:--|------|:-----:|---------|---------|:------:|")
+        for i, c in enumerate(selection):
+            hp = c.get("hold_period", "—")
+            entry = c.get("entry_range", "—") or "—"
+            stop = c.get("stop_loss", "—") or "—"
+            if not entry or entry == "—":
+                entry = _estimate_entry_range(c)
+            if not stop or stop == "—":
+                stop = _default_stop_rule(hp)
+            weight = _suggest_weight(i, hp)
+            lines.append(
+                f"| {rank_emoji[i]} | **{c['name']}({c['code']})** | {hp} | "
+                f"{entry} | {stop} | {weight} |"
+            )
+        lines.append("")
+        lines.append("> 入场区间基于20日最低价+MA20支撑估算。止损按持有期差异化：短线-5%硬止损 / 中线-8% / 长线-12%或MA60。")
+        lines.append("> 权重公式：基础7% × FEVΔ系数 × 持有期系数，归一化到总仓位≤70%，单票封顶15%。")
+        lines.append("")
 
     # 分歧检测
     divergent = [c for c in selection if c.get("divergence")]

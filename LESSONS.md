@@ -31,10 +31,10 @@
 - 理杏仁并行化因 Tab 缩进问题中途放弃（revert 了文件），下次用 Write 工具重写整个函数
 
 ### 下次会话建议
-- 走势归因分析（最大功能缺口）：`engine_attribution.py` — 个股涨跌 α/β/γ 分解
-- 盘前建议仓位管理：止损线、仓位比例、行业集中度
+- ✅ ~~走势归因分析（最大功能缺口）：`engine_attribution.py` — 个股涨跌 α/β/γ 分解~~ — 已完成 2026-06-20
+- ✅ ~~盘前建议仓位管理：止损线、仓位比例、行业集中度~~ — 已完成 2026-06-20
+- ✅ ~~行业双表合并：`industry_reports` + `industry_research` → 单表~~ — 已完成 2026-06-20
 - 理杏仁并行化：用 Write 重写 `fetch_financial_indicators_lixinger`
-- 行业双表合并：`industry_reports` + `industry_research` → 单表
 
 ## LLM 输出全链路校验体系建设 (2026-06-17)
 

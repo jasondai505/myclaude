@@ -911,18 +911,6 @@ def init_feeds_tables():
                 PRIMARY KEY (code, year)
             );
 
-            CREATE TABLE IF NOT EXISTS industry_research (
-                info_code    TEXT PRIMARY KEY,
-                title        TEXT,
-                org          TEXT,
-                industry     TEXT,
-                rating       TEXT,
-                publish_date TEXT NOT NULL,
-                url          TEXT,
-                fetched_at   TEXT
-            );
-            CREATE INDEX IF NOT EXISTS idx_indres_pub ON industry_research(publish_date);
-
             CREATE TABLE IF NOT EXISTS wechat_articles (
                 feed_source  TEXT NOT NULL,
                 title        TEXT NOT NULL,
@@ -1615,24 +1603,6 @@ def save_eps_forecast(rows: list[dict]) -> int:
     return after - before
 
 
-def save_industry_research(rows: list[dict]) -> int:
-    if not rows:
-        return 0
-    now = _now()
-    with _conn() as conn:
-        before = conn.execute("SELECT COUNT(*) FROM industry_research").fetchone()[0]
-        conn.executemany(
-            "INSERT OR IGNORE INTO industry_research "
-            "(info_code, title, org, industry, rating, publish_date, url, fetched_at) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            [(r.get("info_code"), r.get("title"), r.get("org"), r.get("industry"),
-              r.get("rating"), r.get("publish_date"), r.get("url"), now)
-             for r in rows if r.get("info_code")],
-        )
-        after = conn.execute("SELECT COUNT(*) FROM industry_research").fetchone()[0]
-    return after - before
-
-
 def _query_by_date(table: str, date_col: str, date_str: str,
                    codes: set[str] = None, order: str = "code") -> list[dict]:
     with _conn() as conn:
@@ -1696,16 +1666,6 @@ def query_eps_forecast(codes: set[str] = None) -> list[dict]:
             rows = conn.execute(
                 "SELECT * FROM eps_forecast ORDER BY code, year"
             ).fetchall()
-    return [dict(r) for r in rows]
-
-
-def query_industry_research(date_str: str) -> list[dict]:
-    with _conn() as conn:
-        rows = conn.execute(
-            "SELECT * FROM industry_research WHERE substr(publish_date,1,10) = ? "
-            "ORDER BY industry, org",
-            (date_str,),
-        ).fetchall()
     return [dict(r) for r in rows]
 
 
