@@ -1168,9 +1168,9 @@ def _estimate_entry_range(c: dict) -> str:
 def _default_stop_rule(hold_period: str) -> str:
     """按持有期返回默认止损规则。"""
     rules = {
-        "短线催化": "入场价 -5% 硬止损",
-        "中线趋势": "入场价 -8% 或 -2ATR",
-        "长线底仓": "入场价 -12% 或 MA60",
+        "短线催化": "入场价 -12% 硬止损",
+        "中线趋势": "入场价 -15% 或 -2ATR",
+        "长线底仓": "入场价 -19% 或 MA60",
     }
     return rules.get(hold_period, "入场价 -8%")
 
@@ -1180,7 +1180,7 @@ def _suggest_weight(rank: int, hold_period: str) -> str:
     base = max(5, 12 - rank)
     coeff = {"长线底仓": 1.3, "中线趋势": 1.0, "短线催化": 0.7}.get(hold_period, 1.0)
     pct = round(base * coeff)
-    return f"{min(pct, 15)}%"
+    return f"{min(pct, 30)}%"
 
 
 def _tag_stock_sources(code: str, feeds: dict[str, str]) -> str:
@@ -1772,8 +1772,8 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
                 f"{entry} | {stop} | {weight} |"
             )
         lines.append("")
-        lines.append("> 入场区间基于20日最低价+MA20支撑估算。止损按持有期差异化：短线-5%硬止损 / 中线-8% / 长线-12%或MA60。")
-        lines.append("> 权重公式：基础7% × FEVΔ系数 × 持有期系数，归一化到总仓位≤70%，单票封顶15%。")
+        lines.append("> 入场区间基于20日最低价+MA20支撑估算。止损按持有期差异化：短线-12%硬止损 / 中线-15% / 长线-19%或MA60。")
+        lines.append("> 权重公式：基础9% × FEVΔ系数 × 持有期系数，归一化到总仓位≤90%，单票封顶30%。")
         lines.append("")
 
     # 分歧检测
