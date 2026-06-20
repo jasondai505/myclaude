@@ -36,3 +36,4 @@ backup-*.zip
 # 微信提醒 hook 运行时文件
 daily_review/_remind_pid.txt
 _em_cache
+.obsidian

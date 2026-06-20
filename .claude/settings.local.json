@@ -107,7 +107,13 @@
       "Bash(sort -t- -k1,1 -k2,2 -k3,3)",
       "Bash(sed 's/_.*//')",
       "Bash(sort -k2)",
-      "Bash(taskkill //F //IM python.exe)"
+      "Bash(taskkill //F //IM python.exe)",
+      "Read(//c/Users/daixin/Desktop/**)",
+      "Read(//c/Users/daixin/Documents/**)",
+      "Bash(powershell *)",
+      "Bash(cp \"C:/Users/daixin/myclaude/CLAUDE.md\" \"C:/Users/daixin/Documents/Obsidian Vault/CLAUDE.md\")",
+      "Bash(cp \"C:/Users/daixin/myclaude/docs/评分体系架构图.md\" \"C:/Users/daixin/Documents/Obsidian Vault/评分体系架构图.md\")",
+      "PowerShell(Get-ChildItem -Path C:\\\\Users\\\\daixin -Filter '.obsidian' -Recurse -Directory -Depth 3 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_.Parent.FullName })"
     ]
   },
   "PreToolUse": [
