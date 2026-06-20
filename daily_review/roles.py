@@ -14,9 +14,10 @@ from pathlib import Path
 from anthropic import Anthropic
 
 # ============================================================
-# 阶段切换 — 2周后改为 "fable5"
+# 阶段切换 — 2026-07-04 自动切换到 fable5
 # ============================================================
-PHASE = "now"  # "now" | "fable5"
+from datetime import date
+PHASE = "fable5" if date.today() >= date(2026, 7, 4) else "now"
 
 # ============================================================
 # 模型配置

@@ -33,18 +33,19 @@ def check_rss():
             ISSUES.append("RSS: 可达但无文章")
             return
         latest = items[0].get("date_modified", "")[:10]
-        cutoff = (datetime.now() - timedelta(hours=24)).strftime("%Y-%m-%d")
-        recent = [it for it in items if (it.get("date_modified", "")[:10]) >= cutoff]
+        cutoff = (datetime.now() - timedelta(hours=6)).strftime("%Y-%m-%d %H:%M")
+        recent = [it for it in items if (it.get("date_modified", "")[:16]) >= cutoff]
         if not recent:
-            ISSUES.append(f"RSS: 24h内无新文章(最新{latest})")
-        print(f"  [RSS] OK: {len(recent)}篇/24h, 最新{latest}")
+            ISSUES.append(f"RSS: 6h内无新文章(最新{latest})")
+        print(f"  [RSS] OK: {len(recent)}篇/6h, 最新{latest}")
     except Exception as e:
         ISSUES.append(f"RSS: 不可达 ({e})")
 
 
 def check_db_articles():
     import sqlite3
-    db = PROJECT / "daily_review" / "data" / "review.db"
+    from config import DB_PATH
+    db = DB_PATH
     if not db.exists():
         ISSUES.append("DB: review.db 不存在")
         return
@@ -60,6 +61,12 @@ def check_db_articles():
         if days > 2:
             ISSUES.append(f"DB: 公众号文章最新={latest[:10]}(落后{days}天)")
         print(f"  [DB] 公众号文章最新: {latest}")
+
+    # DB size check
+    size_mb = db.stat().st_size / (1024 * 1024)
+    if size_mb > 300:
+        ISSUES.append(f"DB: review.db 超300MB ({size_mb:.0f}MB)")
+    print(f"  [DB] 大小: {size_mb:.0f}MB")
 
 
 def check_reports():

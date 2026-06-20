@@ -140,9 +140,12 @@ PIPELINES: dict[str, dict[str, Any]] = {
 }
 
 
+_MORNING_INTEL_PATH = str(PROJECT_ROOT / "morning_intel")
+
 def _notify(title: str, content: str):
     try:
-        sys.path.insert(0, str(PROJECT_ROOT / "morning_intel"))
+        if _MORNING_INTEL_PATH not in sys.path:
+            sys.path.insert(0, _MORNING_INTEL_PATH)
         from notify import push
         push(title, content)
     except Exception as e:
