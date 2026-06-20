@@ -368,9 +368,9 @@ def main():
         from _dashboard import generate, DASHBOARD_PATH
         generate()
         import shutil
-        root_dashboard = Path(__file__).parent.parent / "Dashboard.md"
-        shutil.copy(str(DASHBOARD_PATH), str(root_dashboard))
-        print("📊 仪表盘: reports/Dashboard.md (已同步到根目录)")
+        vault_dashboard = Path("C:/Users/daixin/Documents/Obsidian Vault/Dashboard.md")
+        shutil.copy(str(DASHBOARD_PATH), str(vault_dashboard))
+        print("📊 仪表盘: reports/Dashboard.md (已同步到 Obsidian Vault)")
     except Exception as e:
         print(f"  [WARN] 仪表盘生成失败: {e}")
 
