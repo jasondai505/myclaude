@@ -348,6 +348,15 @@ def main():
         if arg == "--from" and i + 1 < len(sys.argv):
             from_step = sys.argv[i + 1]
 
+    # 校验 --from：步骤名必须存在于目标流水线中
+    if from_step:
+        cfg = PIPELINES.get(pipeline, {})
+        valid_ids = {s["id"] for s in cfg.get("steps", [])}
+        if from_step not in valid_ids:
+            print(f"[ERROR] --from 步骤 '{from_step}' 不在流水线 '{pipeline}' 中")
+            print(f"可用步骤: {', '.join(sorted(valid_ids))}")
+            sys.exit(1)
+
     ok = run_pipeline(pipeline, dry_run=dry_run, from_step=from_step)
     sys.exit(0 if ok else 1)
 

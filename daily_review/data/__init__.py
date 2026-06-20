@@ -1654,13 +1654,17 @@ _LX_METRICS_MAP = [
 ]
 
 
-def fetch_financial_indicators_lixinger(codes: list[str]) -> dict[str, list[dict]]:
-    """拉取财务指标（理杏仁 fs/non_financial，per-stock），返回 {code: [{...}, ...]}。
+def fetch_financial_indicators_lixinger(codes: list[str],
+                                         max_workers: int = 5) -> dict[str, list[dict]]:
+    """拉取财务指标（理杏仁 fs/non_financial），ThreadPoolExecutor 并行。
 
-    该接口仅支持单股票查询，逐股调用，每股获取最近 6 份年报。
+    该接口仅支持单股票查询，max_workers=5 并行拉取，每股获取最近 10 份年报。
     """
     if not codes:
         return {}
+
+    import concurrent.futures
+    import threading
 
     today = datetime.now().strftime("%Y-%m-%d")
     metrics = [m[0] for m in _LX_METRICS_MAP]
@@ -1670,10 +1674,7 @@ def fetch_financial_indicators_lixinger(codes: list[str]) -> dict[str, list[dict
         parts = m.split(".")
         return [parts[0], parts[1], parts[2], parts[3]]
 
-    result: dict[str, list[dict]] = {}
-    ok, fail = 0, 0
-
-    for i, code in enumerate(codes):
+    def _fetch_one(code: str) -> tuple[str, list[dict]]:
         body = {
             "stockCodes": [code],
             "startDate": "2020-01-01",
@@ -1683,44 +1684,51 @@ def fetch_financial_indicators_lixinger(codes: list[str]) -> dict[str, list[dict
         }
         resp = _lixinger_post("cn/company/fs/non_financial", body)
         if resp is None:
-            fail += 1
-            continue
+            return code, []
 
         rows: list[dict] = []
         for item in resp.get("data", []) or []:
             std_date = str(item.get("standardDate", "") or "")[:10]
             if not std_date:
                 continue
-
             row = {"code": code, "report_date": std_date}
             for m_name, (key_name, is_pct) in key_map.items():
                 v = _lx_extract(item, _path(m_name))
                 if v is not None and is_pct:
                     v = round(v * 100, 2)
                 row[key_name] = v
-
             ta = row.pop("_ta", None)
             tl = row.pop("_tl", None)
             if ta and tl and ta > 0:
                 row["debt_ratio"] = round(tl / ta * 100, 2)
             else:
                 row["debt_ratio"] = None
-
             rows.append(row)
 
         rows.sort(key=lambda r: r["report_date"], reverse=True)
-        if rows:
-            result[code] = rows
-            ok += 1
-        else:
-            fail += 1
+        return code, rows
 
-        if (i + 1) % 20 == 0:
-            print(f"  理杏仁财务指标: 已处理 {i+1}/{len(codes)}（成功 {ok} / 失败 {fail}）")
-        time.sleep(0.3)
+    result: dict[str, list[dict]] = {}
+    ok, fail = 0, 0
+    lock = threading.Lock()
+    total = len(codes)
+    done = 0
 
-    if ok + fail > 0:
-        print(f"  理杏仁财务指标: 完成 {len(codes)} 只（成功 {ok} / 失败 {fail}）")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(_fetch_one, code): code for code in codes}
+        for future in concurrent.futures.as_completed(futures):
+            code, rows = future.result()
+            done += 1
+            with lock:
+                if rows:
+                    result[code] = rows
+                    ok += 1
+                else:
+                    fail += 1
+                if done % 50 == 0 or done == total:
+                    print(f"  理杏仁财务指标: {done}/{total}（成功 {ok} / 失败 {fail}）")
+
+    print(f"  理杏仁财务指标: 完成 {total} 只（成功 {ok} / 失败 {fail}）")
     return result
 
 
