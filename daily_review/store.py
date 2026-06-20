@@ -10,7 +10,38 @@ def _conn() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
     return conn
+
+
+def get_conn() -> sqlite3.Connection:
+    """公共连接工厂。外部代码请用此接口，不要直接调 _conn()。"""
+    return _conn()
+
+
+def _current_schema_version(conn) -> int:
+    return conn.execute("PRAGMA user_version").fetchone()[0]
+
+
+def _bump_schema_version(conn, new_ver: int):
+    conn.execute(f"PRAGMA user_version = {new_ver}")
+
+
+def _run_migration(conn, alter_sql: str):
+    """幂等迁移 — 列已存在则跳过。"""
+    try:
+        conn.execute(alter_sql)
+    except sqlite3.OperationalError:
+        pass
+
+
+def _migrate(conn):
+    """版本化 schema 迁移。当前版本: 1（WAL 模式启用）。"""
+    ver = _current_schema_version(conn)
+    if ver < 1:
+        # v1: 标记 WAL 模式已启用（PRAGMA 持久化）
+        _bump_schema_version(conn, 1)
 
 
 def init_db():
@@ -1016,10 +1047,6 @@ def init_feeds_tables():
             pass
         try:
             conn.execute("ALTER TABLE catalyst_signals ADD COLUMN price_confirm_date TEXT")
-        except Exception:
-            pass
-        try:
-            conn.execute("ALTER TABLE catalyst_signals ADD COLUMN expired INTEGER DEFAULT 0")
         except Exception:
             pass
         try:
