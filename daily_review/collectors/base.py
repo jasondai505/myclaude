@@ -91,6 +91,8 @@ def trading_dates(since: date, until: date) -> list[date]:
 
 
 def with_retry(retries: int = 2, delay: float = 1.0, on_fail=None):
+    """指数退避 + 随机 jitter，避免固定间隔撞限流。"""
+    import random as _random
     def deco(fn: Callable):
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
@@ -99,7 +101,8 @@ def with_retry(retries: int = 2, delay: float = 1.0, on_fail=None):
                     return fn(*args, **kwargs)
                 except Exception as e:
                     if attempt < retries:
-                        time.sleep(delay * (attempt + 1))
+                        backoff = delay * (2 ** attempt) + _random.uniform(0, 1)
+                        time.sleep(backoff)
                     else:
                         print(f"  [WARN] {fn.__name__} 失败({retries+1}次): {e}")
             return on_fail

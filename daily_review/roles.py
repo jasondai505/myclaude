@@ -81,3 +81,28 @@ def get_client(role: str, timeout: int = 120) -> Anthropic:
 def get_model(role: str) -> str:
     _, model = _get_provider_and_model(role)
     return model
+
+
+def cached_create(
+    client: Anthropic,
+    model: str,
+    system: str,
+    user_content: str,
+    max_tokens: int = 1024,
+    temperature: float = 0.0,
+) -> str:
+    """带缓存的 LLM 调用 — 内容哈希去重，省重复推理成本。"""
+    import llm_cache
+    cached = llm_cache.get(model, system, user_content)
+    if cached is not None:
+        return cached
+    resp = client.messages.create(
+        model=model,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        system=system,
+        messages=[{"role": "user", "content": user_content}],
+    )
+    result = resp.content[0].text
+    llm_cache.store(model, system, user_content, result)
+    return result

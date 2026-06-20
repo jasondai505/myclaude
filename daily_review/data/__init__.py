@@ -14,6 +14,24 @@ from config import (
     REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, REDIS_DB, REDIS_MARKET_KEY,
 )
 
+# === 全局 API 限速 ===
+class RateLimiter:
+    """按域名统一限速，替代散落的 time.sleep。"""
+    def __init__(self, default_delay: float = 0.3):
+        self._last: dict[str, float] = {}
+        self._default = default_delay
+
+    def wait(self, domain: str = "default", delay: float | None = None):
+        d = delay if delay is not None else self._default
+        now = time.time()
+        if domain in self._last:
+            elapsed = now - self._last[domain]
+            if elapsed < d:
+                time.sleep(d - elapsed)
+        self._last[domain] = time.time()
+
+_rate_limiter = RateLimiter()
+
 
 # ============================================================
 # 工具函数
@@ -1298,22 +1316,15 @@ def fetch_theme_news(keyword: str, limit: int = 10) -> list[str]:
 # ============================================================
 
 def _run_with_timeout(fn, timeout_sec, default=None):
-    """守护线程里跑可能挂死的阻塞调用（akshare 互动/新闻接口无 socket 超时，
-    单请求可挂死数小时，try/except 拦不住 hang）。超时返回 default，
-    挂死线程被遗弃，进程退出时随守护线程回收。"""
-    import threading
-    box = {"v": default}
-
-    def _target():
+    """concurrent.futures 超时防护，正确释放线程资源（不再泄漏守护线程）。"""
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(fn)
         try:
-            box["v"] = fn()
-        except Exception:
-            box["v"] = default
-
-    th = threading.Thread(target=_target, daemon=True)
-    th.start()
-    th.join(timeout_sec)
-    return box["v"]
+            return future.result(timeout=timeout_sec)
+        except (concurrent.futures.TimeoutError, Exception):
+            future.cancel()
+            return default
 
 
 IRM_TIMEOUT_SEC = 12

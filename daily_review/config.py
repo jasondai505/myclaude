@@ -16,11 +16,25 @@ REPORT_DIR.mkdir(parents=True, exist_ok=True)
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/117.0.0.0 Safari/537.36"
 REQUEST_TIMEOUT = 15
 
+# === 从 .env 加载密钥（不存在则用默认值） ===
+def _load_env() -> dict[str, str]:
+    env = {}
+    env_path = Path(__file__).parent / ".env"
+    if env_path.exists():
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                env[k.strip()] = v.strip().strip("\"'")
+    return env
+
+_ENV = _load_env()
+
 # WeWe-RSS 微信公众号采集
-WEWE_RSS_URL = "http://111.231.44.12:4000/feeds/all.rss"
+WEWE_RSS_URL = _ENV.get("WEWE_RSS_URL", "http://111.231.44.12:4000/feeds/all.rss")
 
 FETCH_DELAY = 0.3             # API 调用间隔（秒），防反爬
-LIXINGER_TOKEN = "95b52199-4f8b-48f8-86b5-1b8a6437aff9"
+LIXINGER_TOKEN = _ENV.get("LIXINGER_TOKEN", "")
 LIXINGER_BASE = "https://open.lixinger.com/api"
 
 # ============================================================
@@ -474,7 +488,7 @@ DEEP_READ_RULES = {
 # ============================================================
 REDIS_HOST = 'stock.xiaoxinren.cn'
 REDIS_PORT = 5679
-REDIS_PASSWORD = 'xin58333'
+REDIS_PASSWORD = _ENV.get("REDIS_PASSWORD", "")
 REDIS_DB = 0
 REDIS_MARKET_KEY = 'Market'
 REDIS_QUOTE_FIELDS = [
