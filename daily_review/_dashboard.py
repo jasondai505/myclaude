@@ -606,8 +606,10 @@ def _build_code_chain_map() -> dict[str, list[dict]]:
     return code_map
 
 
-def _render_theme_lifecycle(w):
-    """主题生命周期：从 catalyst_signals 时间轴聚合，追踪主题何时开始、趋势、状态。"""
+def _render_theme_lifecycle(w) -> list[dict]:
+    """主题生命周期：从 catalyst_signals 时间轴聚合，追踪主题何时开始、趋势、状态。
+    Returns lifecycle rows for downstream advisor use.
+    """
     w("## 📅 主题生命周期")
     w()
     try:
@@ -615,12 +617,12 @@ def _render_theme_lifecycle(w):
     except Exception as e:
         w(f"_主题生命周期数据不可用: {e}_")
         w()
-        return
+        return []
 
     if not rows:
         w("_暂无满足条件的主题_")
         w()
-        return
+        return []
 
     state_icon = {"active": "🟢", "confirmed": "✅", "emerging": "🆕", "cooling": "🟡", "dormant": "⚫"}
     w("| 主题 | 状态 | 持续 | 趋势 | 走势 | 首次 | 最近 | 信号 | 均分 |")
@@ -631,6 +633,65 @@ def _render_theme_lifecycle(w):
         w(f"| {r['theme']} | {icon} {r['state']} | {r['days_active']}天 | "
           f"{r['trend']} | {trend_icon} | {r['first_date']} | {r['last_date']} | "
           f"{r['signal_count']} | {r['avg_score']:.0f} |")
+    w()
+    return rows
+
+
+def _render_theme_advisor(w, lifecycle_rows, chain_rows):
+    """规则引擎：交叉生命周期+预期差数据，产出可操作建议。"""
+    w("### 🧠 主题建议")
+    w()
+    insights = []
+
+    # 规则1: 持续高预期差的链段 → 深挖信号
+    for ch in chain_rows:
+        if ch["verdict"] == "⏳预期差" and ch["expectation_gap"] == "🔴高":
+            days = ch.get("total_mentions", 0)
+            if days > 50:
+                insights.append(
+                    f"⏳ **{ch['plate']}>{ch['l1']}>{ch['l2']}** — 逻辑密集提及"
+                    f"({ch['total_mentions']}次)但价格持续未确认({ch['avg_pct']:+.1f}%)，"
+                    f"预期差极大，建议深挖逻辑是否有被市场忽略的催化"
+                )
+
+    # 规则2: 共振链段 → 关注回调
+    for ch in chain_rows:
+        if ch["verdict"] == "🔥共振":
+            insights.append(
+                f"🔥 **{ch['plate']}>{ch['l1']}>{ch['l2']}** — 逻辑+走势+概念三重共振，"
+                f"涨幅{ch['avg_pct']:+.1f}%，关注回调买点而非追高"
+            )
+
+    # 规则3: 走势先行 + 对应 lifecycle 主题 → 深挖逻辑
+    for ch in chain_rows:
+        if ch["verdict"] == "👀走势先行":
+            insights.append(
+                f"👀 **{ch['plate']}>{ch['l1']}>{ch['l2']}** — 价格已动({ch['avg_pct']:+.1f}%)"
+                f"但逻辑提及稀疏({ch['total_mentions']}次)，需验证是否有未发现的催化支撑当前走势"
+            )
+
+    # 规则4: 生命周期状态迁移 → 关注新进入 active 的主题
+    for lr in lifecycle_rows:
+        if lr["state"] == "confirmed" and lr["trend"] == "🔥加剧":
+            insights.append(
+                f"📈 **{lr['theme']}** — 已确认走势+逻辑加剧，持续{lr['days_active']}天，"
+                f"关注产业链核心标的是否进入主升"
+            )
+
+    # 规则5: 预期差高但生命周期长的主题 → 持续跟踪
+    high_gap_themes = {ch["plate"] for ch in chain_rows if ch["verdict"] == "⏳预期差" and ch["expectation_gap"] == "🔴高"}
+    for lr in lifecycle_rows:
+        if lr["theme"] in high_gap_themes and lr["days_active"] >= 3:
+            insights.append(
+                f"🔍 **{lr['theme']}** — 已连续{lr['days_active']}天处于高预期差状态，"
+                f"逻辑未破但价格持续未确认，建议设价格提醒等待突破信号"
+            )
+
+    if insights:
+        for ins in insights:
+            w(f"- {ins}")
+    else:
+        w("_当前无显著交叉信号_")
     w()
 
 
@@ -1633,7 +1694,9 @@ def generate(today_str: str = "") -> str:
         w()
 
     # === 主题生命周期 ===
-    _render_theme_lifecycle(w)
+    lc_rows = _render_theme_lifecycle(w)
+    if lc_rows:
+        _render_theme_advisor(w, lc_rows, chain_rows)
 
     # === 双轨选股（FEV + G-Factor） ===
     _render_dual_track(w)
