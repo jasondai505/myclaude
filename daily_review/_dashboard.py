@@ -17,6 +17,7 @@ from dual_track_screener import screen as dual_track_screen
 from engine_theme_lifecycle import lifecycle as theme_lifecycle
 from engine_market_rhythm import classify_rhythm_stage, daily_rhythm
 from engine_similar_days import similar_sectors
+from engine_leader_backtest import leader_frequency
 
 
 def _last_trading_day(ref: date | None = None) -> date:
@@ -514,6 +515,16 @@ def _engine_status() -> list[dict]:
         "name": "🔮 相似日匹配", "key": "similar_days",
         "ok": sds_ok, "time": sds_time, "nums": sds_nums,
     })
+    lb_ok, lb_time, lb_nums = _leader_backtest_status()
+    engines.append({
+        "name": "👑 龙头回溯", "key": "leader_backtest",
+        "ok": lb_ok, "time": lb_time, "nums": lb_nums,
+    })
+    lu_ok, lu_time, lu_nums = _limit_up_status()
+    engines.append({
+        "name": "🎯 涨停分析", "key": "limit_up",
+        "ok": lu_ok, "time": lu_time, "nums": lu_nums,
+    })
 
     return engines
 
@@ -568,6 +579,42 @@ def _similar_days_status() -> tuple[bool, str, str]:
         return True, last_date, top2
     except Exception:
         return False, last_date, "查询异常"
+
+
+def _leader_backtest_status() -> tuple[bool, str, str]:
+    """龙头回溯：聚合历史龙头标的出现频率。"""
+    try:
+        leaders = leader_frequency(min_appearances=2)
+        if not leaders:
+            return False, "—", "无数据"
+        top3 = "/".join(l["stock"] for l in leaders[:3])
+        return True, _sector_rotation_log_freshness()[1], f"{len(leaders)}只(top:{top3})"
+    except Exception:
+        return False, "—", "查询异常"
+
+
+def _limit_up_status() -> tuple[bool, str, str]:
+    """涨停分析：检查 limit_up_analysis 表今日数据。"""
+    try:
+        today = date.today().isoformat()
+        from store import _conn
+        with _conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) as n, MAX(date) as last_date FROM limit_up_analysis"
+            ).fetchone()
+            if row and row["n"] > 0:
+                t1 = conn.execute(
+                    "SELECT COUNT(*) FROM limit_up_analysis WHERE tier='T1' AND date=?",
+                    (today,)
+                ).fetchone()[0]
+                t2 = conn.execute(
+                    "SELECT COUNT(*) FROM limit_up_analysis WHERE tier='T2' AND date=?",
+                    (today,)
+                ).fetchone()[0]
+                return True, row["last_date"], f"T1:{t1} T2:{t2}"
+            return False, "—", "无数据"
+    except Exception:
+        return False, "—", "查询异常"
 
 
 _CONCEPT_STOCKS: dict[str, list[str]] | None = None
