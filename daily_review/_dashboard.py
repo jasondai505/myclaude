@@ -883,6 +883,62 @@ def _render_hypotheses(w):
         w()
 
 
+def _scan_recurring_patterns() -> list[dict]:
+    """扫描30天 catalyst_signals，提取 catalyst_type × concept 重复 ≥3次且跨 ≥2天的模式。"""
+    from datetime import timedelta
+    from store import _conn as store_conn
+    cutoff = (date.today() - timedelta(days=30)).isoformat()
+    try:
+        with store_conn() as conn:
+            rows = conn.execute('''
+                SELECT cs.catalyst_type, csm.matched_concept, COUNT(*) as n,
+                       COUNT(DISTINCT cs.date) as days,
+                       MIN(cs.date) as first_date, MAX(cs.date) as last_date
+                FROM catalyst_signals cs
+                JOIN catalyst_stock_map csm
+                  ON cs.date = csm.date AND cs.catalyst_name = csm.catalyst_name
+                WHERE cs.date >= ?
+                  AND cs.actionability >= 20
+                  AND csm.matched_concept != '' AND csm.matched_concept != '--'
+                GROUP BY cs.catalyst_type, csm.matched_concept
+                HAVING n >= 3 AND days >= 2
+                ORDER BY n DESC
+                LIMIT 12
+            ''', (cutoff,)).fetchall()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+TYPE_CN = {
+    "price_spike": "涨价", "supply_shock": "供给冲击", "demand_surge": "需求爆发",
+    "tech_breakthrough": "技术突破", "policy_change": "政策变化", "order_contract": "订单/合同",
+    "capacity_expansion": "扩产", "earnings_surprise": "业绩", "new_product": "新品",
+}
+
+
+def _render_recurring_patterns(w):
+    patterns = _scan_recurring_patterns()
+    if not patterns:
+        return
+    w("## 🔁 重复催化模式（规则晋升）")
+    w()
+    w(f"> 近30天出现 ≥3次且跨 ≥2天的 catalyst_type × 概念 组合。同一规律重复出现 → 考虑纳入SOP。")
+    w()
+    w("| 催化类型 | 关联概念 | 次数 | 跨天数 | 时间范围 | 操作 |")
+    w("|:-------:|------|:---:|:---:|------|------|")
+    for p in patterns:
+        ct = TYPE_CN.get(p["catalyst_type"], p["catalyst_type"])
+        days = p["days"]
+        n = p["n"]
+        # Signal strength: more frequent + more days = stronger
+        strength = "🔥" if n >= 7 and days >= 3 else "📌"
+        action = "纳入SOP" if n >= 7 and days >= 3 else "跟踪观察"
+        w(f"| {strength} {ct} | {p['matched_concept']} | {n} | {days}天 "
+          f"| {p['first_date']}~{p['last_date']} | {action} |")
+    w()
+
+
 def _render_price_signals(w, last_trade: str):
     """盘面侧信号：概念热度（commonality_cache 自动化数据） + 持续性/相似日（sector_rotation_log 历史数据）。"""
     w("## 📈 盘面概念信号（自下而上）")
@@ -1936,6 +1992,9 @@ def generate(today_str: str = "") -> str:
 
     # === 假设闭环 ===
     _render_hypotheses(w)
+
+    # === 规则晋升：重复催化模式 ===
+    _render_recurring_patterns(w)
 
     # === 最近提交 ===
     w("## 📜 最近提交")
