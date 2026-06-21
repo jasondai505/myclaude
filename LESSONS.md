@@ -495,3 +495,11 @@ text = download_report_pdf(pdf_url, info_code)
 **④ 大概念的噪音需要双重阈值**：锂电池概念 593 只成分股，8 只涨停 = 1.3%，不算热但绝对数触发了阈值。解法：比率阈值（10%）管小概念 + 绝对数阈值（≥10只）管大概念，且概念必须在 baseline 中才纳入。走势信号与链段的重叠阈值 ≥2 只股票才算有效匹配，避免单只股票的多标签噪音污染链段级别信号。
 
 **⑤ 不可公度的维度不合并——分类代替加权**：共振/预期差/走势先行/过滤 是四个离散分类，不是一个连续分数。读者看到四个象限自行交叉判断。遵循 CLAUDE.md 双轨排名原则「不可公度的维度不要强行加权合并」。
+
+### 补充：主题生命周期 + 新 collector（2026-06-21）
+
+**engine_theme_lifecycle.py**：从 `catalyst_signals × catalyst_stock_map` 时间轴聚合主题生命周期。状态机 `emerging(≤2天)→active(>2天)→confirmed(走势确认)→cooling(减缓)→dormant(14天无信号)`。Dashboard 内嵌渲染 + advisor 规则引擎（5 条规则交叉生命周期×预期差产出可操作建议，零 LLM 成本）。
+
+**commonality_scan_collector**：包装 `_archive/_scan_commonality_v2.py` 为 collector，注册到 `post_market` 管线。每日产出一份 `commonality_cache/scan_{date}.json`，供 concept_heat 和 Dashboard 盘面概念信号使用。替代了手工整理的「强势板块.xlsx」——概念粒度更细，无主观性。注意：需 Redis 运行才能产出。
+
+**stock_dossier_collector**：包装 `stock_dossier_builder.py` 为 collector，注册到 `weekly` 管线。自动选优先池 22 只 → 8 维聚合 → LLM 逐只合成一页纸档案 → Obsidian vault。超时 600s，LLM 成本约 $2-3/周。
