@@ -72,8 +72,21 @@ def _scrape_article(url: str) -> str:
     }
     try:
         req = Request(url, headers=headers)
-        with urlopen(req, timeout=15) as resp:
-            html = resp.read().decode("utf-8", errors="replace")
+        with urlopen(req, timeout=60) as resp:
+            # 逐块读取，够 500KB 就停，避免 IncompleteRead 大文件
+            chunks = []
+            total = 0
+            max_read = 500 * 1024
+            while total < max_read:
+                try:
+                    chunk = resp.read(min(8192, max_read - total))
+                except Exception:
+                    break  # 连接断开，用已读内容
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                total += len(chunk)
+            html = b"".join(chunks).decode("utf-8", errors="replace")
     except Exception as e:
         print(f"    [skip] {e}")
         return ""
