@@ -14,6 +14,7 @@ from config import REPORT_DIR
 from data import extract_codes_from_text
 from engine_sector_rotation import sector_frequency, sector_persistence, sector_stocks
 from dual_track_screener import screen as dual_track_screen
+from engine_theme_lifecycle import lifecycle as theme_lifecycle
 from engine_market_rhythm import classify_rhythm_stage, daily_rhythm
 from engine_similar_days import similar_sectors
 
@@ -603,6 +604,34 @@ def _build_code_chain_map() -> dict[str, list[dict]]:
                         "plate": plate, "l1": l1, "l2": l2,
                     })
     return code_map
+
+
+def _render_theme_lifecycle(w):
+    """主题生命周期：从 catalyst_signals 时间轴聚合，追踪主题何时开始、趋势、状态。"""
+    w("## 📅 主题生命周期")
+    w()
+    try:
+        rows = theme_lifecycle(60)
+    except Exception as e:
+        w(f"_主题生命周期数据不可用: {e}_")
+        w()
+        return
+
+    if not rows:
+        w("_暂无满足条件的主题_")
+        w()
+        return
+
+    state_icon = {"active": "🟢", "confirmed": "✅", "emerging": "🆕", "cooling": "🟡", "dormant": "⚫"}
+    w("| 主题 | 状态 | 持续 | 趋势 | 走势 | 首次 | 最近 | 信号 | 均分 |")
+    w("|------|:---:|:---:|:---:|:--:|:----:|:----:|:---:|:---:|")
+    for r in rows[:20]:
+        icon = state_icon.get(r["state"], "·")
+        trend_icon = "✅" if r["has_trend"] else "—"
+        w(f"| {r['theme']} | {icon} {r['state']} | {r['days_active']}天 | "
+          f"{r['trend']} | {trend_icon} | {r['first_date']} | {r['last_date']} | "
+          f"{r['signal_count']} | {r['avg_score']:.0f} |")
+    w()
 
 
 def _render_dual_track(w):
@@ -1602,6 +1631,9 @@ def generate(today_str: str = "") -> str:
             mention_str = f"{ch['total_mentions']}次/{ch['mention_density']:.0f}密"
             w(f"| {ch['plate']} | {ch['l1']} | {l2_display} | {ch['count']} | {pct_str} | {mention_str} | {ch['trend_signal']} | {ch['expectation_gap']} | **{ch['verdict']}** |")
         w()
+
+    # === 主题生命周期 ===
+    _render_theme_lifecycle(w)
 
     # === 双轨选股（FEV + G-Factor） ===
     _render_dual_track(w)
