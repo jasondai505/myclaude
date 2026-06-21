@@ -11,6 +11,7 @@ from pathlib import Path
 
 import store
 from config import REPORT_DIR
+from data import extract_codes_from_text
 
 
 def _last_trading_day(ref: date | None = None) -> date:
@@ -672,6 +673,19 @@ def _load_name_cache() -> dict[str, str]:
     return name_map
 
 
+def _recent_files(directory: Path, prefix: str, days: int = 7) -> list[Path]:
+    """Return files in <directory> starting with <prefix>, filtered to recent <days> dates."""
+    if not directory.exists():
+        return []
+    recent = {(date.today() - timedelta(days=d)).strftime("%Y-%m-%d") for d in range(days)}
+    result = []
+    for fp in sorted(directory.glob(f"{prefix}*.md")):
+        m = re.search(r"(\d{4}-\d{2}-\d{2})", fp.name)
+        if m and m.group(1) in recent:
+            result.append(fp)
+    return result
+
+
 def _aggregate_signals(dr: dict) -> dict:
     """6源信号矩阵：公告deep_read + 研报 + 新闻信号 + 行业深研 + 社交源 + 催化信号。
 
@@ -753,46 +767,35 @@ def _aggregate_signals(dr: dict) -> dict:
             pass
 
     # ====== 4. 行业深研 — 从 industry_daily 报告中提取提及标的 ======
-    ind_dir = REPORT_DIR / "industry"
-    if ind_dir.exists():
-        for fp in sorted(ind_dir.glob("industry_daily_2026-06-*.md")):
-            try:
-                text = fp.read_text(encoding="utf-8")
-                for m in re.finditer(r"(\d{6})\s", text):
-                    code = m.group(1)
-                    _ensure(code)
-                    scores[code]["ind_count"] += 1
-                    scores[code]["sources"] += 1
-            except Exception:
-                pass
+    for fp in _recent_files(REPORT_DIR / "industry", "industry_daily_"):
+        try:
+            text = fp.read_text(encoding="utf-8")
+            for code in extract_codes_from_text(text):
+                _ensure(code)
+                scores[code]["ind_count"] += 1
+                scores[code]["sources"] += 1
+        except Exception:
+            pass
 
     # ====== 5. 社交源：公众号分析 + 微博 ======
-    # 公众号分析
-    wc_dir = REPORT_DIR / "wechat_analysis"
-    if wc_dir.exists():
-        for fp in sorted(wc_dir.glob("wechat_analysis_2026-06-*.md")):
-            try:
-                text = fp.read_text(encoding="utf-8")
-                for m in re.finditer(r"\b(\d{6})\b", text):
-                    code = m.group(1)
-                    _ensure(code)
-                    scores[code]["social_count"] += 1
-                    scores[code]["sources"] += 1
-            except Exception:
-                pass
-    # 微博 feeds
-    wb_dir = REPORT_DIR / "feeds" / "weibo"
-    if wb_dir.exists():
-        for fp in sorted(wb_dir.glob("weibo_2026-06-*.md")):
-            try:
-                text = fp.read_text(encoding="utf-8")
-                for m in re.finditer(r"\b(\d{6})\b", text):
-                    code = m.group(1)
-                    _ensure(code)
-                    scores[code]["social_count"] += 1
-                    scores[code]["sources"] += 1
-            except Exception:
-                pass
+    for fp in _recent_files(REPORT_DIR / "wechat_analysis", "wechat_analysis_"):
+        try:
+            text = fp.read_text(encoding="utf-8")
+            for code in extract_codes_from_text(text):
+                _ensure(code)
+                scores[code]["social_count"] += 1
+                scores[code]["sources"] += 1
+        except Exception:
+            pass
+    for fp in _recent_files(REPORT_DIR / "feeds" / "weibo", "weibo_"):
+        try:
+            text = fp.read_text(encoding="utf-8")
+            for code in extract_codes_from_text(text):
+                _ensure(code)
+                scores[code]["social_count"] += 1
+                scores[code]["sources"] += 1
+        except Exception:
+            pass
 
     # ====== 6. 催化信号（星球+deep_read产出） ======
     try:
@@ -834,7 +837,8 @@ def _aggregate_signals(dr: dict) -> dict:
                 + s["social_count"] * 10       # 社交源提及: 10分/次（公众号/微博）
                 + s["cat_score"] * 0.8)        # 催化行动分
         cross = 0
-        if s["sources"] >= 5: cross = 50
+        if s["sources"] >= 6: cross = 65
+        elif s["sources"] >= 5: cross = 50
         elif s["sources"] >= 4: cross = 35
         elif s["sources"] >= 3: cross = 20
         elif s["sources"] >= 2: cross = 10
@@ -904,62 +908,56 @@ def _hot_themes() -> list[dict]:
             _add_theme(r["catalyst_type"], "催化")
 
     # 2. 行业深研合成报告
-    ind_dir = REPORT_DIR / "industry"
-    if ind_dir.exists():
-        for fp in sorted(ind_dir.glob("industry_daily_2026-06-*.md")):
-            try:
-                text = fp.read_text(encoding="utf-8")
-                in_consensus = False
-                for line in text.split("\n"):
-                    if "今日共识方向" in line:
-                        in_consensus = True
-                        continue
-                    if in_consensus and line.startswith("##"):
-                        break
-                    if in_consensus and line.startswith("- "):
-                        direction = line[2:].strip()
-                        for kw_group in KW_MAP:
-                            for kw in kw_group:
-                                if kw in direction:
-                                    codes = re.findall(r"(\d{6})", direction)
-                                    _add_theme(kw_group[0], "行业深研", codes)
-                                    break
-            except Exception:
-                pass
+    for fp in _recent_files(REPORT_DIR / "industry", "industry_daily_"):
+        try:
+            text = fp.read_text(encoding="utf-8")
+            in_consensus = False
+            for line in text.split("\n"):
+                if "今日共识方向" in line:
+                    in_consensus = True
+                    continue
+                if in_consensus and line.startswith("##"):
+                    break
+                if in_consensus and line.startswith("- "):
+                    direction = line[2:].strip()
+                    for kw_group in KW_MAP:
+                        for kw in kw_group:
+                            if kw in direction:
+                                codes = list(extract_codes_from_text(direction))
+                                _add_theme(kw_group[0], "行业深研", codes)
+                                break
+        except Exception:
+            pass
 
     # 3. 公众号分析
-    wc_dir = REPORT_DIR / "wechat_analysis"
-    if wc_dir.exists():
-        for fp in sorted(wc_dir.glob("wechat_analysis_2026-06-*.md")):
-            try:
-                text = fp.read_text(encoding="utf-8")
-                for m in re.finditer(r"###\s+(.+?)(?:\n|$)", text):
-                    title = m.group(1)
-                    for kw_group in KW_MAP:
-                        for kw in kw_group:
-                            if kw in title:
-                                codes = re.findall(r"\b(\d{6})\b", text[m.start():m.start()+500])
-                                _add_theme(kw_group[0], "公众号", codes)
-                                break
-            except Exception:
-                pass
+    for fp in _recent_files(REPORT_DIR / "wechat_analysis", "wechat_analysis_"):
+        try:
+            text = fp.read_text(encoding="utf-8")
+            for m in re.finditer(r"###\s+(.+?)(?:\n|$)", text):
+                title = m.group(1)
+                for kw_group in KW_MAP:
+                    for kw in kw_group:
+                        if kw in title:
+                            codes = list(extract_codes_from_text(text[m.start():m.start()+500]))
+                            _add_theme(kw_group[0], "公众号", codes)
+                            break
+        except Exception:
+            pass
 
     # 4. 星球分析
-    za_dir = REPORT_DIR / "zsxq_analysis"
-    if za_dir.exists():
-        for fp in sorted(za_dir.glob("zsxq_analysis_2026-06-*.md")):
-            try:
-                text = fp.read_text(encoding="utf-8")
-                for m in re.finditer(r"###\s+(.+?)(?:\n|$)", text):
-                    title = m.group(1)
-                    for kw_group in KW_MAP:
-                        for kw in kw_group:
-                            if kw in title:
-                                codes = re.findall(r"\b(\d{6})\b", text[m.start():m.start()+500])
-                                _add_theme(kw_group[0], "星球", codes)
-                                break
-            except Exception:
-                pass
+    for fp in _recent_files(REPORT_DIR / "zsxq_analysis", "zsxq_analysis_"):
+        try:
+            text = fp.read_text(encoding="utf-8")
+            for m in re.finditer(r"###\s+(.+?)(?:\n|$)", text):
+                title = m.group(1)
+                for kw_group in KW_MAP:
+                    for kw in kw_group:
+                        if kw in title:
+                            codes = list(extract_codes_from_text(text[m.start():m.start()+500]))
+                            _add_theme(kw_group[0], "星球", codes)
+                            break
+        except Exception:
+            pass
 
     result = []
     for t in themes.values():
