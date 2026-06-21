@@ -493,17 +493,23 @@ def _keyword_match_stocks(catalyst_name: str, key_entities: list[dict]) -> list[
 
     matched = []
     seen = set()
+    code_hits: dict[str, int] = {}
     for term in search_terms:
         for concept, codes in concept_stocks.items():
             if term in concept.lower():
                 for code in codes:
                     if code not in seen:
                         seen.add(code)
+                        code_hits[code] = 1
                         matched.append({
                             "code": code, "concept": concept,
                             "method": "keyword_match", "confidence": "medium",
                         })
+                    else:
+                        code_hits[code] = code_hits.get(code, 0) + 1
 
+    # 按命中关键词数降序，多词命中=更相关
+    matched.sort(key=lambda m: -code_hits.get(m["code"], 0))
     return matched[:30]  # 上限30只，避免噪音
 
 def _build_stock_context(codes: set[str]) -> dict[str, str]:

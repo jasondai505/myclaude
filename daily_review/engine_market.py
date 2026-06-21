@@ -215,8 +215,9 @@ def analyze_sectors(industry_data: dict) -> dict:
     total_down = industry_data.get("total_down", 0)
     total = total_up + total_down
     pct = round(total_up / total * 100, 1) if total > 0 else 50
+    sorted_sectors = sorted(all_sectors, key=lambda s: s.get("change_pct", 0), reverse=True)
     return {
-        "top": all_sectors[:5], "bottom": all_sectors[-5:],
+        "top": sorted_sectors[:5], "bottom": sorted_sectors[-5:],
         "breadth": {"up": total_up, "down": total_down, "pct": pct},
     }
 

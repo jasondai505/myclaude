@@ -805,6 +805,7 @@ def _inject_yesterday_logic(yesterday: str) -> str:
         "| 代码 | 名称 | 昨日FEVΔ | W1边际信号 | W3预期差 | W4时间窗 | W5风险 | 今日判断 |",
         "|------|------|:--------:|-----------|---------|---------|--------|---------|",
     ]
+    stocks.sort(key=lambda s: -(s.get("fevd", 0)))
     for s in stocks[:10]:
         lines.append(
             f"| {s['code']} | {s['name']} | {s['fevd']} | "

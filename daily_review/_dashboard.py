@@ -638,59 +638,103 @@ def _render_theme_lifecycle(w) -> list[dict]:
 
 
 def _render_theme_advisor(w, lifecycle_rows, chain_rows):
-    """规则引擎：交叉生命周期+预期差数据，产出可操作建议。"""
+    """规则引擎：交叉生命周期+预期差+个股映射，表格式输出，个股与选中理由逐行对应。"""
     w("### 🧠 主题建议")
     w()
-    insights = []
+    names = _load_name_cache()
+    chain_stocks_all = _load_chain_maps()
+    any_output = False
 
-    # 规则1: 持续高预期差的链段 → 深挖信号
-    for ch in chain_rows:
-        if ch["verdict"] == "⏳预期差" and ch["expectation_gap"] == "🔴高":
-            days = ch.get("total_mentions", 0)
-            if days > 50:
-                insights.append(
-                    f"⏳ **{ch['plate']}>{ch['l1']}>{ch['l2']}** — 逻辑密集提及"
-                    f"({ch['total_mentions']}次)但价格持续未确认({ch['avg_pct']:+.1f}%)，"
-                    f"预期差极大，建议深挖逻辑是否有被市场忽略的催化"
-                )
+    def _segment_stocks(plate, l1, l2, sort_by: str = "mentions") -> list[dict]:
+        l2m = chain_stocks_all.get(plate, {}).get(l1, {})
+        key = l2 if l2 and l2 != "-" else list(l2m.keys())[0] if l2m else ""
+        stocks = l2m.get(key, []) if key else []
+        return sorted(stocks, key=lambda s: -(s.get(sort_by, 0))) if stocks else []
 
-    # 规则2: 共振链段 → 关注回调
-    for ch in chain_rows:
-        if ch["verdict"] == "🔥共振":
-            insights.append(
-                f"🔥 **{ch['plate']}>{ch['l1']}>{ch['l2']}** — 逻辑+走势+概念三重共振，"
-                f"涨幅{ch['avg_pct']:+.1f}%，关注回调买点而非追高"
-            )
+    # ===== 高预期差 =====
+    high_gap = [ch for ch in chain_rows
+                if ch["verdict"] == "⏳预期差" and ch["expectation_gap"] == "🔴高" and ch["total_mentions"] > 50]
+    if high_gap:
+        w("#### ⏳ 高预期差（逻辑密集但价格未确认）")
+        w()
+        w("| 链段 | 个股 | 涨跌 | 提及 | 选中理由 |")
+        w("|------|------|:---:|:---:|------|")
+        for ch in high_gap[:5]:
+            stocks = _segment_stocks(ch["plate"], ch["l1"], ch["l2"], "mentions")
+            seg_label = f"{ch['l1']}>{ch['l2']}" if ch['l2'] and ch['l2'] != '-' else ch['l1']
+            for i, s in enumerate(stocks[:3]):
+                nm = names.get(s["code"], s.get("name", "")) or s.get("name", "?")
+                pct = s.get("pct", 0)
+                mentions = s.get("mentions", 0)
+                if i == 0:
+                    reason = f"链段核心标的，全段提及密度{ch['mention_density']:.0f}/只"
+                elif pct > 0:
+                    reason = "逆势微涨，可能有资金提前布局"
+                else:
+                    reason = f"链段内提及第{i+1}，随板块回调"
+                w(f"| {seg_label} | {nm}({s['code']}) | {pct:+.1f}% | {mentions}次 | {reason} |")
+        w()
+        any_output = True
 
-    # 规则3: 走势先行 + 对应 lifecycle 主题 → 深挖逻辑
-    for ch in chain_rows:
-        if ch["verdict"] == "👀走势先行":
-            insights.append(
-                f"👀 **{ch['plate']}>{ch['l1']}>{ch['l2']}** — 价格已动({ch['avg_pct']:+.1f}%)"
-                f"但逻辑提及稀疏({ch['total_mentions']}次)，需验证是否有未发现的催化支撑当前走势"
-            )
+    # ===== 三重共振 =====
+    resonance = [ch for ch in chain_rows if ch["verdict"] == "🔥共振"]
+    if resonance:
+        w("#### 🔥 三重共振（逻辑+价格+走势同步确认）")
+        w()
+        w("| 链段 | 走势信号 | 个股 | 涨跌 | 操作建议 |")
+        w("|------|:-------:|------|:---:|------|")
+        for ch in resonance[:3]:
+            stocks = _segment_stocks(ch["plate"], ch["l1"], ch["l2"], "mentions")
+            seg_label = f"{ch['l1']}>{ch['l2']}" if ch['l2'] and ch['l2'] != '-' else ch['l1']
+            for i, s in enumerate(stocks[:2]):
+                nm = names.get(s["code"], s.get("name", "")) or s.get("name", "?")
+                advice = "已共振，不建议追高，等回调至均线" if i == 0 else "同上"
+                w(f"| {seg_label} | {ch['trend_signal']} | {nm}({s['code']}) | {s.get('pct',0):+.1f}% | {advice} |")
+        w()
+        any_output = True
 
-    # 规则4: 生命周期状态迁移 → 关注新进入 active 的主题
-    for lr in lifecycle_rows:
-        if lr["state"] == "confirmed" and lr["trend"] == "🔥加剧":
-            insights.append(
-                f"📈 **{lr['theme']}** — 已确认走势+逻辑加剧，持续{lr['days_active']}天，"
-                f"关注产业链核心标的是否进入主升"
-            )
+    # ===== 走势先行 =====
+    trend_lead = [ch for ch in chain_rows if ch["verdict"] == "👀走势先行"]
+    if trend_lead:
+        w("#### 👀 走势先行（价格已动但逻辑稀疏，需深挖）")
+        w()
+        w("| 链段 | 个股 | 涨跌 | 逻辑提及 | 待验证 |")
+        w("|------|------|:---:|:-------:|------|")
+        for ch in trend_lead[:4]:
+            stocks = _segment_stocks(ch["plate"], ch["l1"], ch["l2"], "pct")
+            seg_label = f"{ch['l1']}>{ch['l2']}" if ch['l2'] and ch['l2'] != '-' else ch['l1']
+            for i, s in enumerate(stocks[:2]):
+                nm = names.get(s["code"], s.get("name", "")) or s.get("name", "?")
+                verify = "翻最近5日公告+研报，确认催化来源" if i == 0 else "同上"
+                w(f"| {seg_label} | {nm}({s['code']}) | {s.get('pct',0):+.1f}% | {ch['total_mentions']}次 | {verify} |")
+        w()
+        any_output = True
 
-    # 规则5: 预期差高但生命周期长的主题 → 持续跟踪
-    high_gap_themes = {ch["plate"] for ch in chain_rows if ch["verdict"] == "⏳预期差" and ch["expectation_gap"] == "🔴高"}
-    for lr in lifecycle_rows:
-        if lr["theme"] in high_gap_themes and lr["days_active"] >= 3:
-            insights.append(
-                f"🔍 **{lr['theme']}** — 已连续{lr['days_active']}天处于高预期差状态，"
-                f"逻辑未破但价格持续未确认，建议设价格提醒等待突破信号"
-            )
+    # ===== 主升确认 =====
+    confirmed = [lr for lr in lifecycle_rows
+                 if lr["state"] == "confirmed" and lr["trend"] == "🔥加剧"]
+    if confirmed:
+        w("#### 📈 主升确认（走势已确认+逻辑仍在加剧）")
+        w()
+        w("| 主题 | 链段 | 个股 | 涨跌 | 状态 |")
+        w("|------|------|------|:---:|------|")
+        for lr in confirmed[:3]:
+            related = [ch for ch in chain_rows
+                      if ch["plate"] == lr["theme"] or lr["theme"] in ch["plate"]]
+            shown = set()
+            for ch in related[:3]:
+                seg_label = f"{ch['l1']}>{ch['l2']}" if ch['l2'] and ch['l2'] != '-' else ch['l1']
+                for s in _segment_stocks(ch["plate"], ch["l1"], ch["l2"], "mentions")[:2]:
+                    if s["code"] in shown:
+                        continue
+                    shown.add(s["code"])
+                    nm = names.get(s["code"], s.get("name", "")) or s.get("name", "?")
+                    status = ch["verdict"] if ch["verdict"] != "—" else "跟踪中"
+                    w(f"| {lr['theme']} | {seg_label} | {nm}({s['code']}) | {s.get('pct',0):+.1f}% | {status} |")
+        w()
+        any_output = True
 
-    if insights:
-        for ins in insights:
-            w(f"- {ins}")
-    else:
+    if not any_output:
         w("_当前无显著交叉信号_")
     w()
 

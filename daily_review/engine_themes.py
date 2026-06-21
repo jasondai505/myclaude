@@ -231,7 +231,7 @@ def analyze_themes(hot_df: pd.DataFrame, trade_date: str) -> dict:
         "today": top_themes,
         "new": sorted(new_themes, key=lambda t: cnt.get(t, 0), reverse=True),
         "persistent": persistent,
-        "fading": list(fading_themes),
+        "fading": sorted(fading_themes, key=lambda t: yesterday_themes.get(t, {}).get("count", 0), reverse=True),
         "fading_narrative": fading_with_narrative,
         "raw_counts": dict(cnt),
         "total_stocks": len(hot_df),
