@@ -8,6 +8,7 @@ from report_sections import (
     render_fundamentals, render_popularity, render_zsxq, render_focus_pool,
     render_advice, _render_strength, render_limit_up_analysis,
     _render_dragon_tracking,
+    render_today_summary, render_theme_advisor_section,
 )
 
 
@@ -53,6 +54,9 @@ def render_report(
 
     lines.append(f"# A股每日复盘 — {trade_date}")
     lines.append(f"> 生成时间: {now}\n")
+
+    # 今日摘要（情绪+主线+操作建议）
+    render_today_summary(lines, market, theme_groups, suggestions)
 
     # 一、大盘总览
     render_market_overview(lines, market, sectors)
@@ -123,6 +127,9 @@ def render_report(
 
     # 十二、产业链卡脖子分析（Serenity）
     render_serenity_chain(lines, sectors)
+
+    # 主题建议速查（rule engine 交叉生命周期+预期差+个股映射）
+    render_theme_advisor_section(lines)
 
     lines.append("---")
     lines.append("*本报告由每日复盘系统自动生成，仅供参考，不构成投资建议。*")

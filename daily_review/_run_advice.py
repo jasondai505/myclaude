@@ -814,6 +814,74 @@ def _inject_yesterday_logic(yesterday: str) -> str:
     return "\n".join(lines)
 
 
+def _inject_dual_track_cross(lines: list):
+    """在精选表后注入双轨交集数据。"""
+    try:
+        from dual_track_screener import screen as dual_track_screen
+        result = dual_track_screen(fev_top_n=7, g_per_dim=3, min_fev=15, min_g=6)
+    except Exception:
+        return
+
+    if not result or result.get("total", 0) == 0:
+        return
+
+    overlap = result.get("overlap", [])
+    ta = result.get("track_a", {})
+    tb = result.get("track_b", {})
+
+    lines.append("## 🔀 双轨交集速查（FEV ∩ G-Factor）")
+    lines.append("")
+    lines.append(f"> FEV轨 {ta.get('count', 0)} 席 + G-Factor轨 {tb.get('count', 0)} 席，交集 **{len(overlap)}** 只")
+    lines.append("")
+
+    if overlap:
+        # 交集标的详情
+        ta_stocks = {s["code"]: s for s in ta.get("stocks", [])}
+        lines.append("| 代码 | 名称 | FEV | F/E/V | G维度 |")
+        lines.append("|------|------|:---:|:-----:|------|")
+        for code in sorted(overlap):
+            s = ta_stocks.get(code, {})
+            g_dims = []
+            for dim_name, entries in tb.get("dims", {}).items():
+                for e in entries:
+                    if e["code"] == code:
+                        g_dims.append(f"{dim_name[:4]}{e['score']}")
+            g_str = " ".join(g_dims[:2]) if g_dims else "—"
+            lines.append(
+                f"| {code} | {s.get('name', '')} | **{s.get('fev_total', 0)}** "
+                f"| {s.get('f_score', 0)}/{s.get('e_score', 0)}/{s.get('v_score', 0)} | {g_str} |"
+            )
+        lines.append("")
+        lines.append("> 双轨交集标的 = FEV 质量背书 + G-Factor 成长动能，稀缺性最高，优先考虑。")
+    else:
+        lines.append("> 当前无 FEV/G-Factor 双轨交集标的。")
+    lines.append("")
+
+
+def _inject_theme_advisor_advice(lines: list):
+    """在精选段后注入主题建议速查（复用 _dashboard.py _render_theme_advisor）。"""
+    try:
+        from _dashboard import _render_theme_advisor
+        from engine_theme_lifecycle import lifecycle
+        from _dashboard import _chain_heat
+
+        lifecycle_rows = lifecycle()
+        chain_rows = _chain_heat()
+
+        if not lifecycle_rows and not chain_rows:
+            return
+
+        class W:
+            def __init__(self, lst): self.lst = lst
+            def __call__(self, s=""): self.lst.append(s)
+        w = W(lines)
+        lines.append("## 🧠 主题建议速查（双轨验证）")
+        lines.append("")
+        _render_theme_advisor(w, lifecycle_rows, chain_rows)
+    except Exception:
+        pass
+
+
 def _inject_fev_table() -> str:
     """注入所有已评分标的的 FEV 查询表（serenity + feval 合并）。"""
     fev_rows: dict[str, dict] = {}
@@ -1856,6 +1924,12 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
                 )
             lines.append("")
 
+    # 双轨交集数据
+    _inject_dual_track_cross(lines)
+
+    # 主题建议速查（rule engine 交叉生命周期+预期差+个股映射）
+    _inject_theme_advisor_advice(lines)
+
     # 替换候选池段落
     before = output[:pool_start]
     after = output[pool_end:]
@@ -2249,6 +2323,59 @@ def _inject_theme_clock(today: str) -> str:
     return "\n".join(lines)
 
 
+def _inject_theme_lifecycle_labels(today: str) -> str:
+    """从 engine_theme_lifecycle + _chain_heat 生成紧凑主题生命周期标签，注入 ChokeMap prompt。"""
+    try:
+        from engine_theme_lifecycle import lifecycle
+        rows = lifecycle(lookback=60)
+    except Exception as e:
+        return f"（主题生命周期读取失败: {e}）"
+
+    if not rows:
+        return "（近60天无主题生命周期数据）"
+
+    try:
+        from _dashboard import _chain_heat
+        chain_rows = _chain_heat()
+        chain_gap = {r["plate"]: r for r in chain_rows if r["verdict"] == "⏳预期差"}
+    except Exception:
+        chain_gap = {}
+
+    lines = ["| 主题 | 状态·趋势 | 持续 | 预期差 | 操作指引 |",
+             "|------|:--------:|:---:|:----:|------|"]
+    for r in rows[:20]:
+        state_cn = {"emerging": "🆕萌芽", "active": "🟡活跃", "confirmed": "✅确认",
+                    "cooling": "🔵冷却", "dormant": "⚫休眠"}.get(r["state"], r["state"])
+        gap_info = chain_gap.get(r["theme"], {})
+        gap_label = gap_info.get("expectation_gap", "—") if gap_info else "—"
+        if gap_label == "🔴高":
+            guidance = "逻辑密集但价格未确认·提前布局"
+        elif r["state"] == "confirmed" and r["trend"] == "🔥加剧":
+            guidance = "双确认·优先配置"
+        elif r["state"] == "cooling":
+            guidance = "逻辑减弱·只出不进"
+        elif r["state"] == "active" and r["trend"] == "🔥加剧":
+            guidance = "逻辑升温·跟踪待确认"
+        else:
+            guidance = "—"
+        lines.append(
+            f"| {r['theme']} | {state_cn}·{r['trend']} | {r['days_active']}天 "
+            f"| {gap_label} | {guidance} |"
+        )
+
+    # 汇总标签（紧凑格式，供 LLM 快速引用）
+    label_parts = []
+    for r in rows[:15]:
+        tag = f"[{r['theme']}({r['state']}{r['days_active']}天·{r['trend']})]"
+        label_parts.append(tag)
+    lines.append("")
+    lines.append(f"**紧凑标签**: {' '.join(label_parts)}")
+    lines.append("")
+    lines.append("> 候选池构建时，每只标的需标注其关联主题的当前生命周期状态。")
+
+    return "\n".join(lines)
+
+
 def _scan_recurring_themes(today: str) -> str:
     """扫描过去7天 primary_synthesis，Haiku 提取周期性主题和标的。"""
     from datetime import date as dt_date, timedelta
@@ -2455,6 +2582,7 @@ def main():
     marginal = _inject_marginal(today)
     recurring = _scan_recurring_themes(today)
     theme_clock = _inject_theme_clock(today)
+    theme_lifecycle = _inject_theme_lifecycle_labels(today)
     must_consider = _inject_must_consider()
     yesterday_logic = _inject_yesterday_logic(yesterday)
     feeds["%%JIUYANG%%"] = jiuyang
@@ -2520,6 +2648,7 @@ def main():
         .replace("%%MARGINAL_CHANGES%%", marginal)
         .replace("%%RECURRING_THEMES%%", recurring)
         .replace("%%THEME_CLOCK%%", theme_clock)
+        .replace("%%THEME_LIFECYCLE%%", theme_lifecycle)
         .replace("%%MUST_CONSIDER%%", must_consider)
         .replace("%%YESTERDAY_LOGIC%%", yesterday_logic)
         .replace("%%FEV_TABLE%%", fev_table)

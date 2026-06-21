@@ -158,9 +158,7 @@ def render_sectors(lines, sectors, trade_date=None):
     lines.append("")
 
     if trade_date:
-        from engine_similar_days import similar_days_report
-        lines.append(similar_days_report(trade_date))
-        lines.append("")
+        _render_chain_heat_verdict(lines)
 
 
 def render_themes(lines, themes, theme_stock_details, focus_pool_data,
@@ -799,3 +797,117 @@ def render_limit_up_analysis(lines: list[str], lu: dict):
 def _render_dragon_tracking(lines: list, tracked: list[dict], stats: dict):
     from emerging_dragon import render_tracking
     render_tracking(lines, tracked, stats)
+
+
+# ============================================================
+# 双轨验证 + 摘要 + 主题建议（Dashboard 复用）
+# ============================================================
+
+def render_today_summary(lines, market, theme_groups, suggestions):
+    """报告最前面：今日摘要三句话——情绪+主线+最重要操作建议。"""
+    sentiment = market.get("sentiment", "")
+    mainline = []
+    if theme_groups:
+        for t in theme_groups.get("主升浪", [])[:3]:
+            mainline.append(t.get("theme", ""))
+        for t in theme_groups.get("加速期", [])[:2]:
+            mainline.append(t.get("theme", ""))
+    mainline_str = "、".join(mainline) if mainline else "无明显主线"
+
+    top_op = ""
+    if suggestions:
+        ops = suggestions.get("operation", [])
+        if ops:
+            top_op = ops[0]
+
+    lines.append("## 📌 今日摘要")
+    lines.append("")
+    lines.append(f"1. **情绪**: {sentiment}")
+    lines.append(f"2. **主线**: {mainline_str}")
+    lines.append(f"3. **操作**: {top_op if top_op else '暂无建议'}")
+    lines.append("")
+
+
+def _render_chain_heat_verdict(lines):
+    """render_sectors() 底部：chain_heat 双轨验证表（共振/预期差/走势先行三分类）。"""
+    try:
+        from _dashboard import _chain_heat
+        rows = _chain_heat()
+    except Exception:
+        lines.append("> 双轨验证数据暂不可用")
+        lines.append("")
+        return
+
+    if not rows:
+        return
+
+    resonance = [r for r in rows if r["verdict"] == "🔥共振"]
+    gap = [r for r in rows if r["verdict"] == "⏳预期差"]
+    trend_lead = [r for r in rows if r["verdict"] == "👀走势先行"]
+
+    if not (resonance or gap or trend_lead):
+        return
+
+    lines.append("### 链段双轨验证（逻辑×走势交叉）")
+    lines.append("")
+
+    seg_label = lambda r: f"{r['l1']}>{r['l2']}" if r['l2'] and r['l2'] != '-' else r['l1']
+
+    if resonance:
+        lines.append("#### 🔥 共振（逻辑+价格+走势同步确认）")
+        lines.append("")
+        lines.append("| 链段 | 均涨跌 | 提及密度 | 走势信号 | 代表标的 |")
+        lines.append("|------|------:|:------:|:------:|------|")
+        for r in resonance[:8]:
+            lines.append(
+                f"| {seg_label(r)} | {r['avg_pct']:+.1f}% | {r['mention_density']:.0f}/只 "
+                f"| {r['trend_signal']} | {r['top_name']}({r['top_code']}) |"
+            )
+        lines.append("")
+
+    if gap:
+        lines.append("#### ⏳ 预期差（逻辑密集但价格未确认）")
+        lines.append("")
+        lines.append("| 链段 | 均涨跌 | 提及密度 | 预期差 | 代表标的 |")
+        lines.append("|------|------:|:------:|:----:|------|")
+        for r in gap[:8]:
+            lines.append(
+                f"| {seg_label(r)} | {r['avg_pct']:+.1f}% | {r['mention_density']:.0f}/只 "
+                f"| {r['expectation_gap']} | {r['top_name']}({r['top_code']}) |"
+            )
+        lines.append("")
+
+    if trend_lead:
+        lines.append("#### 👀 走势先行（价格已动但逻辑稀疏，需深挖）")
+        lines.append("")
+        lines.append("| 链段 | 均涨跌 | 提及 | 走势信号 | 代表标的 |")
+        lines.append("|------|------:|:---:|:------:|------|")
+        for r in trend_lead[:8]:
+            lines.append(
+                f"| {seg_label(r)} | {r['avg_pct']:+.1f}% | {r['total_mentions']}次 "
+                f"| {r['trend_signal']} | {r['top_name']}({r['top_code']}) |"
+            )
+        lines.append("")
+
+    lines.append("")
+
+
+def render_theme_advisor_section(lines):
+    """报告末尾：主题建议速查，复用 _dashboard.py 的 _render_theme_advisor() 表格式输出。"""
+    try:
+        from _dashboard import _render_theme_advisor
+        from engine_theme_lifecycle import lifecycle
+        from _dashboard import _chain_heat
+        lifecycle_rows = lifecycle()
+        chain_rows = _chain_heat()
+
+        class W:
+            def __init__(self, lst): self.lst = lst
+            def __call__(self, s=""): self.lst.append(s)
+        w = W(lines)
+        lines.append("## 主题建议速查")
+        lines.append("")
+        _render_theme_advisor(w, lifecycle_rows, chain_rows)
+    except Exception as e:
+        lines.append(f"> 主题建议暂不可用: {e}")
+        lines.append("")
