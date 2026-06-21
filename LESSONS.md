@@ -503,3 +503,28 @@ text = download_report_pdf(pdf_url, info_code)
 **commonality_scan_collector**：包装 `_archive/_scan_commonality_v2.py` 为 collector，注册到 `post_market` 管线。每日产出一份 `commonality_cache/scan_{date}.json`，供 concept_heat 和 Dashboard 盘面概念信号使用。替代了手工整理的「强势板块.xlsx」——概念粒度更细，无主观性。注意：需 Redis 运行才能产出。
 
 **stock_dossier_collector**：包装 `stock_dossier_builder.py` 为 collector，注册到 `weekly` 管线。自动选优先池 22 只 → 8 维聚合 → LLM 逐只合成一页纸档案 → Obsidian vault。超时 600s，LLM 成本约 $2-3/周。
+
+## 2026-06-22 大规模改造会话
+
+### 双轨验证接入 Review/Advice
+- review 报告新增三段：今日摘要(情绪+主线+操作)、chain_heat 双轨验证表(共振/预期差/走势先行)、主题建议速查(个股+选中理由)
+- advice 注入主题生命周期标签 + 双轨交集 + 主题建议速查
+- 原则：不动现有逻辑，只加段落，复用已建函数
+
+### 公众号正文抓取修复
+- 根因：`urlopen(req).read()` 下载完整 3MB 页面只取 1200 字符，RSS 源频繁断连
+- 修复：逐块读取(8KB chunks)，满 500KB 或断连即停，用已读内容继续
+- timeout 15→60s，成功率 0/20→18/20
+
+### 管道缓冲问题
+- 诊断：`| tail -30` / `| head -30` 等输入流结束才输出，全程空白
+- 验证后台任务进度时不要加管道，直接用 `run_in_background: true` 看 output file
+
+### 元系统自清理 /cleanup
+- 首次扫描发现：models.py 孤儿(已删)、3条历史事故可压缩(已做)、3个 zombie engine
+- engine_leader_backtest/limit_up 已接入 Dashboard，engine_marginal 已有文件级检查
+
+### 假设闭环 + 规则晋升
+- 播客文章驱动的两个新功能
+- 假设闭环：data/hypotheses.json + 5源日度证据扫描，纯机械无 LLM
+- 规则晋升：catalyst_type × 概念 30天≥3次+跨≥2天→自动上榜，≥7次+≥3天→纳入SOP
