@@ -51,6 +51,8 @@ _COLLECTOR_IMPORTS = {
     "industry": "industry_research",
     "industry_deep_read": "industry_deep_read",
     "catalyst_tracker": "catalyst_tracker_collector",
+    "commonality_scan": "commonality_scan_collector",
+    "stock_dossiers": "stock_dossier_collector",
     "financials": "financials",
     "wechat": "wechat",
     "jiuyang": "jiuyang",
@@ -82,6 +84,8 @@ SOURCE_LABELS = {
     "industry": "行业研报",
     "industry_deep_read": "行业深度分析",
     "catalyst_tracker": "催化走势跟踪",
+    "commonality_scan": "共性扫描",
+    "stock_dossiers": "个股档案构建",
     "financials": "财务指标",
     "wechat": "微信公众号",
     "jiuyang": "韭研脱水研报",
@@ -95,7 +99,7 @@ FEED_INDEX_CATEGORIES = [
     ("📈 业绩+新闻", ["earnings", "news", "news_signals"]),
     ("🏭 行业", ["industry", "industry_deep_read"]),
     ("💬 社交信息源", ["wechat", "weibo", "zsxq", "jiuyang"]),
-    ("📡 跟踪+数据", ["catalyst_tracker", "lockups", "eps", "financials"]),
+    ("📡 跟踪+数据", ["catalyst_tracker", "lockups", "eps", "financials", "commonality_scan", "stock_dossiers"]),
 ]
 
 
@@ -116,6 +120,8 @@ SOURCE_TABLE = {
     "industry": ("industry_reports", "report_date"),
     "industry_deep_read": ("industry_reports", "fetched_at"),
     "catalyst_tracker": ("catalyst_signals", "created_at"),
+    "commonality_scan": ("catalyst_signals", "created_at"),
+    "stock_dossiers": ("deep_read_results", "date"),
     "financials": ("financial_indicators", "fetched_at"),
     "wechat": ("wechat_articles", "pub_date"),
     "jiuyang": ("jiuyang_reports", "pub_date"),
@@ -125,7 +131,7 @@ SOURCE_TABLE = {
 SOURCE_TIERS = {
     "daily": {"zsxq", "announcements", "announcement_deep_read", "news", "news_signals", "research", "research_deep_read", "industry",
               "industry_deep_read", "wechat", "weibo", "jiuyang", "interactions", "surveys", "sentiment_track", "earnings"},
-    "weekly": {"lockups", "eps", "financials"},
+    "weekly": {"lockups", "eps", "financials", "stock_dossiers"},
     "post_market": {"catalyst_tracker", "commonality_scan"},
 }
 
@@ -260,8 +266,8 @@ COLLECTOR_TIMEOUTS = {
     "news": 180, "news_signals": 300, "research": 240, "research_deep_read": 900,
     "interactions": 1200, "earnings": 120, "surveys": 240, "lockups": 120,
     "eps": 240, "industry": 120, "industry_deep_read": 600,
-    "catalyst_tracker": 120, "financials": 180, "wechat": 120,
-    "jiuyang": 600, "weibo": 180,
+    "catalyst_tracker": 120, "commonality_scan": 120, "financials": 180, "wechat": 120,
+    "jiuyang": 600, "weibo": 180, "stock_dossiers": 600,
 }
 DEFAULT_TIMEOUT = 180
 

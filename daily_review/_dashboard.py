@@ -13,6 +13,7 @@ import store
 from config import REPORT_DIR
 from data import extract_codes_from_text
 from engine_sector_rotation import sector_frequency, sector_persistence, sector_stocks
+from dual_track_screener import screen as dual_track_screen
 from engine_market_rhythm import classify_rhythm_stage, daily_rhythm
 from engine_similar_days import similar_sectors
 
@@ -602,6 +603,66 @@ def _build_code_chain_map() -> dict[str, list[dict]]:
                         "plate": plate, "l1": l1, "l2": l2,
                     })
     return code_map
+
+
+def _render_dual_track(w):
+    """双轨选股：FEV 格雷厄姆轨 + G-Factor 费雪轨 分席输出。"""
+    w("## 🏆 双轨选股（FEV + G-Factor）")
+    w()
+    try:
+        result = dual_track_screen(fev_top_n=7, g_per_dim=3, min_fev=15, min_g=6)
+    except Exception as e:
+        w(f"_双轨数据不可用: {e}_")
+        w()
+        return
+
+    ta = result["track_a"]
+    tb = result["track_b"]
+
+    # 轨A: FEV
+    w(f"### 轨A: {ta['label']}（{ta['count']}只）")
+    w()
+    if ta["stocks"]:
+        w("| 代码 | 名称 | F | E | V | FEV | 备注 |")
+        w("|------|------|:--:|:--:|:--:|:---:|------|")
+        for s in ta["stocks"]:
+            w(f"| {s['code']} | {s['name']} | {s['f_score']} | {s['e_score']} | "
+              f"{s['v_score']} | **{s['fev_total']}** | {s.get('f_note','')[:30]} |")
+    else:
+        w("_无达标标的_")
+    w()
+
+    # 轨B: G-Factor（四维按标的去重合并展示）
+    w(f"### 轨B: {tb['label']}（{tb['count']}只）")
+    w()
+    code_rows: dict[str, dict] = {}
+    for dim_name, entries in tb["dims"].items():
+        dim_short = dim_name.split("_")[1] if "_" in dim_name else dim_name
+        for e in entries:
+            c = e["code"]
+            if c not in code_rows:
+                code_rows[c] = {"name": e["name"], "scores": {}}
+            code_rows[c]["scores"][dim_short] = e["score"]
+    if code_rows:
+        w("| 代码 | 名称 | 成长质量 | 催化密度 | 叙事强度 | 机构动量 |")
+        w("|------|------|:------:|:------:|:------:|:------:|")
+        for code, info in code_rows.items():
+            sc = info["scores"]
+            w(f"| {code} | {info['name']} | {sc.get('成长质量','—')} | "
+              f"{sc.get('催化密度','—')} | {sc.get('叙事强度','—')} | {sc.get('机构动量','—')} |")
+    else:
+        w("_无达标标的_")
+    w()
+
+    # 双轨交集
+    if result["overlap"]:
+        overlap_codes = result["overlap"]
+        w(f"### 🎯 双轨交集（{len(overlap_codes)}只）")
+        w()
+        names = _load_name_cache()
+        named = [f"{names.get(c, '')}({c})" for c in overlap_codes]
+        w(" · ".join(named))
+        w()
 
 
 def _render_price_signals(w, last_trade: str):
@@ -1541,6 +1602,9 @@ def generate(today_str: str = "") -> str:
             mention_str = f"{ch['total_mentions']}次/{ch['mention_density']:.0f}密"
             w(f"| {ch['plate']} | {ch['l1']} | {l2_display} | {ch['count']} | {pct_str} | {mention_str} | {ch['trend_signal']} | {ch['expectation_gap']} | **{ch['verdict']}** |")
         w()
+
+    # === 双轨选股（FEV + G-Factor） ===
+    _render_dual_track(w)
 
     # === 盘面侧信号（自下而上） ===
     _render_price_signals(w, last_trade)
