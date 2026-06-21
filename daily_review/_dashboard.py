@@ -975,7 +975,129 @@ def _hot_themes() -> list[dict]:
     return result[:15]
 
 
-def generate(today_str: str = "") -> str:
+def _discover_chain_xlsx() -> list[Path]:
+    """Auto-discover chain map XLSX files: *产业链*涨跌幅.xlsx"""
+    project_root = Path(__file__).parent.parent
+    xlsx_files = []
+    for pattern in ["*产业链*涨跌幅.xlsx", "*产业链*.xlsx"]:
+        for fp in project_root.glob(pattern):
+            if fp not in xlsx_files:
+                xlsx_files.append(fp)
+    return sorted(xlsx_files)
+
+
+def _load_chain_maps() -> dict:
+    """Load chain maps from XLSX files into {板块: {层级1: {层级2: [(code, name, pct, mcap, mentions, reason), ...]}}}"""
+    try:
+        import openpyxl
+    except ImportError:
+        return {}
+
+    chains: dict[str, dict] = {}
+    name_cache = _load_name_cache()
+
+    for fp in _discover_chain_xlsx():
+        try:
+            wb = openpyxl.load_workbook(fp, data_only=True)
+        except Exception:
+            continue
+        for sname in wb.sheetnames:
+            ws = wb[sname]
+            rows = list(ws.iter_rows(min_row=2, values_only=True))
+            # forward-fill merged cells
+            cur_plate = cur_l1 = cur_l2 = ""
+            for row in rows:
+                if not row or len(row) < 11:
+                    continue
+                # Forward-fill plate/l1/l2 (XLSX has merged cells)
+                plate = str(row[0] or "").strip() or cur_plate
+                l1 = str(row[1] or "").strip() or cur_l1
+                l2 = str(row[2] or "").strip() or cur_l2 or "-"
+                cur_plate, cur_l1, cur_l2 = plate, l1, l2
+
+                code_raw = str(row[3] or "").strip()
+                name = str(row[4] or "").strip()
+                # Parse percentage: "-1.76859%" or "-4.20%" or "2.22%"
+                pct_str = str(row[6] or "0").replace("%", "").strip()
+                try:
+                    pct = float(pct_str)
+                except (ValueError, TypeError):
+                    pct = 0.0
+                try:
+                    mcap = float(row[7] or 0)
+                except (ValueError, TypeError):
+                    mcap = 0.0
+                try:
+                    mentions = int(row[8] or 0)
+                except (ValueError, TypeError):
+                    mentions = 0
+                reason = str(row[10] or "").strip()
+
+                # Normalize code: 300398.SZ -> 300398
+                code = code_raw.replace(".SZ", "").replace(".SH", "").replace(".BJ", "")
+                if not code.isdigit() or len(code) != 6:
+                    continue
+                if not name:
+                    name = name_cache.get(code, "")
+
+                if plate not in chains:
+                    chains[plate] = {}
+                if l1 not in chains[plate]:
+                    chains[plate][l1] = {}
+                if l2 not in chains[plate][l1]:
+                    chains[plate][l1][l2] = []
+
+                chains[plate][l1][l2].append({
+                    "code": code, "name": name, "pct": pct,
+                    "mcap": mcap, "mentions": mentions, "reason": reason,
+                })
+
+    return chains
+
+
+def _chain_heat() -> list[dict]:
+    """Calculate heat per chain segment: 板块 → 层级1 → 层级2.
+    Returns sorted list for Dashboard rendering.
+    """
+    chains = _load_chain_maps()
+    if not chains:
+        return []
+
+    result = []
+    for plate, l1_map in chains.items():
+        for l1, l2_map in l1_map.items():
+            for l2, stocks in l2_map.items():
+                if not stocks:
+                    continue
+                count = len(stocks)
+                avg_pct = sum(s["pct"] for s in stocks) / count
+                total_mentions = sum(s["mentions"] for s in stocks)
+                # Top stock by mentions, then by pct
+                best = max(stocks, key=lambda s: (s["mentions"], s["pct"]))
+                # 提及密度 = 总提及/标的数
+                mention_density = total_mentions / count if count > 0 else 0
+                # 涨幅动量 = avg_pct > 2% 为热
+                momentum = "🔥" if avg_pct > 3 else ("🟢" if avg_pct > 0 else "🔴")
+
+                result.append({
+                    "plate": plate,
+                    "l1": l1,
+                    "l2": l2,
+                    "count": count,
+                    "avg_pct": round(avg_pct, 1),
+                    "total_mentions": total_mentions,
+                    "mention_density": round(mention_density, 1),
+                    "top_code": best["code"],
+                    "top_name": best["name"],
+                    "top_mentions": best["mentions"],
+                    "top_pct": best["pct"],
+                    "top_reason": best["reason"][:80] if best["reason"] else "",
+                    "momentum": momentum,
+                })
+
+    # Sort by: avg_pct momentum (absolute) * mention_density → heat score
+    result.sort(key=lambda x: (abs(x["avg_pct"]) * max(x["mention_density"], 1) * x["count"]), reverse=True)
+    return result
     now_ts = datetime.now().strftime("%Y-%m-%d %H:%M")
     today = today_str or date.today().isoformat()
     last_trade = _last_trading_day().isoformat()
@@ -1108,6 +1230,28 @@ def generate(today_str: str = "") -> str:
         w("|:----:|------|:-----:|------|---------|")
         for h in hot[:15]:
             w(f"| {'⭐'*min(h['heat'],3)} | {h['theme']} | {h['count']} | {h['source_list']} | {h['stocks']} |")
+        w()
+
+    # === 产业链下钻（图谱联动） ===
+    chain_rows = _chain_heat()
+    if chain_rows:
+        w("### 🔬 产业链下钻")
+        w()
+        # Group by plate
+        plates_seen = []
+        for ch in chain_rows:
+            if ch["plate"] not in plates_seen:
+                plates_seen.append(ch["plate"])
+                w(f"**{ch['plate']}**  ")
+        w()
+        w("| 环节 | 层级 | 标的 | 涨幅 | 提及 | 核心标的 | 信号 |")
+        w("|------|------|:---:|:---:|:---:|------|:---:|")
+        for ch in chain_rows[:20]:
+            l2_tag = f"({ch['l2']})" if ch['l2'] and ch['l2'] != '-' else ''
+            tier = f"{ch['l1']}{l2_tag}"
+            best_label = f"{ch['top_name']}({ch['top_code']})"
+            pct_str = f"+{ch['avg_pct']}%" if ch['avg_pct'] > 0 else f"{ch['avg_pct']}%"
+            w(f"| {ch['plate']} | {tier} | {ch['count']} | {pct_str} | {ch['total_mentions']}次 | {best_label} | {ch['momentum']} |")
         w()
 
     # === 本周趋势 ===
