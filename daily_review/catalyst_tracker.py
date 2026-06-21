@@ -1,4 +1,4 @@
-"""催化剂生命周期跟踪 — 走势交叉确认 + 历史催化重新提醒
+"""催化剂生命周期跟踪 — 走势交叉确认 + 概念预热 + 历史催化重新提醒
 
 用法:
     python daily_review/catalyst_tracker.py              # 今天
@@ -8,7 +8,8 @@
     1. 查14天内 actionability>=40 且未被走势确认的催化
     2. Redis 实时行情检查映射标的今日走势
     3. 标的涨停/大涨 → 标记 price_confirmed → 输出重新提醒
-    4. 14天无动静 → expired
+    4. 个股未确认 → 检查概念热度（成分股协同异动）→ 标记 sector_heating
+    5. 14天无动静（个股+概念皆无信号）→ expired
 """
 import sys, json, argparse
 from pathlib import Path
@@ -82,6 +83,99 @@ def _score_stock_signal(q: dict, pool_days: int) -> int:
     return score
 
 
+# === 概念热度检查（自下而上增强） ===
+
+_CONCEPT_BASELINE: dict[str, int] | None = None
+_CONCEPT_HEAT_CACHE: dict[str, float] = {}
+
+CONCEPT_HEAT_RATIO = 0.10     # 概念中 ≥10% 的成分股进入强势池视为升温
+CONCEPT_HEAT_MIN_COUNT = 3    # 至少3只强势股
+CONCEPT_HEAT_ABS_COUNT = 10   # 或绝对强势股 ≥10 只（大概念的宽基强度）
+
+
+def _load_concept_baseline() -> dict[str, int]:
+    """加载概念→成分股数的 baseline（来自 multi_concept_map.json）。"""
+    global _CONCEPT_BASELINE
+    if _CONCEPT_BASELINE is not None:
+        return _CONCEPT_BASELINE
+    try:
+        mp = Path(__file__).parent / "data" / "multi_concept_map.json"
+        data = json.loads(mp.read_text(encoding="utf-8"))
+        _CONCEPT_BASELINE = data.get("baseline", {})
+    except Exception:
+        _CONCEPT_BASELINE = {}
+    return _CONCEPT_BASELINE
+
+
+def _load_today_concept_counts(today_str: str, fallback: bool = True) -> dict[str, int]:
+    """从 commonality_cache 中加载各概念的强势股数量。
+    若当日文件不存在，自动回退到最近一个可用文件。
+    """
+    cache_file = CACHE_DIR / f"scan_{today_str}.json"
+    if not cache_file.exists() and fallback:
+        files = sorted(CACHE_DIR.glob("scan_*.json"))
+        if files:
+            cache_file = files[-1]
+        else:
+            return {}
+    if not cache_file.exists():
+        return {}
+    try:
+        data = json.loads(cache_file.read_text(encoding="utf-8"))
+        return data.get("concept_counts", {})
+    except Exception:
+        return {}
+
+
+def _check_concept_heat(today_str: str) -> dict[str, float]:
+    """计算今日各概念的热度比例 (强势股数 / 概念总成分股数)。
+
+    Returns: {concept_name: heat_ratio} 仅返回超过阈值的概念。
+    """
+    global _CONCEPT_HEAT_CACHE
+    cache_key = f"heat_{today_str}"
+    if cache_key in _CONCEPT_HEAT_CACHE:
+        return _CONCEPT_HEAT_CACHE[cache_key]
+
+    baseline = _load_concept_baseline()
+    today_counts = _load_today_concept_counts(today_str)
+    if not baseline or not today_counts:
+        _CONCEPT_HEAT_CACHE[cache_key] = {}
+        return {}
+
+    hot = {}
+    for concept, cnt in today_counts.items():
+        base = baseline.get(concept, 0)
+        if base == 0:
+            continue  # 不在 baseline 的概念视为噪音，跳过
+        if cnt < CONCEPT_HEAT_MIN_COUNT:
+            continue
+        if cnt >= CONCEPT_HEAT_ABS_COUNT:
+            hot[concept] = round(cnt / base, 3)
+        else:
+            ratio = cnt / base
+            if ratio >= CONCEPT_HEAT_RATIO:
+                hot[concept] = round(ratio, 3)
+
+    _CONCEPT_HEAT_CACHE[cache_key] = hot
+    return hot
+
+
+def _get_catalyst_concepts(sig: dict) -> set[str]:
+    """从 catalyst_stock_map 获取催化关联的概念集合。"""
+    cname = sig.get("catalyst_name", "")
+    date_str = sig.get("date", "")
+    if not cname or not date_str:
+        return set()
+    stocks = query_catalyst_stocks(date_str, cname)
+    concepts = set()
+    for s in stocks:
+        mc = s.get("matched_concept", "")
+        if mc and mc != "—":
+            concepts.add(mc)
+    return concepts
+
+
 def track(today_str: str):
     init_db()
     print(f"[catalyst_tracker] {today_str}")
@@ -153,7 +247,23 @@ def track(today_str: str):
             confirmed_catalysts.append(sig)
         all_stock_signals[cname] = stock_details
 
-    # 3b. 深度研读标的专项跟踪（确认阈值更低）
+    # 3b. 概念热度检查 — 个股未确认，但催化关联的概念在升温 → sector_heating
+    concept_heat = _check_concept_heat(today_str)
+    sector_heating = []
+    if concept_heat:
+        for sig in unconfirmed:
+            if sig in confirmed_catalysts:
+                continue
+            concepts = _get_catalyst_concepts(sig)
+            hot = {c: concept_heat[c] for c in concepts if c in concept_heat}
+            if hot:
+                sig["hot_concepts"] = hot
+                sig["heat_score"] = max(hot.values())
+                sector_heating.append(sig)
+        if sector_heating:
+            print(f"  概念预热: {len(sector_heating)}条催化（概念在升温但个股走势未确认）")
+
+    # 3c. 深度研读标的专项跟踪（确认阈值更低）
     dr_confirmed = []
     try:
         active_dr = get_active_deep_reads(min_score=60, lookback_days=14)
@@ -200,8 +310,11 @@ def track(today_str: str):
     L = []
     def w(s=""): L.append(s)
 
+    sh_count = len(sector_heating)
     w(f"# 催化剂走势跟踪 {today_str}")
-    w(f"\n> 扫描 {LOOKBACK_DAYS} 天内 {len(seen)} 条活性催化 | 走势确认 {len(confirmed_catalysts)} 条\n")
+    w(f"\n> 扫描 {LOOKBACK_DAYS} 天内 {len(seen)} 条活性催化 | "
+      f"走势确认 {len(confirmed_catalysts)} 条"
+      f"{' | 概念预热 ' + str(sh_count) + ' 条' if sh_count else ''}\n")
 
     if old_reactivations:
         w("## 历史催化复活 — 前期逻辑被走势确认\n")
@@ -224,12 +337,28 @@ def track(today_str: str):
             w(f"- **{c['catalyst_name']}** ({c.get('actionability',0)}分) — "
               f"{len(c.get('stock_signals',[]))}只标的异动")
 
-    if not confirmed_catalysts:
+    if sector_heating:
+        w("## 🔥 概念预热 — 个股走势未确认但概念在升温\n")
+        w("> 以下催化的映射标的尚未出现强走势信号，但其关联概念今日成分股协同异动，"
+          "可能是市场开始定价的前兆。\n")
+        for c in sorted(sector_heating, key=lambda x: -x.get("heat_score", 0))[:10]:
+            days_ago = (today_date - date.fromisoformat(c["date"])).days
+            hot_concepts = c.get("hot_concepts", {})
+            top_concept = max(hot_concepts, key=hot_concepts.get) if hot_concepts else "?"
+            heat_pct = f"{hot_concepts.get(top_concept, 0)*100:.0f}%"
+            w(f"- [{c.get('catalyst_type','?')}] **{c['catalyst_name']}** "
+              f"({days_ago}d ago, 行动性{c.get('actionability',0)}分) → "
+              f"概念 **{top_concept}** 强势占比 {heat_pct}")
+            w(f"  > {c.get('thesis','')[:150]}")
+        w()
+
+    if not confirmed_catalysts and not sector_heating:
         w("## 走势扫描：无新增确认\n")
         w("当前活性催化均未出现显著走势信号，继续跟踪中。")
 
-    # 列出仍在跟踪的未确认催化
-    still_tracking = [s for s in unconfirmed if s not in confirmed_catalysts]
+    # 列出仍在跟踪的未确认催化（排除已 sector_heating 的）
+    still_tracking = [s for s in unconfirmed
+                      if s not in confirmed_catalysts and s not in sector_heating]
     if still_tracking:
         w("\n---\n")
         w("## 仍在跟踪（走势尚未确认）\n")

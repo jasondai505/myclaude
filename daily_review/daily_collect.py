@@ -126,7 +126,7 @@ SOURCE_TIERS = {
     "daily": {"zsxq", "announcements", "announcement_deep_read", "news", "news_signals", "research", "research_deep_read", "industry",
               "industry_deep_read", "wechat", "weibo", "jiuyang", "interactions", "surveys", "sentiment_track", "earnings"},
     "weekly": {"lockups", "eps", "financials"},
-    "post_market": {"catalyst_tracker"},
+    "post_market": {"catalyst_tracker", "commonality_scan"},
 }
 
 

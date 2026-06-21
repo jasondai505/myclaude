@@ -12,6 +12,9 @@ from pathlib import Path
 import store
 from config import REPORT_DIR
 from data import extract_codes_from_text
+from engine_sector_rotation import sector_frequency, sector_persistence, sector_stocks
+from engine_market_rhythm import classify_rhythm_stage, daily_rhythm
+from engine_similar_days import similar_sectors
 
 
 def _last_trading_day(ref: date | None = None) -> date:
@@ -365,6 +368,9 @@ def _engine_status() -> list[dict]:
             revived = re.findall(r"历史催化复活|历史复活", text)
             if revived:
                 ct_nums += " 🔄复活"
+            sh = re.search(r"概念预热\s*(\d+)\s*条", text)
+            if sh:
+                ct_nums += f" 🔥{sh.group(1)}预热"
         except Exception:
             ct_nums = ""
     engines.append({
@@ -490,7 +496,190 @@ def _engine_status() -> list[dict]:
         "nums": llm_nums,
     })
 
+    # === 盘面侧引擎 ===
+    srl_ok, srl_time, srl_nums = _sector_rotation_status()
+    engines.append({
+        "name": "🔄 板块轮动", "key": "sector_rotation",
+        "ok": srl_ok, "time": srl_time, "nums": srl_nums,
+    })
+    mrh_ok, mrh_time, mrh_nums = _market_rhythm_status()
+    engines.append({
+        "name": "🌊 市场节奏", "key": "market_rhythm",
+        "ok": mrh_ok, "time": mrh_time, "nums": mrh_nums,
+    })
+    sds_ok, sds_time, sds_nums = _similar_days_status()
+    engines.append({
+        "name": "🔮 相似日匹配", "key": "similar_days",
+        "ok": sds_ok, "time": sds_time, "nums": sds_nums,
+    })
+
     return engines
+
+
+def _sector_rotation_log_freshness() -> tuple[bool, str]:
+    """检查 sector_rotation_log 表最近数据日期。"""
+    try:
+        with store._conn() as conn:
+            row = conn.execute(
+                "SELECT MAX(date) FROM sector_rotation_log WHERE sector != ''"
+            ).fetchone()
+            if row and row[0]:
+                return True, row[0]
+    except Exception:
+        pass
+    return False, "—"
+
+
+def _sector_rotation_status() -> tuple[bool, str, str]:
+    ok, last_date = _sector_rotation_log_freshness()
+    if not ok:
+        return False, "—", "无数据"
+    try:
+        freq = sector_frequency(5)
+        top3 = "/".join(s["sector"] for s in freq[:3]) if freq else "—"
+        return True, last_date, top3
+    except Exception:
+        return False, last_date, "查询异常"
+
+
+def _market_rhythm_status() -> tuple[bool, str, str]:
+    ok, last_date = _sector_rotation_log_freshness()
+    if not ok:
+        return False, "—", "无数据"
+    try:
+        stage = classify_rhythm_stage(last_date)
+        stage_cn = {"launch": "+1启动", "relay": "+2接力", "momentum": "主升",
+                     "expansion": "扩容", "backflow": "回流", "idle": "空窗"}.get(stage, stage)
+        return True, last_date, stage_cn
+    except Exception:
+        return False, last_date, "查询异常"
+
+
+def _similar_days_status() -> tuple[bool, str, str]:
+    ok, last_date = _sector_rotation_log_freshness()
+    if not ok:
+        return False, "—", "无数据"
+    try:
+        result = similar_sectors(last_date, top_n=5)
+        pred = result.get("predicted_sectors", [])
+        top2 = "/".join(s["sector"] for s in pred[:2]) if pred else "—"
+        return True, last_date, top2
+    except Exception:
+        return False, last_date, "查询异常"
+
+
+_CONCEPT_STOCKS: dict[str, list[str]] | None = None
+
+
+def _load_concept_stocks() -> dict[str, list[str]]:
+    """加载概念→成分股正向映射（从 multi_concept_map.json 反转，缓存）。"""
+    global _CONCEPT_STOCKS
+    if _CONCEPT_STOCKS is not None:
+        return _CONCEPT_STOCKS
+    _CONCEPT_STOCKS = {}
+    try:
+        import json
+        mp = Path(__file__).parent / "data" / "multi_concept_map.json"
+        data = json.loads(mp.read_text(encoding="utf-8"))
+        for code, concepts in data.get("stocks", {}).items():
+            for c in concepts:
+                _CONCEPT_STOCKS.setdefault(c, []).append(code)
+    except Exception:
+        pass
+    return _CONCEPT_STOCKS
+
+
+def _build_code_chain_map() -> dict[str, list[dict]]:
+    """构建代码→产业链映射（从 产业链*涨跌幅.xlsx）。"""
+    chains = _load_chain_maps()
+    code_map: dict[str, list[dict]] = {}
+    for plate, l1_map in chains.items():
+        for l1, l2_map in l1_map.items():
+            for l2, stocks in l2_map.items():
+                for s in stocks:
+                    code = s["code"]
+                    code_map.setdefault(code, []).append({
+                        "plate": plate, "l1": l1, "l2": l2,
+                    })
+    return code_map
+
+
+def _render_price_signals(w, last_trade: str):
+    """盘面侧信号：概念热度（commonality_cache 自动化数据） + 持续性/相似日（sector_rotation_log 历史数据）。"""
+    w("## 📈 盘面概念信号（自下而上）")
+    w()
+    names = _load_name_cache()
+
+    # 1. 概念热度 — 基于 commonality_cache（每日自动产出）
+    try:
+        from catalyst_tracker import _check_concept_heat, _load_concept_baseline, _load_today_concept_counts
+        concept_heat = _check_concept_heat(last_trade)
+        baseline = _load_concept_baseline()
+        concept_stocks = _load_concept_stocks()
+
+        if concept_heat:
+            counts = _load_today_concept_counts(last_trade)
+            w("### 🔥 今日概念热度（成分股协同异动 Top 12）")
+            w()
+            w("| 概念 | 热度比 | 强势/总量 | 代表标的 |")
+            w("|------|:-----:|:-----:|------|")
+            for concept, ratio in sorted(concept_heat.items(), key=lambda x: -x[1])[:12]:
+                base = baseline.get(concept, 0)
+                cnt = counts.get(concept, 0)
+                stocks = concept_stocks.get(concept, [])[:4]
+                named = []
+                for s in stocks:
+                    nm = names.get(s, "")
+                    named.append(f"{nm}({s})" if nm else s)
+                stocks_str = " ".join(named) if named else "—"
+                w(f"| {concept} | {ratio*100:.0f}% | {cnt}/{base} | {stocks_str} |")
+            w()
+        else:
+            w(f"_今日无概念触发热度阈值_")
+            w()
+    except Exception as e:
+        w(f"_概念热度: {e}_")
+        w()
+
+    # 2. 持续性板块（sector_rotation_log 历史数据）+ 核心个股
+    try:
+        pers = sector_persistence(5)
+        if pers:
+            w("### 📊 历史持续性板块（最长连续出现）")
+            w()
+            w("| 板块 | 最长连续 | 平均连续 | 轮次 | 核心个股 |")
+            w("|------|:-----:|:-----:|:---:|------|")
+            for s in pers[:10]:
+                top = sector_stocks(s["sector"], 5)
+                named = []
+                for st in top:
+                    nm = names.get(st["stock"], "")
+                    named.append(f"{nm}({st['stock']})" if nm else st["stock"])
+                stocks_str = " ".join(named[:3]) if named else "—"
+                w(f"| {s['sector']} | {s['max_streak']} | {s['avg_streak']} | {s['runs']} | {stocks_str} |")
+            w()
+    except Exception:
+        pass
+
+    # 3. 相似日预测（sector_rotation_log 历史数据）
+    try:
+        result = similar_sectors(last_trade, top_n=5, lookahead=3)
+        pred = result.get("predicted_sectors", [])
+        if pred:
+            w("### 🔮 相似日预测板块")
+            w()
+            w("| 板块 | 加权得分 |")
+            w("|------|:-----:|")
+            for s in pred[:8]:
+                w(f"| {s['sector']} | {s['score']} |")
+            current_sectors = set(result.get("target_sectors", []))
+            new_sectors = [s for s in pred if s["sector"] not in current_sectors]
+            if new_sectors:
+                w()
+                w("*新方向提示*: " + ", ".join(s["sector"] for s in new_sectors[:5]))
+            w()
+    except Exception:
+        pass
 
 
 def _source_funnel(source: str, msg: str) -> tuple[str, str, str]:
@@ -665,7 +854,8 @@ def _load_name_cache() -> dict[str, str]:
     name_map = {}
     try:
         import json
-        cache = json.loads(Path("data/stock_codes.json").read_text(encoding="utf-8"))
+        cache_path = Path(__file__).parent / "data" / "stock_codes.json"
+        cache = json.loads(cache_path.read_text(encoding="utf-8"))
         for item in cache.get("codes", []):
             name_map[item["code"]] = item["name"]
     except Exception:
@@ -1079,13 +1269,69 @@ def _load_chain_maps() -> dict:
     return chains
 
 
+def _compute_trend_signal(codes: list[str], concept_heat: dict[str, float],
+                          concept_stocks: dict[str, list[str]]) -> str:
+    """链环节标的与今日热门概念的交集 → 走势信号。"""
+    if not concept_heat or not codes:
+        return "—"
+    best_concept, best_overlap = None, 0
+    for concept, ratio in concept_heat.items():
+        c_stocks = set(concept_stocks.get(concept, []))
+        overlap = sum(1 for c in codes if c in c_stocks)
+        if overlap > best_overlap:
+            best_overlap, best_concept = overlap, concept
+    if best_overlap >= 2 and best_concept:
+        return f"🔥{best_concept}({concept_heat[best_concept]*100:.0f}%)"
+    return "—"
+
+
+def _compute_expectation_gap(mention_density: float, avg_pct: float) -> str:
+    """逻辑提及密度 vs 价格反应 → 预期差。
+    提及多但涨得少=逻辑未被充分定价；提及多且涨得多=逻辑已消化。"""
+    if mention_density < 1:
+        return "—"
+    gap_ratio = mention_density / max(abs(avg_pct), 0.5)
+    if gap_ratio > 15:
+        return "🔴高"
+    elif gap_ratio > 5:
+        return "🟡中"
+    return "🟢低"
+
+
+def _compute_verdict(mention_density: float, avg_pct: float, trend_signal: str) -> str:
+    """双轨交叉综合判断：
+    🔥共振=逻辑密集+价格上涨+走势验证（三重确认）
+    ⏳预期差=逻辑密集+价格未动（未被充分定价，机会窗口）
+    👀走势先行=逻辑稀疏+价格上涨+走势先行（需深挖逻辑支撑）
+    """
+    has_logic = mention_density >= 3
+    has_price = avg_pct > 2
+    has_trend = trend_signal != "—"
+    if has_logic and has_price and has_trend:
+        return "🔥共振"
+    if has_logic and not has_price:
+        return "⏳预期差"
+    if not has_logic and has_price and has_trend:
+        return "👀走势先行"
+    return "—"
+
+
 def _chain_heat() -> list[dict]:
-    """Calculate heat per chain segment: 板块 → 层级1 → 层级2.
-    Returns sorted list for Dashboard rendering.
+    """Calculate heat per chain segment: 板块 → 层级1 → 层级2。
+    叠加概念走势信号 + 预期差 + 双轨综合判断。
     """
     chains = _load_chain_maps()
     if not chains:
         return []
+
+    concept_heat = {}
+    try:
+        from catalyst_tracker import _check_concept_heat
+        last_trade = _last_trading_day().isoformat()
+        concept_heat = _check_concept_heat(last_trade)
+    except Exception:
+        pass
+    concept_stocks = _load_concept_stocks()
 
     result = []
     for plate, l1_map in chains.items():
@@ -1094,33 +1340,36 @@ def _chain_heat() -> list[dict]:
                 if not stocks:
                     continue
                 count = len(stocks)
+                codes = [s["code"] for s in stocks]
                 avg_pct = sum(s["pct"] for s in stocks) / count
                 total_mentions = sum(s["mentions"] for s in stocks)
-                # Top stock by mentions, then by pct
                 best = max(stocks, key=lambda s: (s["mentions"], s["pct"]))
-                # 提及密度 = 总提及/标的数
                 mention_density = total_mentions / count if count > 0 else 0
-                # 涨幅动量 = avg_pct > 2% 为热
                 momentum = "🔥" if avg_pct > 3 else ("🟢" if avg_pct > 0 else "🔴")
 
+                trend = _compute_trend_signal(codes, concept_heat, concept_stocks)
+                gap = _compute_expectation_gap(mention_density, avg_pct)
+                verdict = _compute_verdict(mention_density, avg_pct, trend)
+
                 result.append({
-                    "plate": plate,
-                    "l1": l1,
-                    "l2": l2,
-                    "count": count,
-                    "avg_pct": round(avg_pct, 1),
+                    "plate": plate, "l1": l1, "l2": l2,
+                    "count": count, "avg_pct": round(avg_pct, 1),
                     "total_mentions": total_mentions,
                     "mention_density": round(mention_density, 1),
-                    "top_code": best["code"],
-                    "top_name": best["name"],
-                    "top_mentions": best["mentions"],
-                    "top_pct": best["pct"],
+                    "top_code": best["code"], "top_name": best["name"],
+                    "top_mentions": best["mentions"], "top_pct": best["pct"],
                     "top_reason": best["reason"][:80] if best["reason"] else "",
                     "momentum": momentum,
+                    "trend_signal": trend,
+                    "expectation_gap": gap,
+                    "verdict": verdict,
                 })
 
-    # Sort by: avg_pct momentum (absolute) * mention_density → heat score
-    result.sort(key=lambda x: (abs(x["avg_pct"]) * max(x["mention_density"], 1) * x["count"]), reverse=True)
+    verdict_order = {"🔥共振": 0, "⏳预期差": 1, "👀走势先行": 2, "—": 3}
+    result.sort(key=lambda x: (
+        verdict_order.get(x["verdict"], 4),
+        -(abs(x["avg_pct"]) * max(x["mention_density"], 1) * x["count"])
+    ))
     return result
 
 
@@ -1222,24 +1471,37 @@ def generate(today_str: str = "") -> str:
     # === 多维度信号聚合 — 值得分析 ===
     w("## 🎯 值得关注的标的")
     w()
+    chain_map = _build_code_chain_map()
     signals = _aggregate_signals(dr)
+
+    def _chain_cell(code: str) -> str:
+        chains = chain_map.get(code, [])
+        if not chains:
+            return "—", "—"
+        c = chains[0]  # 取第一顺位
+        l2 = c["l2"] if c["l2"] and c["l2"] != "-" else ""
+        link = f"{c['l1']}>{l2}" if l2 else c["l1"]
+        return c["plate"], link
+
     if signals["deep"] or signals["watch"]:
         w("### 🔬 建议深度分析")
         w()
-        w("| 代码 | 名称 | 信号分 | 公告 | 研报 | 新闻 | 行业 | 社交 | 催化 | 来源数 |")
-        w("|------|------|:-----:|:---:|:---:|:---:|:---:|:---:|:---:|:-----:|")
+        w("| 代码 | 名称 | 板块 | 链环节 | 信号分 | 公告 | 研报 | 新闻 | 行业 | 社交 | 催化 | 源 |")
+        w("|------|------|------|------|:-----:|:---:|:---:|:---:|:---:|:---:|:---:|:--:|")
         for s in signals["deep"]:
-            w(f"| {s['code']} | {s['name']} | **{s['total']}** | "
+            plate, link = _chain_cell(s["code"])
+            w(f"| {s['code']} | {s['name']} | {plate} | {link} | **{s['total']}** | "
               f"{s['dr_count'] or '—'} | {s['rpt_count'] or '—'} | {s['ns_count'] or '—'} | "
               f"{s['ind_count'] or '—'} | {s['social_count'] or '—'} | {s['cat_count'] or '—'} | "
               f"{s['sources']} |")
         w()
         w("### 👀 建议初步关注")
         w()
-        w("| 代码 | 名称 | 信号分 | 公告 | 研报 | 新闻 | 行业 | 社交 | 催化 | 来源数 |")
-        w("|------|------|:-----:|:---:|:---:|:---:|:---:|:---:|:---:|:-----:|")
+        w("| 代码 | 名称 | 板块 | 链环节 | 信号分 | 公告 | 研报 | 新闻 | 行业 | 社交 | 催化 | 源 |")
+        w("|------|------|------|------|:-----:|:---:|:---:|:---:|:---:|:---:|:---:|:--:|")
         for s in signals["watch"]:
-            w(f"| {s['code']} | {s['name']} | {s['total']} | "
+            plate, link = _chain_cell(s["code"])
+            w(f"| {s['code']} | {s['name']} | {plate} | {link} | {s['total']} | "
               f"{s['dr_count'] or '—'} | {s['rpt_count'] or '—'} | {s['ns_count'] or '—'} | "
               f"{s['ind_count'] or '—'} | {s['social_count'] or '—'} | {s['cat_count'] or '—'} | "
               f"{s['sources']} |")
@@ -1259,26 +1521,29 @@ def generate(today_str: str = "") -> str:
             w(f"| {'⭐'*min(h['heat'],3)} | {h['theme']} | {h['count']} | {h['source_list']} | {h.get('chain_tags', '')} | {h['stocks']} |")
         w()
 
-    # === 产业链下钻（图谱联动） ===
+    # === 产业链下钻（逻辑×走势双轨验证） ===
     chain_rows = _chain_heat()
     if chain_rows:
-        w("### 🔬 产业链下钻")
+        w("### 🔗 逻辑×走势双轨验证")
         w()
-        # Group by plate
         plates_seen = []
         for ch in chain_rows:
             if ch["plate"] not in plates_seen:
                 plates_seen.append(ch["plate"])
                 w(f"**{ch['plate']}**  ")
         w()
-        w("| 板块 | 层级1 | 层级2 | 标的数 | 涨跌幅 | 提及 | 核心标的 | 信号 |")
-        w("|------|------|------|:-----:|:-----:|:---:|------|:---:|")
-        for ch in chain_rows[:20]:
+        w("| 板块 | 层级1 | 层级2 | 标的 | 涨跌 | 逻辑提及 | 走势信号 | 预期差 | 判断 |")
+        w("|------|------|------|:--:|:---:|:-------:|:-------:|:-----:|:----:|")
+        for ch in chain_rows[:25]:
             l2_display = ch['l2'] if ch['l2'] and ch['l2'] != '-' else '—'
             best_label = f"{ch['top_name']}({ch['top_code']})"
             pct_str = f"+{ch['avg_pct']}%" if ch['avg_pct'] > 0 else f"{ch['avg_pct']}%"
-            w(f"| {ch['plate']} | {ch['l1']} | {l2_display} | {ch['count']} | {pct_str} | {ch['total_mentions']}次 | {best_label} | {ch['momentum']} |")
+            mention_str = f"{ch['total_mentions']}次/{ch['mention_density']:.0f}密"
+            w(f"| {ch['plate']} | {ch['l1']} | {l2_display} | {ch['count']} | {pct_str} | {mention_str} | {ch['trend_signal']} | {ch['expectation_gap']} | **{ch['verdict']}** |")
         w()
+
+    # === 盘面侧信号（自下而上） ===
+    _render_price_signals(w, last_trade)
 
     # === 本周趋势 ===
     w("## 📈 本周公告深研趋势")
