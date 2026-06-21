@@ -960,6 +960,29 @@ def _hot_themes() -> list[dict]:
             pass
 
     result = []
+    # Cross-reference with chain maps for sub-sector tags
+    chains = _load_chain_maps()
+    tag_map: dict[str, list[str]] = {}
+    if chains:
+        for plate, l1_map in chains.items():
+            for l1, l2_map in l1_map.items():
+                for l2, stocks in l2_map.items():
+                    if not stocks:
+                        continue
+                    seg_text = f"{plate} {l1} {l2} " + " ".join(
+                        f"{s['name']} {s['reason']}" for s in stocks[:3]
+                    )
+                    for kw_group in KW_MAP:
+                        for kw in kw_group:
+                            if kw in seg_text:
+                                tag = f"{l1}>{l2}" if l2 and l2 != '-' else l1
+                                plate_tag = f"{plate}>{tag}"
+                                if kw_group[0] not in tag_map:
+                                    tag_map[kw_group[0]] = []
+                                if plate_tag not in tag_map[kw_group[0]]:
+                                    tag_map[kw_group[0]].append(plate_tag)
+                                break
+
     for t in themes.values():
         stock_list = list(t["stocks"])
         named = []
@@ -969,6 +992,7 @@ def _hot_themes() -> list[dict]:
         t["stocks"] = " ".join(named)
         t["heat"] = min(t["count"] // 5 + 1, 3)
         t["source_list"] = "+".join(sorted(t["sources"]))
+        t["chain_tags"] = " / ".join(tag_map.get(t["theme"], [])[:3])
         result.append(t)
 
     result.sort(key=lambda x: -x["count"])
@@ -1229,10 +1253,10 @@ def generate(today_str: str = "") -> str:
     if hot:
         w("### 🔥 信号热度 TOP 主题")
         w()
-        w("| 热度 | 主题 | 信号数 | 来源 | 代表标的 |")
-        w("|:----:|------|:-----:|------|---------|")
+        w("| 热度 | 主题 | 信号数 | 来源 | 链环节 | 代表标的 |")
+        w("|:----:|------|:-----:|------|------|---------|")
         for h in hot[:15]:
-            w(f"| {'⭐'*min(h['heat'],3)} | {h['theme']} | {h['count']} | {h['source_list']} | {h['stocks']} |")
+            w(f"| {'⭐'*min(h['heat'],3)} | {h['theme']} | {h['count']} | {h['source_list']} | {h.get('chain_tags', '')} | {h['stocks']} |")
         w()
 
     # === 产业链下钻（图谱联动） ===

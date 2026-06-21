@@ -698,6 +698,85 @@ def _save_json(catalysts: list[dict], stock_maps: dict, today: str, audit: dict 
     out.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 # ============================================================
+# Chain Segment Tagging (产业链图谱匹配)
+# ============================================================
+
+def _load_chain_maps_for_tagging() -> dict:
+    """Load chain maps from XLSX, same logic as _dashboard._load_chain_maps."""
+    try:
+        import openpyxl
+    except ImportError:
+        return {}
+    chains: dict[str, dict] = {}
+    project_root = Path(__file__).parent.parent
+    for pattern in ["*产业链*涨跌幅.xlsx", "*产业链*.xlsx"]:
+        for fp in sorted(project_root.glob(pattern)):
+            try:
+                wb = openpyxl.load_workbook(fp, data_only=True)
+            except Exception:
+                continue
+            for sname in wb.sheetnames:
+                ws = wb[sname]
+                rows = list(ws.iter_rows(min_row=2, values_only=True))
+                cur_plate = cur_l1 = cur_l2 = ""
+                for row in rows:
+                    if not row or len(row) < 11:
+                        continue
+                    plate = str(row[0] or "").strip() or cur_plate
+                    l1 = str(row[1] or "").strip() or cur_l1
+                    l2 = str(row[2] or "").strip() or cur_l2 or "-"
+                    cur_plate, cur_l1, cur_l2 = plate, l1, l2
+                    code_raw = str(row[3] or "").strip()
+                    name = str(row[4] or "").strip()
+                    reason = str(row[10] or "").strip()
+                    code = code_raw.replace(".SZ", "").replace(".SH", "").replace(".BJ", "")
+                    if not code.isdigit() or len(code) != 6:
+                        continue
+                    if plate not in chains:
+                        chains[plate] = {}
+                    if l1 not in chains[plate]:
+                        chains[plate][l1] = {}
+                    if l2 not in chains[plate][l1]:
+                        chains[plate][l1][l2] = {"names": set(), "reasons": []}
+                    chains[plate][l1][l2]["names"].add(name)
+                    if reason:
+                        chains[plate][l1][l2]["reasons"].append(reason[:100])
+    return chains
+
+
+def _tag_chain_segments(catalysts: list[dict]) -> None:
+    """For each catalyst, add chain_segments field matching thesis/entities to chain maps."""
+    chains = _load_chain_maps_for_tagging()
+    if not chains:
+        return
+
+    for cat in catalysts:
+        thesis = (cat.get("thesis", "") or "") + " " + (cat.get("catalyst_name", "") or "")
+        catalyst_type = cat.get("catalyst_type", "") or ""
+        entities = " ".join(e.get("name", "") for e in cat.get("key_entities", []))
+        search_text = f"{thesis} {catalyst_type} {entities}"
+
+        matches = []
+        for plate, l1_map in chains.items():
+            for l1, l2_map in l1_map.items():
+                for l2, info in l2_map.items():
+                    seg_text = f"{plate} {l1} {l2} " + " ".join(info["names"])
+                    # Match: check if any chain keyword appears in catalyst text
+                    seg_kws = set()
+                    seg_kws.add(l2 if l2 != "-" else l1)
+                    for name in info["names"]:
+                        seg_kws.add(name)
+                    for kw in seg_kws:
+                        if len(kw) >= 2 and kw in search_text:
+                            tag = f"{l1}>{l2}" if l2 and l2 != "-" else l1
+                            if tag not in matches:
+                                matches.append(tag)
+                            break
+
+        cat["chain_segments"] = matches
+
+
+# ============================================================
 # Main
 # ============================================================
 def main(today_str: str, phase: int = 12, max_per_source: int = 50):
@@ -774,6 +853,11 @@ def main(today_str: str, phase: int = 12, max_per_source: int = 50):
     catalysts.sort(key=lambda x: -x.get("final_actionability", 0))
     for i, cat in enumerate(catalysts):
         cat["rank"] = i + 1
+
+    # --- 产业链图谱标签 ---
+    _tag_chain_segments(catalysts)
+    tagged = sum(1 for c in catalysts if c.get("chain_segments"))
+    print(f"    链标签: {tagged}/{len(catalysts)}条已匹配")
 
     print(f"    最终筛选后(>=20分): {len(catalysts)}条")
     for c in catalysts[:5]:
