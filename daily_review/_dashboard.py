@@ -846,6 +846,43 @@ def _render_dual_track(w):
         w()
 
 
+def _render_hypotheses(w):
+    """渲染「假设闭环」— 活跃假设 + 今日证据扫描。"""
+    hypotheses = _load_hypotheses()
+    active = [h for h in hypotheses if h.get("status", "active") == "active"]
+    if not active:
+        return
+
+    today_str = date.today().isoformat()
+    w("## 🧪 假设闭环")
+    w()
+    w(f"> 跟踪 {len(active)} 个活跃假设 | 今日扫描: {today_str}")
+    w()
+
+    for h in active:
+        code = str(h["code"]).zfill(6)
+        ev = _scan_hypothesis_evidence(code, today_str)
+        status_icon = {"active": "🔍", "confirmed": "✅", "disproven": "❌", "closed": "📁"}
+        icon = status_icon.get(h.get("status", "active"), "🔍")
+
+        w(f"### {icon} {h['name']}({code}): {h['thesis']}")
+        w()
+        terms = h.get('key_terms', [h['name']])
+        w(f"> 创建: {h.get('created', '?')} | 关键词: {', '.join(terms[:5])}")
+        w()
+
+        if ev["sources"]:
+            w("| 来源 | 详情 |")
+            w("|------|------|")
+            for s in ev["sources"]:
+                w(f"| {s['source']} | {s['detail']} |")
+            w()
+            w(f"**今日信号分: {ev['signal_score']}**")
+        else:
+            w("_今日无相关信号_")
+        w()
+
+
 def _render_price_signals(w, last_trade: str):
     """盘面侧信号：概念热度（commonality_cache 自动化数据） + 持续性/相似日（sector_rotation_log 历史数据）。"""
     w("## 📈 盘面概念信号（自下而上）")
@@ -1103,6 +1140,92 @@ def _load_name_cache() -> dict[str, str]:
     except Exception:
         pass
     return name_map
+
+
+# ============================================================
+# 假设闭环 — 主观假设 + AI 日度证据扫描
+# ============================================================
+
+HYPOTHESES_PATH = Path(__file__).parent / "data" / "hypotheses.json"
+
+
+def _load_hypotheses() -> list[dict]:
+    if not HYPOTHESES_PATH.exists():
+        return []
+    try:
+        import json as _json
+        return _json.loads(HYPOTHESES_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def _save_hypotheses(hypotheses: list[dict]):
+    import json as _json
+    HYPOTHESES_PATH.write_text(
+        _json.dumps(hypotheses, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _file_grep_evidence(filepath: Path, code: str, label: str, evidence: dict):
+    if not filepath.exists():
+        return
+    try:
+        text = filepath.read_text(encoding="utf-8")
+        count = text.count(code)
+        if count > 0:
+            evidence["sources"].append(
+                {"source": label, "detail": f"{count}处提及", "score": count * 10})
+            evidence["signal_score"] += count * 10
+    except Exception:
+        pass
+
+
+def _scan_hypothesis_evidence(code: str, today_str: str) -> dict:
+    names = _load_name_cache()
+    evidence = {"code": code, "name": names.get(code, ""), "sources": [], "signal_score": 0}
+
+    # deep_read_results DB
+    try:
+        with store._conn() as conn:
+            row = conn.execute(
+                "SELECT MAX(total_score) as ms, COUNT(*) as cnt FROM deep_read_results "
+                "WHERE date = ? AND code = ?", (today_str, code)).fetchone()
+        if row and row["cnt"] > 0:
+            evidence["sources"].append(
+                {"source": "公告深研", "detail": f"{row['cnt']}篇, 最高{row['ms']}分",
+                 "score": row["ms"]})
+            evidence["signal_score"] += min(row["ms"] or 0, 85)
+    except Exception:
+        pass
+
+    # catalyst_signals DB
+    try:
+        with store._conn() as conn:
+            rows = conn.execute(
+                "SELECT catalyst_type, thesis, actionability FROM catalyst_signals "
+                "WHERE date = ? AND mentioned_codes LIKE ? AND actionability >= 10",
+                (today_str, f"%{code}%")).fetchall()
+        for r in rows:
+            detail = r["catalyst_type"] or ""
+            if r["thesis"]:
+                detail += f": {r['thesis'][:60]}"
+            evidence["sources"].append(
+                {"source": "催化信号", "detail": detail, "score": r["actionability"]})
+            evidence["signal_score"] += int((r["actionability"] or 0) * 0.8)
+    except Exception:
+        pass
+
+    # news_signals + wechat_analysis + zsxq_analysis files
+    _file_grep_evidence(
+        REPORT_DIR / "feeds" / "news_signals" / f"news_signals_{today_str}.md",
+        code, "新闻信号", evidence)
+    _file_grep_evidence(
+        REPORT_DIR / "wechat_analysis" / f"wechat_analysis_{today_str}.md",
+        code, "公众号分析", evidence)
+    _file_grep_evidence(
+        REPORT_DIR / "zsxq_analysis" / f"zsxq_analysis_{today_str}.md",
+        code, "星球分析", evidence)
+
+    return evidence
 
 
 def _recent_files(directory: Path, prefix: str, days: int = 7) -> list[Path]:
@@ -1810,6 +1933,9 @@ def generate(today_str: str = "") -> str:
     else:
         w("_暂无数据_")
     w()
+
+    # === 假设闭环 ===
+    _render_hypotheses(w)
 
     # === 最近提交 ===
     w("## 📜 最近提交")
