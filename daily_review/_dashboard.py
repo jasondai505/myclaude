@@ -162,7 +162,7 @@ def _deep_read_weekly() -> dict:
 
 
 def _dossier_count() -> int:
-    d = Path("reports/research_dossiers")
+    d = REPORT_DIR / "research_dossiers"
     return len(list(d.glob("*.md"))) if d.exists() else 0
 
 
