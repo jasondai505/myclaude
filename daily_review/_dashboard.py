@@ -1247,14 +1247,13 @@ def generate(today_str: str = "") -> str:
                 plates_seen.append(ch["plate"])
                 w(f"**{ch['plate']}**  ")
         w()
-        w("| 环节 | 层级 | 标的 | 涨幅 | 提及 | 核心标的 | 信号 |")
-        w("|------|------|:---:|:---:|:---:|------|:---:|")
+        w("| 板块 | 层级1 | 层级2 | 标的数 | 涨跌幅 | 提及 | 核心标的 | 信号 |")
+        w("|------|------|------|:-----:|:-----:|:---:|------|:---:|")
         for ch in chain_rows[:20]:
-            l2_tag = f"({ch['l2']})" if ch['l2'] and ch['l2'] != '-' else ''
-            tier = f"{ch['l1']}{l2_tag}"
+            l2_display = ch['l2'] if ch['l2'] and ch['l2'] != '-' else '—'
             best_label = f"{ch['top_name']}({ch['top_code']})"
             pct_str = f"+{ch['avg_pct']}%" if ch['avg_pct'] > 0 else f"{ch['avg_pct']}%"
-            w(f"| {ch['plate']} | {tier} | {ch['count']} | {pct_str} | {ch['total_mentions']}次 | {best_label} | {ch['momentum']} |")
+            w(f"| {ch['plate']} | {ch['l1']} | {l2_display} | {ch['count']} | {pct_str} | {ch['total_mentions']}次 | {best_label} | {ch['momentum']} |")
         w()
 
     # === 本周趋势 ===
