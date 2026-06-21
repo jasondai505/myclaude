@@ -1098,6 +1098,9 @@ def _chain_heat() -> list[dict]:
     # Sort by: avg_pct momentum (absolute) * mention_density → heat score
     result.sort(key=lambda x: (abs(x["avg_pct"]) * max(x["mention_density"], 1) * x["count"]), reverse=True)
     return result
+
+
+def generate(today_str: str = "") -> str:
     now_ts = datetime.now().strftime("%Y-%m-%d %H:%M")
     today = today_str or date.today().isoformat()
     last_trade = _last_trading_day().isoformat()
