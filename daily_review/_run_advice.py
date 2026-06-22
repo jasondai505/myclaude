@@ -1222,6 +1222,64 @@ def _validate_advice_coverage(output: str) -> str:
     return output
 
 
+def _validate_entry_prices(output: str) -> str:
+    """校验入场区间是否与现价偏离过大（>40%），自动修正为昨收±7%。"""
+    if not output:
+        return output
+    import re as re_mod
+
+    lines = output.split("\n")
+    in_section = False
+    candidates: list[tuple[int, str, str, float, float]] = []  # (line_idx, code, old_range, lo, hi)
+    for i, line in enumerate(lines):
+        if "仓位与止损" in line:
+            in_section = True
+            continue
+        if in_section and (line.startswith("##") or line.startswith("---")):
+            break
+        if not in_section:
+            continue
+        m_code = re_mod.search(r"\((\d{6})\)", line)
+        m_range = re_mod.search(r"(\d+\.?\d*)\s*[-–~]\s*(\d+\.?\d*)\s*[元股]", line)
+        if not m_code or not m_range:
+            continue
+        candidates.append((i, m_code.group(1), m_range.group(0),
+                          float(m_range.group(1)), float(m_range.group(2))))
+
+    if not candidates:
+        return output
+
+    # 批量拉行情
+    codes = list({c[1] for c in candidates})
+    try:
+        import data
+        quotes = data.fetch_stock_quotes(codes, batch_size=30)
+    except Exception:
+        return output
+
+    fixed = 0
+    for line_idx, code, old_range, entry_lo, entry_hi in candidates:
+        q = quotes.get(code, {})
+        actual = q.get("price", 0) or q.get("last_close", 0)
+        if actual <= 0 or entry_lo <= 0:
+            continue
+        entry_mid = (entry_lo + entry_hi) / 2
+        deviation = abs(entry_mid - actual) / actual
+        if deviation < 0.40:
+            continue
+        base = q.get("last_close", actual) or actual
+        new_lo = round(base * 0.93, 1)
+        new_hi = round(base * 1.02, 1)
+        new_range = f"{new_lo} - {new_hi} 元"
+        lines[line_idx] = lines[line_idx].replace(old_range, new_range)
+        fixed += 1
+        print(f"  [FIX] {code} 入场区间 {old_range} → {new_range} (现价={actual}, 昨收={base}, 偏离={deviation:.0%})")
+
+    if fixed:
+        print(f"  [FIX] 共修正 {fixed} 处入场区间")
+    return "\n".join(lines)
+
+
 def _estimate_entry_range(c: dict) -> str:
     """基于候选标的现有信息估算入场区间。LLM 未填时的兜底。"""
     mcap = c.get("mcap_yi", 0) or 0
@@ -2902,6 +2960,7 @@ def main():
                 output += "\n" + backtrack
 
     output = _validate_advice_coverage(output)
+    output = _validate_entry_prices(output)
 
     print(output)
 
