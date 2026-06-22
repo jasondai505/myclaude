@@ -36,6 +36,7 @@ _SCHEMA = [
         code         TEXT NOT NULL,
         name         TEXT NOT NULL,
         market       TEXT NOT NULL DEFAULT 'A',
+        map_type     TEXT DEFAULT 'chain',
         role         TEXT,
         source       TEXT NOT NULL,
         source_ver   TEXT,
@@ -148,7 +149,27 @@ class ThemeStockStore:
         conn = self._get_conn()
         for stmt in _SCHEMA:
             conn.execute(stmt)
+        # Migration: add map_type if missing
+        try:
+            conn.execute("ALTER TABLE chain_map ADD COLUMN map_type TEXT DEFAULT 'chain'")
+        except sqlite3.OperationalError:
+            pass
         conn.commit()
+
+    def tag_buckets(self, bucket_industries: set[str]):
+        """将指定产业标记为 bucket (筛选筐), 其余保持 chain。"""
+        conn = self._get_conn()
+        # Reset all to chain first
+        conn.execute("UPDATE chain_map SET map_type = 'chain'")
+        # Tag buckets
+        for ind in bucket_industries:
+            conn.execute("UPDATE chain_map SET map_type = 'bucket' WHERE industry = ?", (ind,))
+        conn.commit()
+
+    def get_map_types(self) -> dict[str, str]:
+        """返回 {industry: map_type}"""
+        cur = self._get_conn().execute("SELECT DISTINCT industry, map_type FROM chain_map")
+        return {r["industry"]: r["map_type"] for r in cur}
 
     def close(self):
         if self._conn:

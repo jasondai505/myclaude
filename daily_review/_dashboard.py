@@ -639,16 +639,19 @@ def _load_concept_stocks() -> dict[str, list[str]]:
 
 
 def _build_code_chain_map() -> dict[str, list[dict]]:
-    """构建代码→产业链映射（从 theme_stock chain_map DB, 含 BOM+SC+external_map）。"""
+    """构建代码→产业链映射（从 theme_stock chain_map DB, chain 优先于 bucket）。"""
     from theme_stock.store import ThemeStockStore
     store = ThemeStockStore()
     store.init_db()
     code_map: dict[str, list[dict]] = {}
     for row in store._get_conn().execute(
-        "SELECT DISTINCT code, industry as plate, tier as l1, segment as l2 FROM chain_map WHERE market='A'"
+        """SELECT DISTINCT code, industry as plate, tier as l1, segment as l2, map_type
+           FROM chain_map WHERE market='A'
+           ORDER BY CASE map_type WHEN 'chain' THEN 0 ELSE 1 END"""
     ):
         code_map.setdefault(row["code"], []).append({
             "plate": row["plate"], "l1": row["l1"], "l2": row["l2"],
+            "map_type": row["map_type"],
         })
     store.close()
     return code_map
@@ -662,7 +665,7 @@ def _get_hub_stocks(chain_map: dict, min_chains: int = 3) -> list[dict]:
     cur = store._get_conn().execute("""
         SELECT code, name, COUNT(DISTINCT industry) as n_ind,
                GROUP_CONCAT(DISTINCT industry) as inds
-        FROM chain_map WHERE market='A'
+        FROM chain_map WHERE market='A' AND map_type='chain'
         GROUP BY code HAVING n_ind >= ?
         ORDER BY n_ind DESC LIMIT 20
     """, (min_chains,))
@@ -1489,6 +1492,61 @@ def _aggregate_signals(dr: dict) -> dict:
     return {"deep": deep[:20], "watch": watch[:20]}
 
 
+def _chain_signal_heat(signals: dict) -> list[dict]:
+    """按产业链聚合信号总分，输出产业链热力排名（仅 map_type='chain'）。
+
+    输入: _aggregate_signals() 返回的 {"deep": [...], "watch": [...]}
+    输出: [{industry, total_signal, stock_count, top_stocks, heat}, ...]
+    """
+    from theme_stock.store import ThemeStockStore
+
+    all_stocks = signals.get("deep", []) + signals.get("watch", [])
+    if not all_stocks:
+        return []
+
+    codes = [s["code"] for s in all_stocks]
+    name_by_code = {s["code"]: s["name"] for s in all_stocks}
+
+    store = ThemeStockStore()
+    store.init_db()
+    placeholders = ",".join("?" for _ in codes)
+    cur = store._get_conn().execute(
+        f"SELECT code, industry FROM chain_map WHERE code IN ({placeholders}) AND map_type='chain'",
+        codes,
+    )
+    ind_scores: dict[str, dict] = {}
+    for row in cur:
+        ind = row["industry"]
+        code = row["code"]
+        score = sum(s["total"] for s in all_stocks if s["code"] == code)
+        if ind not in ind_scores:
+            ind_scores[ind] = {"total_signal": 0, "codes": set()}
+        ind_scores[ind]["total_signal"] += score
+        ind_scores[ind]["codes"].add(code)
+
+    store.close()
+
+    # Find max signal for heat normalization
+    max_score = max((v["total_signal"] for v in ind_scores.values()), default=1)
+
+    result = []
+    for ind, v in ind_scores.items():
+        heat = min(5, round(v["total_signal"] / max(max_score / 4, 1)))
+        top = sorted(v["codes"], key=lambda c: sum(
+            s["total"] for s in all_stocks if s["code"] == c
+        ), reverse=True)[:8]
+        result.append({
+            "industry": ind,
+            "total_signal": v["total_signal"],
+            "stock_count": len(v["codes"]),
+            "top_stocks": [(c, name_by_code.get(c, c)) for c in top],
+            "heat": heat,
+        })
+
+    result.sort(key=lambda x: -x["total_signal"])
+    return result
+
+
 def _hot_themes() -> list[dict]:
     """多源交叉主题热度：catalyst_signals + 行业研报 + 星球 + 公众号。"""
     week_ago = (date.today() - timedelta(days=7)).isoformat()
@@ -1923,10 +1981,11 @@ def generate(today_str: str = "") -> str:
         chains = chain_map.get(code, [])
         if not chains:
             return "—", "—"
-        c = chains[0]  # 取第一顺位
+        c = chains[0]  # chain 优先 (已按 map_type 排序)
         l2 = c["l2"] if c["l2"] and c["l2"] != "-" else ""
         link = f"{c['l1']}>{l2}" if l2 else c["l1"]
-        return c["plate"], link
+        plate = c["plate"] if c.get("map_type") != "bucket" else f"{c['plate']}📋"
+        return plate, link
 
     if signals["deep"] or signals["watch"]:
         w("### 🔬 建议深度分析")
@@ -1967,6 +2026,19 @@ def generate(today_str: str = "") -> str:
             if len(h["industries"]) > 5:
                 industries += f" +{len(h['industries'])-5}"
             w(f"| {h['code']} | {h['name']} | {h['n_ind']} | {industries} |")
+        w()
+
+    # 产业链信号热力 — 按 chain_map 聚合信号
+    chain_heat = _chain_signal_heat(signals)
+    if chain_heat:
+        w("### 🏭 产业链信号热力")
+        w()
+        w("| 信号热度 | 产业链 | 信号总分 | 标的数 | 代表标的 |")
+        w("|:------:|------|:-----:|:-----:|------|")
+        for ch in chain_heat[:15]:
+            heat = min(ch["heat"], 5)
+            stocks_str = " ".join(f"{n}({c})" for c, n in ch["top_stocks"][:5])
+            w(f"| {'🔥'*heat} | {ch['industry']} | {ch['total_signal']} | {ch['stock_count']} | {stocks_str} |")
         w()
 
     # 行业/主题信号热度
