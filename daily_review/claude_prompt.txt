@@ -98,7 +98,7 @@
 ```json
 %%STOCK_CONTEXT%%
 ```
-> 每个标的含: name / mcap_yi(亿) / pe_ttm / chg_pct / fev / f_score / e_score / v_score / delta / delta_signal / gfactor{g1,g2,g3,g4}
+> 每个标的含: name / price(最新价) / last_close(昨收) / mcap_yi(亿) / pe_ttm / chg_pct / fev / f_score / e_score / v_score / delta / delta_signal / gfactor{g1,g2,g3,g4}
 > - **📌F 标签**：fev ≥ 18 → FEVΔ轨候选（5席）
 > - **📌G 标签**：gfactor 中任一维 ≥ 7 → G-Factor轨候选（3席）
 > - **📌Δ 标签**：delta ≠ 0 → 边际变化信号
@@ -365,10 +365,12 @@ Q2验证（6-7月）+ H2催化（7-12月）+ 2027长期锚
 
 ### 入场区间
 
-基于「近期支撑位 + 波动率」给出建议入场价格区间：
-- **支撑位参考**：最近20日最低价、MA20、MA60 中取最高者作为支撑下沿
-- **入场上限**：最近5日均价 + 1 ATR（Average True Range），防止追高
-- 格式：`25.0 - 26.5 元`（下沿 - 上沿）
+⚠️ `%%STOCK_CONTEXT%%` 中仅提供 `price`（最新价）和 `last_close`（昨收），无 20 日最低价/MA/ATR。入场区间按以下规则推算：
+
+- **入场下沿**：`last_close × 0.93`（~7% 回调），若 20 日振幅 < 15% 可缩至 × 0.95
+- **入场上限**：`last_close × 1.02`（不超过昨收 +2%，防止追高）
+- **参考现价**：若现价已大幅偏离昨收，适当调整
+- 格式：`124.0 - 131.0 元`（下沿 - 上沿）
 
 ### 止损规则
 

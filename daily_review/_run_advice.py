@@ -546,6 +546,8 @@ def _inject_stock_context(codes: set[str]) -> str:
             "pe_ttm": round(q.get("pe_ttm", 0) or 0, 1),
             "chg_pct": 0,  # 盘前建议不注入当日涨跌幅，防未来函数
             "amount_yi": round((q.get("amount_wan", 0) or 0) / 10000, 1),
+            "price": round(q.get("price", 0) or 0, 2),
+            "last_close": round(q.get("last_close", 0) or 0, 2),
             "fev": fv.get("fev", 0),
             "f_score": fv.get("f", 0), "e_score": fv.get("e", 0),
             "v_score": fv.get("v", 0),
