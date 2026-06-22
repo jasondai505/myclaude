@@ -602,7 +602,7 @@ def _inject_bom_context() -> str:
 
 
 def _inject_serenity_context() -> str:
-    """注入 Serenity 产业链卡脖子分析 — 卡脖子排行 + FEV 高分标的。"""
+    """注入 Serenity 产业链卡脖子分析 — 卡脖子排行 + 每链 F/G/Δ 标的速查表。"""
     try:
         from daily_review.serenity_kb import (
             init_db, get_all_chain_summary, get_stock_scores,
@@ -620,17 +620,69 @@ def _inject_serenity_context() -> str:
             lines.append(f"| {c['chain_name']} | {c['max_score']} | {c['segment_count']} |")
         lines.append("")
 
-        if stocks:
-            top = sorted(stocks, key=lambda s: s.get("fev_total", 0), reverse=True)[:15]
-            lines.append("### FEV 高分标的（卡脖子产业链内）")
+        # 加载 G-Factor 和 Δ 数据，按代码索引
+        gfactor_map: dict[str, dict] = {}
+        try:
+            gdb = BASE / "data" / "gfactor.db"
+            if gdb.exists():
+                conn_g = sqlite3.connect(str(gdb))
+                conn_g.row_factory = sqlite3.Row
+                for r in conn_g.execute(
+                    "SELECT code, g1_score, g2_score, g3_score, g4_score "
+                    "FROM gfactor_scores WHERE date=(SELECT MAX(date) FROM gfactor_scores)"
+                ).fetchall():
+                    gfactor_map[r["code"]] = {
+                        "g1": r["g1_score"], "g2": r["g2_score"],
+                        "g3": r["g3_score"], "g4": r["g4_score"],
+                    }
+                conn_g.close()
+        except Exception:
+            pass
+
+        delta_map: dict[str, dict] = {}
+        try:
+            from daily_review.feval import get_delta_scores as feval_get_delta
+            delta_map = feval_get_delta()
+        except Exception:
+            pass
+
+        # 按产业链分组标的，预计算 F/G/Δ
+        chain_stocks: dict[str, list[dict]] = {}
+        for s in stocks:
+            cn = s.get("chain_name", "")
+            if cn:
+                chain_stocks.setdefault(cn, []).append(s)
+
+        if chain_stocks:
+            lines.append("### 产业链→标的速查表（ChokeMap 的 F/G/Δ 列直接引用，勿编造）")
             lines.append("")
-            lines.append("| 代码 | 名称 | 产业链 | F | E | V | FEV |")
-            lines.append("|------|------|--------|---|---|---|-----|")
-            for s in top:
-                lines.append(
-                    f"| {s['code']} | {s['name']} | {s['chain_name']} | "
-                    f"{s['f_score']} | {s['e_score']} | {s['v_score']} | {s['fev_total']} |"
-                )
+            lines.append("| 产业链 | 📌F 标的 (FEV≥15) | 📌G 标的 (任一G维≥7) | 📌Δ 标的 (Δ≠0) |")
+            lines.append("|--------|-------------------|---------------------|----------------|")
+            for chain_name, cstocks in chain_stocks.items():
+                f_list, g_list, d_list = [], [], []
+                for s in cstocks:
+                    code = s["code"]
+                    name = _clean_name(code, s.get("name", ""))
+                    fev = s.get("fev_total", 0)
+                    if fev >= 15:
+                        f_list.append(f"{name}({code}) FEV={fev}")
+                    gf = gfactor_map.get(code, {})
+                    g_high = [f"G{i}" for i in [1, 2, 3, 4] if gf.get(f"g{i}", 0) >= 7]
+                    if g_high:
+                        g_parts = [f"{name}({code})"] + [f"G{i}={gf[f'g{i}']}" for i in [1, 2, 3, 4] if gf[f'g{i}'] >= 7]
+                        g_list.append(" ".join(g_parts))
+                    d = delta_map.get(code, {})
+                    ds = d.get("delta_score", 0) if d else 0
+                    if ds != 0:
+                        sign = "+" if ds > 0 else ""
+                        d_list.append(f"{name}({code}) Δ={sign}{ds}")
+
+                f_str = "<br>".join(f_list[:5]) if f_list else "—"
+                g_str = "<br>".join(g_list[:5]) if g_list else "—"
+                d_str = "<br>".join(d_list[:5]) if d_list else "—"
+                lines.append(f"| {chain_name} | {f_str} | {g_str} | {d_str} |")
+            lines.append("")
+            lines.append("> **ChokeMap 高优先级表强制规则**：上表 F 列有标的的环节，HTML table 的 📌F 列必须填入对应标的（格式 `名称(代码) FEV=xx`），不得留空写 `—`。G 列和 Δ 列同理。每个环节至少列出 2-3 只标的。")
             lines.append("")
         return "\n".join(lines)
     except Exception as e:
@@ -2459,6 +2511,153 @@ def _scan_recurring_themes(today: str) -> str:
         return f"（周期性主题扫描失败: {e}）"
 
 
+def _clean_name(code: str, name: str) -> str:
+    """清洗 serenity 中的脏名称（单字符/特殊字符/空），从 feval 回退。"""
+    if name and len(name) >= 2 and not all(c in "|/-. " for c in name):
+        return name
+    try:
+        from daily_review.feval import get_scores as feval_get_scores
+        fs = feval_get_scores()
+        if code in fs:
+            fn = fs[code].get("name", "")
+            if fn and len(fn) >= 2:
+                return fn
+    except Exception:
+        pass
+    return ""
+
+
+def _build_chokemap_stock_map() -> dict[str, dict]:
+    """构建产业链→F/G/Δ标的映射，供 patch 和 inject 共用。"""
+    cmap: dict[str, dict] = {}
+    try:
+        from daily_review.serenity_kb import init_db, get_stock_scores
+        init_db()
+        stocks = get_stock_scores()
+    except Exception:
+        return cmap
+
+    # 按产业链分组
+    chain_stocks: dict[str, list[dict]] = {}
+    for s in stocks:
+        cn = s.get("chain_name", "")
+        if cn:
+            chain_stocks.setdefault(cn, []).append(s)
+
+    # G-Factor
+    gfactor_map: dict[str, dict] = {}
+    try:
+        gdb = BASE / "data" / "gfactor.db"
+        if gdb.exists():
+            conn_g = sqlite3.connect(str(gdb))
+            conn_g.row_factory = sqlite3.Row
+            for r in conn_g.execute(
+                "SELECT code, g1_score, g2_score, g3_score, g4_score "
+                "FROM gfactor_scores WHERE date=(SELECT MAX(date) FROM gfactor_scores)"
+            ).fetchall():
+                gfactor_map[r["code"]] = {
+                    "g1": r["g1_score"], "g2": r["g2_score"],
+                    "g3": r["g3_score"], "g4": r["g4_score"],
+                }
+            conn_g.close()
+    except Exception:
+        pass
+
+    # Δ
+    delta_map: dict[str, dict] = {}
+    try:
+        from daily_review.feval import get_delta_scores as feval_get_delta
+        delta_map = feval_get_delta()
+    except Exception:
+        pass
+
+    for cn, cstocks in chain_stocks.items():
+        f_list, g_list, d_list = [], [], []
+        for s in cstocks:
+            code = s["code"]
+            name = _clean_name(code, s.get("name", ""))
+            fev = s.get("fev_total", 0)
+            if fev >= 15:
+                f_list.append(f"{name}({code}) FEV={fev}")
+            gf = gfactor_map.get(code, {})
+            g_scores = " ".join(f"G{i}={gf[f'g{i}']}"
+                       for i in [1, 2, 3, 4] if gf.get(f"g{i}", 0) >= 7)
+            if g_scores:
+                g_list.append(f"{name}({code}) {g_scores}")
+            d = delta_map.get(code, {})
+            ds = d.get("delta_score", 0) if d else 0
+            if ds != 0:
+                sign = "+" if ds > 0 else ""
+                d_list.append(f"{name}({code}) Δ={sign}{ds}")
+
+        cmap[cn] = {
+            "f": "<br>".join(f_list[:5]) if f_list else "",
+            "g": "<br>".join(g_list[:5]) if g_list else "",
+            "d": "<br>".join(d_list[:5]) if d_list else "",
+        }
+    return cmap
+
+
+def _patch_chokemap_table(output: str) -> str:
+    """后处理：LLM 经常漏填 ChokeMap 的 F/G/Δ 列，Python 端强制补入。"""
+    import re as re_mod
+
+    cmap = _build_chokemap_stock_map()
+    if not cmap:
+        return output
+
+    # 找到 ChokeMap table 的 tbody（兼容 # 和 ##，有无后缀）
+    tbody_start = output.find("第一层：ChokeMap")
+    if tbody_start < 0:
+        tbody_start = output.find("ChokeMap — 在哪打")
+    if tbody_start < 0:
+        return output
+    tbody_start = output.find("<tbody>", tbody_start)
+    tbody_end = output.find("</tbody>", tbody_start)
+    if tbody_start < 0 or tbody_end < 0:
+        return output
+
+    # 解析每一行，提取卡脖子环节名 → 补 F/G/Δ td
+    rows = output[tbody_start + 7:tbody_end].split("</tr>")
+    new_rows = []
+    for row in rows:
+        if "<td>" not in row:
+            if row.strip():
+                new_rows.append(row)
+            continue
+        m = re_mod.search(r"<td>(.*?)</td>", row)
+        if not m:
+            new_rows.append(row)
+            continue
+        chain_name = m.group(1).strip()
+        mapped = cmap.get(chain_name)
+        if not mapped:
+            for k, v in cmap.items():
+                if chain_name in k or k in chain_name:
+                    mapped = v
+                    break
+        if not mapped:
+            new_rows.append(row)
+            continue
+
+        # 去掉 LLM 可能已经生成的 F/G/Δ 列（最后 0-3 个 td），统一用预计算数据替换
+        tds = re_mod.findall(r"<td>(.*?)</td>", row, re_mod.DOTALL)
+        if len(tds) < 4:
+            new_rows.append(row)
+            continue
+        # 保留行前缀（<tr>/换行/缩进）
+        first_td = row.find("<td>")
+        prefix = row[:first_td] if first_td >= 0 else ""
+        base_row = prefix + "".join(f"<td>{c}</td>" for c in tds[:4])
+        f_cell = f"<td>{mapped['f']}</td>" if mapped["f"] else "<td>—</td>"
+        g_cell = f"<td>{mapped['g']}</td>" if mapped["g"] else "<td>—</td>"
+        d_cell = f"<td>{mapped['d']}</td>" if mapped["d"] else "<td>—</td>"
+        new_rows.append(base_row + f_cell + g_cell + d_cell)
+
+    new_tbody = "</tr>".join(new_rows)
+    return output[:tbody_start + 7] + new_tbody + output[tbody_end:]
+
+
 def _diff_chokemap(new_output: str, today: str) -> str:
     """当日重跑时，对比新旧 ChokeMap 主题变化。"""
     path = BASE / "reports" / "advice" / f"advice_{today}_0730.md"
@@ -2700,6 +2899,7 @@ def main():
     output = _validate_index_claims(output, us_indices)
     output = _validate_code_names(output)
     output = _validate_dow_claims(output, yesterday)
+    output = _patch_chokemap_table(output)
     # ChokeMap 变化说明（当日重跑时对比）
     chokemap_diff = _diff_chokemap(output, today)
     if chokemap_diff:
