@@ -78,7 +78,7 @@ def _build_llm_context(stocks: list, quotes: dict) -> str:
     return "\n".join(lines)
 
 
-from daily_review.llm import _load_api_key
+from llm import _load_api_key
 
 
 def _call_llm_batch(stocks_batch: list, quotes: dict) -> list[dict]:
