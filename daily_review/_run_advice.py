@@ -2900,10 +2900,7 @@ def main():
     for key, val in feeds.items():
         prompt = prompt.replace(key, val)
 
-    if is_goalkeeper:
-        advice_path = BASE / "reports" / "advice" / f"advice_{today}.md"
-    else:
-        advice_path = BASE / "reports" / "advice" / f"advice_{today}_0730.md"
+    advice_path = BASE / "reports" / "advice" / f"advice_{today}.md"
 
     try:
         client = _rc("deep", timeout=600)

@@ -29,8 +29,6 @@ def main():
     else:
         today = date.today().isoformat()
         md_path = base / f"advice_{today}.md"
-        if not md_path.exists():
-            md_path = base / f"advice_{today}_0730.md"
 
     if not md_path.exists():
         print(f"[SKIP] advice 文件不存在: {md_path}")
