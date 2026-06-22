@@ -657,29 +657,6 @@ def _build_code_chain_map() -> dict[str, list[dict]]:
     return code_map
 
 
-def _get_hub_stocks(chain_map: dict, min_chains: int = 3) -> list[dict]:
-    """找出跨产业链的枢纽标的，按跨链数降序。"""
-    from theme_stock.store import ThemeStockStore
-    store = ThemeStockStore()
-    store.init_db()
-    cur = store._get_conn().execute("""
-        SELECT code, name, COUNT(DISTINCT industry) as n_ind,
-               GROUP_CONCAT(DISTINCT industry) as inds
-        FROM chain_map WHERE market='A' AND map_type='chain'
-        GROUP BY code HAVING n_ind >= ?
-        ORDER BY n_ind DESC LIMIT 20
-    """, (min_chains,))
-    results = []
-    for row in cur:
-        inds = row["inds"].split(",") if row["inds"] else []
-        results.append({
-            "code": row["code"], "name": row["name"],
-            "n_ind": row["n_ind"], "industries": inds,
-        })
-    store.close()
-    return results
-
-
 def _render_theme_lifecycle(w) -> list[dict]:
     """主题生命周期：从 catalyst_signals 时间轴聚合，追踪主题何时开始、趋势、状态。
     Returns lifecycle rows for downstream advisor use.
@@ -1004,25 +981,6 @@ def _render_price_signals(w, last_trade: str):
         w()
 
     # 2. 持续性板块（sector_rotation_log 历史数据）+ 核心个股
-    try:
-        pers = sector_persistence(5)
-        if pers:
-            w("### 📊 历史持续性板块（最长连续出现）")
-            w()
-            w("| 板块 | 最长连续 | 平均连续 | 轮次 | 核心个股 |")
-            w("|------|:-----:|:-----:|:---:|------|")
-            for s in pers[:10]:
-                top = sector_stocks(s["sector"], 5)
-                named = []
-                for st in top:
-                    nm = names.get(st["stock"], "")
-                    named.append(f"{nm}({st['stock']})" if nm else st["stock"])
-                stocks_str = " ".join(named[:3]) if named else "—"
-                w(f"| {s['sector']} | {s['max_streak']} | {s['avg_streak']} | {s['runs']} | {stocks_str} |")
-            w()
-    except Exception:
-        pass
-
     # 3. 相似日预测（sector_rotation_log 历史数据）
     try:
         result = similar_sectors(last_trade, top_n=5, lookahead=3)
@@ -2017,20 +1975,6 @@ def generate(today_str: str = "") -> str:
         w("_本周暂无强信号标的_")
         w()
 
-    # 枢纽标的 — 跨多产业链的核心标的
-    hub_stocks = _get_hub_stocks(chain_map)
-    if hub_stocks:
-        w("### 🕸️ 枢纽标的（跨3+产业链）")
-        w()
-        w("| 代码 | 名称 | 跨链数 | 涉及产业 |")
-        w("|------|------|:-----:|------|")
-        for h in hub_stocks[:15]:
-            industries = ", ".join(h["industries"][:5])
-            if len(h["industries"]) > 5:
-                industries += f" +{len(h['industries'])-5}"
-            w(f"| {h['code']} | {h['name']} | {h['n_ind']} | {industries} |")
-        w()
-
     # 产业链信号热力 — 按 chain_map 聚合信号
     chain_heat = _chain_signal_heat(signals)
     if chain_heat:
@@ -2066,14 +2010,14 @@ def generate(today_str: str = "") -> str:
                 plates_seen.append(ch["plate"])
                 w(f"**{ch['plate']}**  ")
         w()
-        w("| 板块 | 层级1 | 层级2 | 标的 | 涨跌 | 逻辑提及 | 走势信号 | 预期差 | 判断 |")
-        w("|------|------|------|:--:|:---:|:-------:|:-------:|:-----:|:----:|")
+        w("| 板块 | 层级1 | 层级2 | 代表标的 | 涨跌 | 提及 | 走势信号 | 预期差 | 判断 |")
+        w("|------|------|------|------|:---:|:---:|:-------:|:-----:|:----:|")
         for ch in chain_rows[:25]:
             l2_display = ch['l2'] if ch['l2'] and ch['l2'] != '-' else '—'
-            best_label = f"{ch['top_name']}({ch['top_code']})"
+            best_label = f"{ch['top_name']}({ch['top_code']})" if ch.get('top_name') else f"{ch['count']}只"
             pct_str = f"+{ch['avg_pct']}%" if ch['avg_pct'] > 0 else f"{ch['avg_pct']}%"
-            mention_str = f"{ch['total_mentions']}次/{ch['mention_density']:.0f}密"
-            w(f"| {ch['plate']} | {ch['l1']} | {l2_display} | {ch['count']} | {pct_str} | {mention_str} | {ch['trend_signal']} | {ch['expectation_gap']} | **{ch['verdict']}** |")
+            mention_str = f"{ch['total_mentions']}次"
+            w(f"| {ch['plate']} | {ch['l1']} | {l2_display} | {best_label} | {pct_str} | {mention_str} | {ch['trend_signal']} | {ch['expectation_gap']} | **{ch['verdict']}** |")
         w()
 
     # === 主题生命周期 ===
@@ -2088,21 +2032,6 @@ def generate(today_str: str = "") -> str:
     _render_price_signals(w, last_trade)
 
     # === 本周趋势 ===
-    w("## 📈 本周公告深研趋势")
-    w()
-    daily = dr.get("daily", {})
-    if daily:
-        max_cnt = max(v[0] for v in daily.values()) or 1
-        for d_sorted in sorted(daily.keys()):
-            cnt, a60 = daily[d_sorted]
-            bar_len = max(1, int(cnt / max_cnt * 20))
-            bar = "█" * bar_len
-            a60_flag = f"  **{a60}条≥60**" if a60 > 0 else ""
-            w(f"- {d_sorted}: {bar} {cnt}条{a60_flag}")
-    else:
-        w("_暂无数据_")
-    w()
-
     # === 假设闭环 ===
     _render_hypotheses(w)
 
