@@ -18,14 +18,20 @@ def _load_api_key() -> str:
     key = os.environ.get("ANTHROPIC_AUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY")
     if key:
         return key
-    settings = Path.home() / ".claude" / "settings.json"
-    if settings.exists():
-        try:
-            data = json.loads(settings.read_text(encoding="utf-8"))
-            key = data.get("env", {}).get("ANTHROPIC_AUTH_TOKEN", "")
-        except (json.JSONDecodeError, OSError):
-            pass
-    return key
+    for p in (
+        Path.home() / ".claude" / "settings.json",
+        Path("C:/Users/daixin/.claude/settings.json"),
+        Path(os.environ.get("USERPROFILE", "")) / ".claude" / "settings.json",
+    ):
+        if p.exists():
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+                key = data.get("env", {}).get("ANTHROPIC_AUTH_TOKEN", "")
+                if key:
+                    return key
+            except (json.JSONDecodeError, OSError):
+                pass
+    return ""
 
 
 def generate_overseas_catalysts(watchlist: dict, today: str) -> dict:
