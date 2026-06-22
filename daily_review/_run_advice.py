@@ -49,10 +49,24 @@ def _load_api_key() -> str:
     return key
 
 
+US_HOLIDAYS_2026 = {
+    date(2026, 1, 1),    # New Year's Day
+    date(2026, 1, 19),   # Martin Luther King Jr. Day
+    date(2026, 2, 16),   # Presidents' Day
+    date(2026, 4, 3),    # Good Friday
+    date(2026, 5, 25),   # Memorial Day
+    date(2026, 6, 19),   # Juneteenth
+    date(2026, 7, 3),    # Independence Day (observed)
+    date(2026, 9, 7),    # Labor Day
+    date(2026, 11, 26),  # Thanksgiving
+    date(2026, 12, 25),  # Christmas
+}
+
+
 def _last_trade_date_us() -> str:
-    """上一个美股交易日（跳过周末）。"""
+    """上一个美股交易日（跳过周末 + 美股休市日）。"""
     d = date.today() - timedelta(days=1)
-    while d.weekday() >= 5:
+    while d.weekday() >= 5 or d in US_HOLIDAYS_2026:
         d -= timedelta(days=1)
     return d.isoformat()
 
