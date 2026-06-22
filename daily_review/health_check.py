@@ -245,6 +245,23 @@ def check_advice_server():
         ISSUES.append("advice_server: 端口 8900 无响应 → 手动 python daily_review/advice_server.py --daemon")
 
 
+def check_prompt_audit():
+    """扫描 advice prompt 模板，检查数值字段是否有数据注入。"""
+    prompt = Path(__file__).resolve().parent / "claude_prompt.txt"
+    if not prompt.exists():
+        return
+    try:
+        import prompt_audit
+        findings, _ = prompt_audit.audit_prompt(str(prompt))
+        bugs = [f for f in findings if f["status"] == "❌"]
+        warns = [f for f in findings if f["status"] == "⚠️"]
+        print(f"  [prompt审计] {len(findings)}字段 | ❌{len(bugs)}未注入 | ⚠️{len(warns)}推断")
+        for b in bugs:
+            ISSUES.append(f"prompt审计: {b['label']} 无数据注入({b['source']})")
+    except Exception as e:
+        ISSUES.append(f"prompt审计: 扫描失败 ({e})")
+
+
 def main():
     print(f"=== 系统健康检查 {datetime.now().strftime('%Y-%m-%d %H:%M')} ===")
     check_rss()
@@ -256,6 +273,7 @@ def main():
     check_engines()
     check_advice_server()
     check_system_resources()
+    check_prompt_audit()
 
     if ISSUES:
         msg = "\n".join(f"- {i}" for i in ISSUES)

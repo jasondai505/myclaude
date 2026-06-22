@@ -504,18 +504,22 @@ def score_from_feeds(date_str: str = "") -> list[dict]:
         print("  feval: 行情获取失败")
         return []
 
-    stocks = []
-    for code in new_codes:
-        q = quotes.get(code, {})
-        stocks.append({
-            "code": code,
-            "name": q.get("name", ""),
-            "mcap_yi": round(q.get("mcap_yi", 0) or 0),
-            "pe_ttm": round(q.get("pe_ttm", 0) or 0, 1),
-            "chg_pct": round(q.get("change_pct", 0) or 0, 2),
-        })
-
-    results = score_batch(stocks)
+    # 优先走 enriched 模式（有财报数据），basic 无财务数据不可靠
+    try:
+        results = score_codes_enriched(new_codes)
+    except Exception as e:
+        print(f"  feval enriched 失败 ({e})，回落 basic 模式（评分可能不准确）")
+        stocks = []
+        for code in new_codes:
+            q = quotes.get(code, {})
+            stocks.append({
+                "code": code,
+                "name": q.get("name", ""),
+                "mcap_yi": round(q.get("mcap_yi", 0) or 0),
+                "pe_ttm": round(q.get("pe_ttm", 0) or 0, 1),
+                "chg_pct": round(q.get("change_pct", 0) or 0, 2),
+            })
+        results = score_batch(stocks)
     if results:
         save_scores(results)
         print(f"  feval: 已保存 {len(results)} 个评分")
