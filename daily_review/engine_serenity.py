@@ -166,6 +166,15 @@ def _load_skill() -> str:
     return ""
 
 
+def _load_latest_insights() -> str:
+    """加载 Serenity 最新推文要点（2026.06.16-06.22 OCR 提取）"""
+    path = BASE.parent / "traders_cn" / "serenity_latest.md"
+    if path.exists():
+        content = path.read_text(encoding="utf-8")
+        return f"\n\n---\n## Serenity 最新公开推文要点（供参考当前主题方向和方法论实例）\n\n{content}\n"
+    return ""
+
+
 # ============================================================
 # Public API
 # ============================================================
@@ -178,8 +187,10 @@ def analyze_global_chain(chain_name: str) -> str:
     available = _fetch_bom_industry_list()
     available_str = ", ".join(available) if available else "（暂无 BOM 数据）"
 
-    prompt = f"""{skill}
+    latest = _load_latest_insights()
 
+    prompt = f"""{skill}
+{latest}
 ---
 ## 数据注入
 
@@ -221,9 +232,10 @@ def map_to_a_shares(chain_name: str, global_nodes_text: str = "") -> str:
     chain_data = _fetch_chain_data(chain_name)
     codes = _get_chain_codes(chain_name)
     stock_data = _fetch_stock_data(codes) if codes else "_该产业链暂无 BOM 标的_"
+    latest = _load_latest_insights()
 
     prompt = f"""{skill}
-
+{latest}
 ---
 ## 数据注入
 
@@ -257,11 +269,12 @@ def validate_with_fe(codes: list[str], chain_name: str = "") -> str:
         return "_无待验证标的_"
 
     skill = _load_skill()
+    latest = _load_latest_insights()
     stock_data = _fetch_stock_data(codes)
     fev_data = _fetch_fev_scores(codes)
 
     prompt = f"""{skill}
-
+{latest}
 ---
 ## 数据注入
 
