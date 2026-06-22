@@ -113,7 +113,20 @@
       "Bash(powershell *)",
       "Bash(cp \"C:/Users/daixin/myclaude/CLAUDE.md\" \"C:/Users/daixin/Documents/Obsidian Vault/CLAUDE.md\")",
       "Bash(cp \"C:/Users/daixin/myclaude/docs/评分体系架构图.md\" \"C:/Users/daixin/Documents/Obsidian Vault/评分体系架构图.md\")",
-      "PowerShell(Get-ChildItem -Path C:\\\\Users\\\\daixin -Filter '.obsidian' -Recurse -Directory -Depth 3 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_.Parent.FullName })"
+      "PowerShell(Get-ChildItem -Path C:\\\\Users\\\\daixin -Filter '.obsidian' -Recurse -Directory -Depth 3 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_.Parent.FullName })",
+      "Read(//tmp/**)",
+      "Read(//c/Users/daixin/AppData/Local/Temp/2/claude/C--Users-daixin-myclaude/69905086-67cf-4e0c-97f7-7e4aa7a392e7/tasks/**)",
+      "PowerShell(Stop-Process *)",
+      "PowerShell($env:HEADLESS = '1'; $env:PYTHONUNBUFFERED = '1'; $env:PYTHONIOENCODING = 'utf-8'; C:\\\\miniconda3\\\\python.exe daily_review/_run_advice.py 2>&1)",
+      "PowerShell($env:HEADLESS = '1'; $env:PYTHONIOENCODING = 'utf-8'; C:\\\\miniconda3\\\\python.exe -c \"from daily_review._run_advice import _last_trade_date_us; print\\(_last_trade_date_us\\(\\)\\)\" 2>&1)",
+      "Read(//c/Users/daixin/.claude/**)",
+      "PowerShell(foreach \\($t in @\\(\"\\\\myclaude_pre_dawn\", \"\\\\myclaude_pre\", \"\\\\myclaude_pre_game\", \"\\\\myclaude_close\", \"\\\\myclaude_night\"\\)\\) { Write-Host \"=== $t ===\"; schtasks /query /tn $t /fo LIST /v 2>&1 | Select-String -Pattern \"Next Run|Status|Last Run|Last Result|Days\" })",
+      "PowerShell($env:HEADLESS = '1'; $env:PYTHONUNBUFFERED = '1'; $env:PYTHONIOENCODING = 'utf-8'; C:\\\\miniconda3\\\\python.exe daily_review/_run_advice.py 2>&1 | Select-String -Pattern \"ChokeMap|📌F|📌G|📌Δ|\\\\bFEV=|\\\\bG1=|\\\\bΔ=\" -Context 0,0)",
+      "PowerShell($env:HEADLESS = '1'; $env:PYTHONUNBUFFERED = '1'; $env:PYTHONIOENCODING = 'utf-8'; C:\\\\miniconda3\\\\python.exe daily_review/_run_advice.py 2>&1 | Select-String -Pattern \"patch|patched|ChokeMap|patch\")",
+      "PowerShell($env:HEADLESS = '1'; $env:PYTHONUNBUFFERED = '1'; $env:PYTHONIOENCODING = 'utf-8'; C:\\\\miniconda3\\\\python.exe daily_review/_run_advice.py 2>&1 | Select-String -Pattern \"688256|寒武纪\")",
+      "PowerShell($env:HEADLESS = '1'; $env:PYTHONUNBUFFERED = '1'; $env:PYTHONIOENCODING = 'utf-8'; C:\\\\miniconda3\\\\python.exe daily_review/_run_advice.py 2>&1 | Select-String -Pattern \"ChokeMap\")",
+      "PowerShell($env:HEADLESS = '1'; $env:PYTHONUNBUFFERED = '1'; $env:PYTHONIOENCODING = 'utf-8'; C:\\\\miniconda3\\\\python.exe daily_review/_run_advice.py 2>&1 | Select-String -Pattern \"ChokeMap|</td></td>\")",
+      "PowerShell($env:HEADLESS = '1'; $env:PYTHONUNBUFFERED = '1'; $env:PYTHONIOENCODING = 'utf-8'; C:\\\\miniconda3\\\\python.exe daily_review/_run_advice.py --goalkeeper 2>&1)"
     ]
   },
   "PreToolUse": [
