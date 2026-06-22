@@ -620,66 +620,17 @@ def _inject_serenity_context() -> str:
             lines.append(f"| {c['chain_name']} | {c['max_score']} | {c['segment_count']} |")
         lines.append("")
 
-        # 加载 G-Factor 和 Δ 数据，按代码索引
-        gfactor_map: dict[str, dict] = {}
-        try:
-            gdb = BASE / "data" / "gfactor.db"
-            if gdb.exists():
-                conn_g = sqlite3.connect(str(gdb))
-                conn_g.row_factory = sqlite3.Row
-                for r in conn_g.execute(
-                    "SELECT code, g1_score, g2_score, g3_score, g4_score "
-                    "FROM gfactor_scores WHERE date=(SELECT MAX(date) FROM gfactor_scores)"
-                ).fetchall():
-                    gfactor_map[r["code"]] = {
-                        "g1": r["g1_score"], "g2": r["g2_score"],
-                        "g3": r["g3_score"], "g4": r["g4_score"],
-                    }
-                conn_g.close()
-        except Exception:
-            pass
-
-        delta_map: dict[str, dict] = {}
-        try:
-            from daily_review.feval import get_delta_scores as feval_get_delta
-            delta_map = feval_get_delta()
-        except Exception:
-            pass
-
-        # 按产业链分组标的，预计算 F/G/Δ
-        chain_stocks: dict[str, list[dict]] = {}
-        for s in stocks:
-            cn = s.get("chain_name", "")
-            if cn:
-                chain_stocks.setdefault(cn, []).append(s)
-
-        if chain_stocks:
+        # 复用 _build_chokemap_stock_map 的 F/G/Δ 预计算（含名称补齐）
+        cmap = _build_chokemap_stock_map()
+        if cmap:
             lines.append("### 产业链→标的速查表（ChokeMap 的 F/G/Δ 列直接引用，勿编造）")
             lines.append("")
             lines.append("| 产业链 | 📌F 标的 (FEV≥15) | 📌G 标的 (任一G维≥7) | 📌Δ 标的 (Δ≠0) |")
             lines.append("|--------|-------------------|---------------------|----------------|")
-            for chain_name, cstocks in chain_stocks.items():
-                f_list, g_list, d_list = [], [], []
-                for s in cstocks:
-                    code = s["code"]
-                    name = _clean_name(code, s.get("name", ""))
-                    fev = s.get("fev_total", 0)
-                    if fev >= 15:
-                        f_list.append(f"{name}({code}) FEV={fev}")
-                    gf = gfactor_map.get(code, {})
-                    g_high = [f"G{i}" for i in [1, 2, 3, 4] if gf.get(f"g{i}", 0) >= 7]
-                    if g_high:
-                        g_parts = [f"{name}({code})"] + [f"G{i}={gf[f'g{i}']}" for i in [1, 2, 3, 4] if gf[f'g{i}'] >= 7]
-                        g_list.append(" ".join(g_parts))
-                    d = delta_map.get(code, {})
-                    ds = d.get("delta_score", 0) if d else 0
-                    if ds != 0:
-                        sign = "+" if ds > 0 else ""
-                        d_list.append(f"{name}({code}) Δ={sign}{ds}")
-
-                f_str = "<br>".join(f_list[:5]) if f_list else "—"
-                g_str = "<br>".join(g_list[:5]) if g_list else "—"
-                d_str = "<br>".join(d_list[:5]) if d_list else "—"
+            for chain_name, m in cmap.items():
+                f_str = m["f"].replace("<br>", "<br>") if m["f"] else "—"
+                g_str = m["g"].replace("<br>", "<br>") if m["g"] else "—"
+                d_str = m["d"].replace("<br>", "<br>") if m["d"] else "—"
                 lines.append(f"| {chain_name} | {f_str} | {g_str} | {d_str} |")
             lines.append("")
             lines.append("> **ChokeMap 高优先级表强制规则**：上表 F 列有标的的环节，HTML table 的 📌F 列必须填入对应标的（格式 `名称(代码) FEV=xx`），不得留空写 `—`。G 列和 Δ 列同理。每个环节至少列出 2-3 只标的。")
@@ -2527,6 +2478,21 @@ def _clean_name(code: str, name: str) -> str:
     return ""
 
 
+def _batch_fetch_names(codes: list[str]) -> dict[str, str]:
+    """批量从行情 API 拉取名称。"""
+    names: dict[str, str] = {}
+    try:
+        import data
+        quotes = data.fetch_stock_quotes(codes, batch_size=30)
+        for c, q in quotes.items():
+            n = q.get("name", "")
+            if n and len(n) >= 2:
+                names[c] = n
+    except Exception:
+        pass
+    return names
+
+
 def _build_chokemap_stock_map() -> dict[str, dict]:
     """构建产业链→F/G/Δ标的映射，供 patch 和 inject 共用。"""
     cmap: dict[str, dict] = {}
@@ -2571,24 +2537,34 @@ def _build_chokemap_stock_map() -> dict[str, dict]:
     except Exception:
         pass
 
+    # 批量补齐缺名标的
+    all_codes = {s["code"] for cstocks in chain_stocks.values() for s in cstocks}
+    dirty_names = {code for code in all_codes
+                   if not _clean_name(code, next((s.get("name", "") for css in chain_stocks.values() for s in css if s["code"] == code), ""))}
+    quote_names = _batch_fetch_names(list(dirty_names)) if dirty_names else {}
+
     for cn, cstocks in chain_stocks.items():
         f_list, g_list, d_list = [], [], []
         for s in cstocks:
             code = s["code"]
-            name = _clean_name(code, s.get("name", ""))
+            name = _clean_name(code, s.get("name", "")) or quote_names.get(code, "")
+            if name:
+                label = f"{name}({code})"
+            else:
+                label = f"({code})"
             fev = s.get("fev_total", 0)
             if fev >= 15:
-                f_list.append(f"{name}({code}) FEV={fev}")
+                f_list.append(f"{label} FEV={fev}")
             gf = gfactor_map.get(code, {})
             g_scores = " ".join(f"G{i}={gf[f'g{i}']}"
                        for i in [1, 2, 3, 4] if gf.get(f"g{i}", 0) >= 7)
             if g_scores:
-                g_list.append(f"{name}({code}) {g_scores}")
+                g_list.append(f"{label} {g_scores}")
             d = delta_map.get(code, {})
             ds = d.get("delta_score", 0) if d else 0
             if ds != 0:
                 sign = "+" if ds > 0 else ""
-                d_list.append(f"{name}({code}) Δ={sign}{ds}")
+                d_list.append(f"{label} Δ={sign}{ds}")
 
         cmap[cn] = {
             "f": "<br>".join(f_list[:5]) if f_list else "",
