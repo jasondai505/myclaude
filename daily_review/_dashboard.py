@@ -1982,8 +1982,11 @@ def generate(today_str: str = "") -> str:
         if not chains:
             return "—", "—"
         c = chains[0]  # chain 优先 (已按 map_type 排序)
-        l2 = c["l2"] if c["l2"] and c["l2"] != "-" else ""
-        link = f"{c['l1']}>{l2}" if l2 else c["l1"]
+        l1, l2 = c["l1"], c["l2"] if c["l2"] and c["l2"] != "-" else ""
+        if l2 and l2 != l1:
+            link = f"{l1}>{l2}"
+        else:
+            link = l1
         plate = c["plate"] if c.get("map_type") != "bucket" else f"{c['plate']}📋"
         return plate, link
 

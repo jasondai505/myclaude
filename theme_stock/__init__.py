@@ -39,8 +39,15 @@ def get_chain_context(codes: list[str], map_type: str = "chain") -> dict[str, li
         )
     result: dict[str, list[str]] = {c: [] for c in codes}
     for row in cur:
+        tier = row["tier"]
         seg = row["segment"] if row["segment"] and row["segment"] != "-" else ""
-        chain = f"{row['industry']}>{row['tier']}>{seg}" if seg else f"{row['industry']}>{row['tier']}"
+        # 去重: tier==seg 时不重复显示
+        if seg and seg != tier:
+            chain = f"{row['industry']}>{tier}>{seg}"
+        elif seg and seg == tier:
+            chain = f"{row['industry']}>{tier}"
+        else:
+            chain = f"{row['industry']}>{tier}"
         result[row["code"]].append(chain)
     store.close()
     return result
