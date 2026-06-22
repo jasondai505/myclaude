@@ -78,19 +78,7 @@ def _build_llm_context(stocks: list, quotes: dict) -> str:
     return "\n".join(lines)
 
 
-def _load_api_key() -> str:
-    key = os.environ.get("ANTHROPIC_AUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY")
-    if key:
-        return key
-    from pathlib import Path
-    settings = Path.home() / ".claude" / "settings.json"
-    if settings.exists():
-        try:
-            data = json.loads(settings.read_text(encoding="utf-8"))
-            key = data.get("env", {}).get("ANTHROPIC_AUTH_TOKEN", "")
-        except (json.JSONDecodeError, OSError):
-            pass
-    return key
+from daily_review.llm import _load_api_key
 
 
 def _call_llm_batch(stocks_batch: list, quotes: dict) -> list[dict]:

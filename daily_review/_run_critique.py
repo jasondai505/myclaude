@@ -17,18 +17,7 @@ CRITIQUE_DIR = BASE / "critiques"
 CRITIQUE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def _load_api_key() -> str:
-    key = os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
-    if key:
-        return key
-    settings = Path.home() / ".claude" / "settings.json"
-    if settings.exists():
-        try:
-            data = json.loads(settings.read_text(encoding="utf-8"))
-            key = data.get("env", {}).get("ANTHROPIC_AUTH_TOKEN", "")
-        except (json.JSONDecodeError, OSError):
-            pass
-    return key
+from daily_review.llm import _load_api_key
 
 
 def _read_report(trade_date: str) -> str | None:

@@ -31,25 +31,7 @@ MAX_TOKENS = 3000
 # API key
 # ============================================================
 
-def _load_api_key() -> str:
-    key = os.environ.get("ANTHROPIC_AUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY")
-    if key:
-        return key
-    # Path.home() 在 schtasks 非交互式执行时可能解析到错误路径
-    for p in (
-        Path.home() / ".claude" / "settings.json",
-        Path("C:/Users/daixin/.claude/settings.json"),
-        Path(os.environ.get("USERPROFILE", "")) / ".claude" / "settings.json",
-    ):
-        if p.exists():
-            try:
-                data = json.loads(p.read_text(encoding="utf-8"))
-                key = data.get("env", {}).get("ANTHROPIC_AUTH_TOKEN", "")
-                if key:
-                    return key
-            except (json.JSONDecodeError, OSError):
-                pass
-    return ""
+from daily_review.llm import _load_api_key
 
 
 # ============================================================

@@ -8,18 +8,7 @@ from daily_review.config import REPORT_DIR, WATCHLIST
 
 REPORT_PATH = REPORT_DIR / "wechat" / f"wechat_analysis_{date.today().isoformat()}.md"
 
-def _load_api_key():
-    key = os.environ.get("ANTHROPIC_AUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY")
-    if key:
-        return key
-    settings = Path.home() / ".claude" / "settings.json"
-    if settings.exists():
-        try:
-            data = json.loads(settings.read_text(encoding="utf-8"))
-            key = data.get("env", {}).get("ANTHROPIC_AUTH_TOKEN", "")
-        except Exception:
-            pass
-    return key
+from daily_review.llm import _load_api_key
 
 
 def _extract_articles_from_report(path: Path) -> list[dict]:
