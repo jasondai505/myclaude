@@ -1240,11 +1240,12 @@ def _validate_entry_prices(output: str) -> str:
         if not in_section:
             continue
         m_code = re_mod.search(r"\((\d{6})\)", line)
-        m_range = re_mod.search(r"(\d+\.?\d*)\s*[-–~]\s*(\d+\.?\d*)\s*[元股]", line)
+        m_range = re_mod.search(r"(\d[\d,]*\.?\d*)\s*[-–~]\s*(\d[\d,]*\.?\d*)\s*[元股]", line)
         if not m_code or not m_range:
             continue
         candidates.append((i, m_code.group(1), m_range.group(0),
-                          float(m_range.group(1)), float(m_range.group(2))))
+                          float(m_range.group(1).replace(",", "")),
+                          float(m_range.group(2).replace(",", ""))))
 
     if not candidates:
         return output
@@ -1270,7 +1271,7 @@ def _validate_entry_prices(output: str) -> str:
         base = q.get("last_close", actual) or actual
         new_lo = round(base * 0.93, 1)
         new_hi = round(base * 1.02, 1)
-        new_range = f"{new_lo} - {new_hi} 元"
+        new_range = f"{new_lo:.1f} - {new_hi:.1f} 元"
         lines[line_idx] = lines[line_idx].replace(old_range, new_range)
         fixed += 1
         print(f"  [FIX] {code} 入场区间 {old_range} → {new_range} (现价={actual}, 昨收={base}, 偏离={deviation:.0%})")
