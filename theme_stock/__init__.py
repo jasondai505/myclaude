@@ -12,4 +12,28 @@ from .store import ThemeStockStore
 from .engine import ThemeStockEngine, StockEntry, StockList, SourceRef
 
 __all__ = ["ThemeStockStore", "ThemeStockEngine",
-           "StockEntry", "StockList", "SourceRef"]
+           "StockEntry", "StockList", "SourceRef",
+           "get_chain_context"]
+
+
+def get_chain_context(codes: list[str]) -> dict[str, list[str]]:
+    """批量查标的的产业链位置, 返回 {code: ['产业>层级1>层级2', ...]}
+
+    轻量级, 不创建 Engine, 直接查 DB。供 catalyst_screen/advice 等管线调用。
+    """
+    if not codes:
+        return {}
+    store = ThemeStockStore()
+    store.init_db()
+    placeholders = ",".join("?" for _ in codes)
+    cur = store._get_conn().execute(
+        f"SELECT code, industry, tier, segment FROM chain_map WHERE code IN ({placeholders}) AND market='A'",
+        codes,
+    )
+    result: dict[str, list[str]] = {c: [] for c in codes}
+    for row in cur:
+        seg = row["segment"] if row["segment"] and row["segment"] != "-" else ""
+        chain = f"{row['industry']}>{row['tier']}>{seg}" if seg else f"{row['industry']}>{row['tier']}"
+        result[row["code"]].append(chain)
+    store.close()
+    return result

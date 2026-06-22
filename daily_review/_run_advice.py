@@ -1814,6 +1814,14 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
     }
     hp_parts = [f"{v}只 {k}" for k, v in hp_counts.items() if v > 0]
 
+    # 预查产业链上下文
+    selection_codes = [c["code"] for c in selection]
+    try:
+        from theme_stock import get_chain_context
+        chain_ctx = get_chain_context(selection_codes)
+    except Exception:
+        chain_ctx = {}
+
     # 构建精选表
     lines = ["", "## 🎯 精选标的 — 三轨席位制", "",
              f"> ⏱️ 时间姿态: {' / '.join(hp_parts)} → {posture.get(dominant, '')}",
@@ -1858,7 +1866,11 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
 
         # 分歧标注
         div = c.get("divergence", "")
-        name_display = f"**{c['name']}({c['code']})**"
+        # 产业链上下文标注
+        chains = chain_ctx.get(c["code"], [])
+        chain_tag = f" `{chains[0]}`" if chains else ""
+
+        name_display = f"**{c['name']}({c['code']})**{chain_tag}"
         if div:
             name_display += f" ⚠️{div}"
 

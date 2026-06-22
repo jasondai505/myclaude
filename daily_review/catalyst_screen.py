@@ -646,6 +646,11 @@ def _audit_stock_maps(stock_maps: dict) -> dict:
 # ============================================================
 # 报告生成
 # ============================================================
+def _get_chain_ctx(codes: list[str]) -> dict[str, list[str]]:
+    from theme_stock import get_chain_context
+    return get_chain_context(codes)
+
+
 def _generate_report(catalysts: list[dict], stock_maps: dict, today: str) -> Path:
     """生成 Markdown 报告"""
     L = []
@@ -680,11 +685,18 @@ def _generate_report(catalysts: list[dict], stock_maps: dict, today: str) -> Pat
 
         mapped = stock_maps.get(cat.get("catalyst_name", ""), [])
         if mapped:
+            # Enrich with chain positions
+            codes = [m.get("code", "") for m in mapped if m.get("code")]
+            chain_ctx = _get_chain_ctx(codes)
+
             w()
-            w(f"| 代码 | 名称 | 概念 | 关联逻辑 | 置信度 |")
-            w(f"|------|------|------|----------|--------|")
+            w(f"| 代码 | 名称 | 产业链位置 | 概念 | 关联逻辑 | 置信度 |")
+            w(f"|------|------|-----------|------|----------|--------|")
             for m in mapped[:10]:
-                w(f"| {m.get('code','?')} | {m.get('name','?')} | {m.get('concept','?')} | {m.get('relevance','?')} | {m.get('confidence','?')} |")
+                code = m.get("code", "?")
+                chains = chain_ctx.get(code, [])
+                chain_str = chains[0] if chains else "—"
+                w(f"| {code} | {m.get('name','?')} | {chain_str} | {m.get('concept','?')} | {m.get('relevance','?')} | {m.get('confidence','?')} |")
         w()
 
     # Summary

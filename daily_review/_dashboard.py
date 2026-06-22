@@ -639,18 +639,42 @@ def _load_concept_stocks() -> dict[str, list[str]]:
 
 
 def _build_code_chain_map() -> dict[str, list[dict]]:
-    """构建代码→产业链映射（从 产业链*涨跌幅.xlsx）。"""
-    chains = _load_chain_maps()
+    """构建代码→产业链映射（从 theme_stock chain_map DB, 含 BOM+SC+external_map）。"""
+    from theme_stock.store import ThemeStockStore
+    store = ThemeStockStore()
+    store.init_db()
     code_map: dict[str, list[dict]] = {}
-    for plate, l1_map in chains.items():
-        for l1, l2_map in l1_map.items():
-            for l2, stocks in l2_map.items():
-                for s in stocks:
-                    code = s["code"]
-                    code_map.setdefault(code, []).append({
-                        "plate": plate, "l1": l1, "l2": l2,
-                    })
+    for row in store._get_conn().execute(
+        "SELECT DISTINCT code, industry as plate, tier as l1, segment as l2 FROM chain_map WHERE market='A'"
+    ):
+        code_map.setdefault(row["code"], []).append({
+            "plate": row["plate"], "l1": row["l1"], "l2": row["l2"],
+        })
+    store.close()
     return code_map
+
+
+def _get_hub_stocks(chain_map: dict, min_chains: int = 3) -> list[dict]:
+    """找出跨产业链的枢纽标的，按跨链数降序。"""
+    from theme_stock.store import ThemeStockStore
+    store = ThemeStockStore()
+    store.init_db()
+    cur = store._get_conn().execute("""
+        SELECT code, name, COUNT(DISTINCT industry) as n_ind,
+               GROUP_CONCAT(DISTINCT industry) as inds
+        FROM chain_map WHERE market='A'
+        GROUP BY code HAVING n_ind >= ?
+        ORDER BY n_ind DESC LIMIT 20
+    """, (min_chains,))
+    results = []
+    for row in cur:
+        inds = row["inds"].split(",") if row["inds"] else []
+        results.append({
+            "code": row["code"], "name": row["name"],
+            "n_ind": row["n_ind"], "industries": inds,
+        })
+    store.close()
+    return results
 
 
 def _render_theme_lifecycle(w) -> list[dict]:
@@ -1929,6 +1953,20 @@ def generate(today_str: str = "") -> str:
         w()
     else:
         w("_本周暂无强信号标的_")
+        w()
+
+    # 枢纽标的 — 跨多产业链的核心标的
+    hub_stocks = _get_hub_stocks(chain_map)
+    if hub_stocks:
+        w("### 🕸️ 枢纽标的（跨3+产业链）")
+        w()
+        w("| 代码 | 名称 | 跨链数 | 涉及产业 |")
+        w("|------|------|:-----:|------|")
+        for h in hub_stocks[:15]:
+            industries = ", ".join(h["industries"][:5])
+            if len(h["industries"]) > 5:
+                industries += f" +{len(h['industries'])-5}"
+            w(f"| {h['code']} | {h['name']} | {h['n_ind']} | {industries} |")
         w()
 
     # 行业/主题信号热度
