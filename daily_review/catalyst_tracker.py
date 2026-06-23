@@ -394,11 +394,35 @@ def track(today_str: str):
     if confirmed_catalysts:
         save_catalyst_signals(confirmed_catalysts)
 
-    # 6. 标记过期：14天前未确认的催化 → expired
-    expiry_cutoff = (today_date - timedelta(days=LOOKBACK_DAYS)).isoformat()
+    # 5.5 Shendu 主题匹配：高基本面支撑的催化延长过期时间
+    shendu_themes = set()
+    try:
+        import json
+        shendu_dir = Path(__file__).resolve().parent / "reports" / "serenity" / "shendu"
+        if shendu_dir.exists():
+            two_months_ago = (date.today() - timedelta(days=60)).isoformat()
+            for fp in shendu_dir.iterdir():
+                if not fp.name.startswith("shendu_2026") or fp.name.startswith("shendu__"):
+                    continue
+                try:
+                    data = json.loads(fp.read_text(encoding="utf-8"))
+                    if data.get("date", "") >= two_months_ago:
+                        for t in data.get("themes", []):
+                            shendu_themes.add(t)
+                        for c in data.get("chains_involved", []):
+                            shendu_themes.add(c)
+                except Exception:
+                    pass
+        # shendu 背书 → 过期时间从14天延长至21天
+        snd_backed_days = 21 if shendu_themes else LOOKBACK_DAYS
+    except Exception:
+        snd_backed_days = LOOKBACK_DAYS
+
+    # 6. 标记过期
+    expiry_cutoff = (today_date - timedelta(days=snd_backed_days)).isoformat()
     n_expired = mark_catalyst_expired(expiry_cutoff)
     if n_expired:
-        print(f"  Expired: {n_expired} catalysts older than {LOOKBACK_DAYS}d")
+        print(f"  Expired: {n_expired} catalysts older than {snd_backed_days}d")
 
     # 7. 推送通知（仅在有确认时）
     if confirmed_catalysts:

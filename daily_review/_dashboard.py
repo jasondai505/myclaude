@@ -1320,7 +1320,7 @@ def _aggregate_signals(dr: dict) -> dict:
                             "rpt_count": 0, "ns_count": 0,
                             "ind_count": 0, "social_count": 0,
                             "cat_score": 0, "cat_count": 0,
-                            "snd_count": 0,
+                            "snd_count": 0, "snd_weight": 0,
                             "sources": 0, "total": 0}
 
     # ====== 1. 公告 deep_read（>=20 分即纳入，<20 也给基础分） ======
@@ -1447,7 +1447,16 @@ def _aggregate_signals(dr: dict) -> dict:
                         if len(code) != 6 or not code.isdigit():
                             continue
                         _ensure(code)
+                        # 高置信度 VP ≥2 → 15分/条，普通 12分/条
+                        high_vps = sum(
+                            1 for vp in data.get("variant_perceptions", [])
+                            if vp.get("confidence") == "高"
+                        )
+                        snd_weight = 15 if high_vps >= 2 else 12
                         scores[code]["snd_count"] += 1
+                        scores[code]["snd_weight"] = (
+                            scores[code].get("snd_weight", 0) + snd_weight
+                        )
                         scores[code]["sources"] += 1
             except Exception:
                 pass
@@ -1471,7 +1480,7 @@ def _aggregate_signals(dr: dict) -> dict:
                 + s["ind_count"] * 10          # 行业深研提及: 10分/次
                 + s["social_count"] * 10       # 社交源提及: 10分/次（公众号/微博）
                 + s["cat_score"] * 0.8         # 催化行动分
-                + s["snd_count"] * 12)         # 深度投研洞见: 12分/条预期差
+                + s.get("snd_weight", s["snd_count"] * 12))  # 深度投研洞见: 12-15分/条
         cross = 0
         if s["sources"] >= 7: cross = 75
         elif s["sources"] >= 6: cross = 65

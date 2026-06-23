@@ -317,6 +317,25 @@ def _enrich_stocks(codes: list[str]) -> list[dict]:
         if row:
             catalyst_map[c] = row["cnt"]
 
+    # 8. 产业链位置（chain_map DB，优先 chain 类型）
+    chain_map_pos = {}
+    try:
+        from theme_stock.store import ThemeStockStore
+        store = ThemeStockStore()
+        store.init_db()
+        for row in store._get_conn().execute(
+            """SELECT code, industry, tier, segment FROM chain_map
+               WHERE map_type='chain' AND market='A'"""
+        ).fetchall():
+            c = row["code"]
+            if c not in chain_map_pos:
+                chain_map_pos[c] = []
+            chain_map_pos[c].append(
+                f"{row['industry']}>{row['tier']}>{row['segment']}"
+            )
+    except Exception:
+        pass
+
     conn_r.close()
 
     # 组装
@@ -347,6 +366,8 @@ def _enrich_stocks(codes: list[str]) -> list[dict]:
             "deep_read_max": deep_map.get(code, 0),
             "research_count": research_map.get(code, 0),
             "catalyst_count": catalyst_map.get(code, 0),
+            # 产业链位置
+            "chain_position": "; ".join(chain_map_pos.get(code, [])[:3]),
         }
         stocks.append(s)
 
