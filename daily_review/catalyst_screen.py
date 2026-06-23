@@ -720,45 +720,28 @@ def _save_json(catalysts: list[dict], stock_maps: dict, today: str, audit: dict 
 # ============================================================
 
 def _load_chain_maps_for_tagging() -> dict:
-    """Load chain maps from XLSX, same logic as _dashboard._load_chain_maps."""
+    """从 chain_map DB 加载产业链映射（替代旧 XLSX 解析）。
+
+    Returns: {plate: {l1: {l2: {"names": set(), "reasons": []}}}}
+    """
     try:
-        import openpyxl
+        from theme_stock.store import ThemeStockStore
+        store = ThemeStockStore()
+        store.init_db()
     except ImportError:
         return {}
     chains: dict[str, dict] = {}
-    project_root = Path(__file__).parent.parent
-    for pattern in ["*产业链*涨跌幅.xlsx", "*产业链*.xlsx"]:
-        for fp in sorted(project_root.glob(pattern)):
-            try:
-                wb = openpyxl.load_workbook(fp, data_only=True)
-            except Exception:
-                continue
-            for sname in wb.sheetnames:
-                ws = wb[sname]
-                rows = list(ws.iter_rows(min_row=2, values_only=True))
-                cur_plate = cur_l1 = cur_l2 = ""
-                for row in rows:
-                    if not row or len(row) < 11:
-                        continue
-                    plate = str(row[0] or "").strip() or cur_plate
-                    l1 = str(row[1] or "").strip() or cur_l1
-                    l2 = str(row[2] or "").strip() or cur_l2 or "-"
-                    cur_plate, cur_l1, cur_l2 = plate, l1, l2
-                    code_raw = str(row[3] or "").strip()
-                    name = str(row[4] or "").strip()
-                    reason = str(row[10] or "").strip()
-                    code = code_raw.replace(".SZ", "").replace(".SH", "").replace(".BJ", "")
-                    if not code.isdigit() or len(code) != 6:
-                        continue
-                    if plate not in chains:
-                        chains[plate] = {}
-                    if l1 not in chains[plate]:
-                        chains[plate][l1] = {}
-                    if l2 not in chains[plate][l1]:
-                        chains[plate][l1][l2] = {"names": set(), "reasons": []}
-                    chains[plate][l1][l2]["names"].add(name)
-                    if reason:
-                        chains[plate][l1][l2]["reasons"].append(reason[:100])
+    for row in store._get_conn().execute(
+        """SELECT DISTINCT industry, tier, segment, name
+           FROM chain_map WHERE map_type='chain' AND market='A'
+           ORDER BY industry, tier, segment"""
+    ).fetchall():
+        plate = row["industry"]
+        l1 = row["tier"] or ""
+        l2 = row["segment"] or "" or "-"
+        name = row["name"] or ""
+        chains.setdefault(plate, {}).setdefault(l1, {}).setdefault(l2, {"names": set(), "reasons": []})
+        chains[plate][l1][l2]["names"].add(name)
     return chains
 
 

@@ -372,6 +372,54 @@ def batch_update_all(chains: list[str] | None = None):
             full_count += 1
 
 
+def ingest_shendu_serenity_inject(days: int = 60) -> list[str]:
+    """消费 shendu JSON 中的 serenity_inject 字段。
+
+    扫描 shendu JSON，提取 chains_to_update 和 expectation_gap_signals，
+    触发对应产业链的 Serenity 更新。
+
+    Returns: 被触发更新的产业链列表
+    """
+    import json, re
+    from datetime import date, timedelta
+
+    shendu_dir = REPORT_DIR / "shendu"
+    if not shendu_dir.exists():
+        return []
+
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    triggered = []
+
+    for fp in sorted(shendu_dir.iterdir()):
+        if not fp.name.startswith("shendu_2026") or fp.name.startswith("shendu__"):
+            continue
+        try:
+            data = json.loads(fp.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if data.get("date", "") < cutoff:
+            continue
+
+        si = data.get("serenity_inject", {})
+        chains_to_update = si.get("chains_to_update", [])
+        gap_signals = si.get("expectation_gap_signals", [])
+
+        for chain in chains_to_update:
+            if chain not in triggered:
+                triggered.append(chain)
+                print(f"  [shendu→Serenity] {chain} 触发更新 "
+                      f"({len(gap_signals)} 预期差信号)")
+        # 将预期差信号追加到 analysis_log
+        if gap_signals:
+            for gs in gap_signals:
+                chain_seg = gs.get("chain_segment", "")
+                gap_type = gs.get("gap_type", "")
+                detail = gs.get("detail", "")[:200]
+                print(f"    gap: [{gap_type}] {chain_seg}: {detail[:80]}")
+
+    return list(set(triggered))
+
+
 def update_stock_scores_only():
     with _conn() as conn:
         rows = conn.execute(

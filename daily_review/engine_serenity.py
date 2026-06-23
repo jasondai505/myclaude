@@ -329,17 +329,36 @@ def analyze_full_chain(chain_name: str) -> str:
 
 
 def _get_chain_codes(chain_name: str) -> list[str]:
+    codes = []
+    seen = set()
+
+    # 1) chain_map DB 优先（236 产业链，覆盖最广）
+    try:
+        from theme_stock.store import ThemeStockStore
+        store = ThemeStockStore()
+        store.init_db()
+        for row in store._get_conn().execute(
+            "SELECT DISTINCT code FROM chain_map WHERE industry=? AND market='A'",
+            (chain_name,)
+        ).fetchall():
+            code = row["code"].strip()
+            if code and code.isdigit() and len(code) == 6 and code not in seen:
+                codes.append(code)
+                seen.add(code)
+    except Exception:
+        pass
+
+    # 2) BOM 分析器兜底
     try:
         from bom_analyzer import chain_db
         chain_db.init_db()
         result = chain_db.query_industry(chain_name)
-        codes = []
-        seen = set()
         for leader in result.get("leaders", []):
             code = leader.get("stock_code", "")
             if code and code not in seen:
                 codes.append(code)
                 seen.add(code)
-        return codes
     except Exception:
-        return []
+        pass
+
+    return codes

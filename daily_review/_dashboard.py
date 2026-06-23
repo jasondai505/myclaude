@@ -1893,120 +1893,31 @@ def _discover_chain_xlsx() -> list[Path]:
 
 
 def _load_chain_maps() -> dict:
-    """Load chain maps from XLSX files into {板块: {层级1: {层级2: [(code, name, pct, mcap, mentions, reason), ...]}}}"""
+    """从 chain_map DB 加载产业链映射（替代旧 XLSX 解析）。
+
+    Returns: {板块: {层级1: {层级2: [(code, name, '', '', '', ''), ...]}}}
+    """
     try:
-        import openpyxl
+        from theme_stock.store import ThemeStockStore
+        store = ThemeStockStore()
+        store.init_db()
     except ImportError:
         return {}
-
-    chains: dict[str, dict] = {}
-    name_cache = _load_name_cache()
-
-    for fp in _discover_chain_xlsx():
-        try:
-            wb = openpyxl.load_workbook(fp, data_only=True)
-        except Exception:
-            continue
-        for sname in wb.sheetnames:
-            ws = wb[sname]
-            rows = list(ws.iter_rows(min_row=2, values_only=True))
-            # forward-fill merged cells
-            cur_plate = cur_l1 = cur_l2 = ""
-            for row in rows:
-                if not row or len(row) < 11:
-                    continue
-                # Forward-fill plate/l1/l2 (XLSX has merged cells)
-                plate = str(row[0] or "").strip() or cur_plate
-                l1 = str(row[1] or "").strip() or cur_l1
-                l2 = str(row[2] or "").strip() or cur_l2 or "-"
-                cur_plate, cur_l1, cur_l2 = plate, l1, l2
-
-                code_raw = str(row[3] or "").strip()
-                name = str(row[4] or "").strip()
-                # Parse percentage: "-1.76859%" or "-4.20%" or "2.22%"
-                pct_str = str(row[6] or "0").replace("%", "").strip()
-                try:
-                    pct = float(pct_str)
-                except (ValueError, TypeError):
-                    pct = 0.0
-                try:
-                    mcap = float(row[7] or 0)
-                except (ValueError, TypeError):
-                    mcap = 0.0
-                try:
-                    mentions = int(row[8] or 0)
-                except (ValueError, TypeError):
-                    mentions = 0
-                reason = str(row[10] or "").strip()
-
-                # Normalize code: 300398.SZ -> 300398
-                code = code_raw.replace(".SZ", "").replace(".SH", "").replace(".BJ", "")
-                if not code.isdigit() or len(code) != 6:
-                    continue
-                if not name:
-                    name = name_cache.get(code, "")
-
-                if plate not in chains:
-                    chains[plate] = {}
-                if l1 not in chains[plate]:
-                    chains[plate][l1] = {}
-                if l2 not in chains[plate][l1]:
-                    chains[plate][l1][l2] = []
-
-                chains[plate][l1][l2].append({
-                    "code": code, "name": name, "pct": pct,
-                    "mcap": mcap, "mentions": mentions, "reason": reason,
-                })
-
-    return chains
-
-
-def _compute_trend_signal(codes: list[str], concept_heat: dict[str, float],
-                          concept_stocks: dict[str, list[str]]) -> str:
-    """链环节标的与今日热门概念的交集 → 走势信号。"""
-    if not concept_heat or not codes:
-        return "—"
-    best_concept, best_overlap = None, 0
-    for concept, ratio in concept_heat.items():
-        c_stocks = set(concept_stocks.get(concept, []))
-        overlap = sum(1 for c in codes if c in c_stocks)
-        if overlap > best_overlap:
-            best_overlap, best_concept = overlap, concept
-    if best_overlap >= 2 and best_concept:
-        return f"🔥{best_concept}({concept_heat[best_concept]*100:.0f}%)"
-    return "—"
-
-
-def _compute_expectation_gap(mention_density: float, avg_pct: float) -> str:
-    """逻辑提及密度 vs 价格反应 → 预期差。
-    提及多但涨得少=逻辑未被充分定价；提及多且涨得多=逻辑已消化。"""
-    if mention_density < 1:
-        return "—"
-    gap_ratio = mention_density / max(abs(avg_pct), 0.5)
-    if gap_ratio > 15:
-        return "🔴高"
-    elif gap_ratio > 5:
-        return "🟡中"
-    return "🟢低"
-
-
-def _compute_verdict(mention_density: float, avg_pct: float, trend_signal: str) -> str:
-    """双轨交叉综合判断：
-    🔥共振=逻辑密集+价格上涨+走势验证（三重确认）
-    ⏳预期差=逻辑密集+价格未动（未被充分定价，机会窗口）
-    👀走势先行=逻辑稀疏+价格上涨+走势先行（需深挖逻辑支撑）
-    """
-    has_logic = mention_density >= 3
-    has_price = avg_pct > 2
-    has_trend = trend_signal != "—"
-    if has_logic and has_price and has_trend:
-        return "🔥共振"
-    if has_logic and not has_price:
-        return "⏳预期差"
-    if not has_logic and has_price and has_trend:
-        return "👀走势先行"
-    return "—"
-
+    result: dict = {}
+    for row in store._get_conn().execute(
+        """SELECT DISTINCT industry, tier, segment, code, name
+           FROM chain_map WHERE map_type='chain' AND market='A'
+           ORDER BY industry, tier, segment"""
+    ).fetchall():
+        plate = row["industry"]
+        l1 = row["tier"] or ""
+        l2 = row["segment"] or ""
+        code = row["code"]
+        name = row["name"] or ""
+        result.setdefault(plate, {}).setdefault(l1, {}).setdefault(l2, []).append(
+            (code, name, "", "", "", "")
+        )
+    return result
 
 def _chain_heat() -> list[dict]:
     """Calculate heat per chain segment: 板块 → 层级1 → 层级2。
