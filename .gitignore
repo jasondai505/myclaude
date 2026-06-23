@@ -37,3 +37,26 @@ backup-*.zip
 daily_review/_remind_pid.txt
 _em_cache
 .obsidian
+
+# SQLite WAL/SHM（运行时文件，不应进版本控制）
+*.db-shm
+*.db-wal
+
+# 外部参考素材（不参与构建）
+serenity/
+深度投研洞见/
+stock-skill-main/
+
+# 临时文件（仅项目根）
+/_temp*.txt
+/_all_sources.txt
+/*.xlsx
+/*.docx
+/*.pdf
+/*.png
+
+# 日志目录
+dashboard/logs/
+
+# 生成数据缓存（每日刷新，不提交）
+daily_review/data/commonality_cache/
