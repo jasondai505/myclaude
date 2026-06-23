@@ -100,6 +100,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
             {"id": "weibo", "name": "唐史微博增量抓取", "cmd": "python morning_intel/weibo_watch.py"},
             {"id": "pre_market", "name": "盘前增量分析+推送", "cmd": "python morning_intel/pre_market_refresh.py"},
             {"id": "advice", "name": "生成盘前建议 (09:00 守门员)", "cmd": "python daily_review/_run_advice.py --goalkeeper"},
+            {"id": "advice_upload", "name": "上传 advice 图片", "cmd": "python daily_review/upload_advice.py"},
             {"id": "audit", "name": "输出自检(pre_game)", "cmd": "python daily_review/output_audit.py --fix --pipeline pre_game"},
         ],
     },
