@@ -574,6 +574,23 @@ def main():
         return
     rows = new_rows
 
+    # 独角兽智库/情报 去重: 同标题只分析一次
+    seen_titles = set()
+    deduped = []
+    skipped_dup = 0
+    for r in rows:
+        t = r.get("title", "").strip()[:40]
+        feed = r.get("feed_source", "").strip()
+        if feed in ("独角兽智库", "独角兽情报"):
+            if t in seen_titles:
+                skipped_dup += 1
+                continue
+            seen_titles.add(t)
+        deduped.append(r)
+    if skipped_dup:
+        print(f"  独角兽去重: 跳过 {skipped_dup} 篇重复标题")
+    rows = deduped
+
     key = _load_api_key()
     if not key:
         print("  API key 不可用")
