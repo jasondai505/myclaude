@@ -484,7 +484,11 @@ def extract_codes_from_text(text: str) -> set[str]:
     - 写代码的：「688167」「300757」→ 正则直接命中
     - 只写名称的：「炬光科技」「罗博特科」→ 全名反向映射命中
     """
-    codes = set(re.findall(r"\b(\d{6})\b", text))
+    codes = set()
+    valid_set = set(_load_name_map().keys())
+    for m in re.findall(r"\b(\d{6})\b", text):
+        if m in valid_set:
+            codes.add(m)
     name_map = _load_name_to_code_map()
     if name_map:
         for name, code in name_map.items():
