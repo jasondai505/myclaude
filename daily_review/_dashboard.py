@@ -1540,6 +1540,59 @@ def _shendu_synthesis_digest() -> str:
     return "\n".join(lines)
 
 
+def _methodology_twintower() -> str:
+    """方法论双塔：深度投研洞见(Bruce 5招式) + Serenity(三层卡脖子分析)。"""
+    lines = []
+
+    # 左塔 — 深度投研洞见
+    shendu_path = REPORT_DIR / "serenity" / "shendu_methodology_report.md"
+    if shendu_path.exists():
+        try:
+            text = shendu_path.read_text(encoding="utf-8")
+            m = re.search(r'\*\*招式一[：:].+?\*\*(.+?)(?:\n|$)', text)
+            tricks = re.findall(r'\*\*招式([一二三四五])[：:]\s*(.+?)\*\*\s*(.+?)(?=\n\n|\*\*招式|\Z)', text, re.DOTALL)
+            if tricks:
+                lines.append("### 🔬 深度投研洞见（Bruce · 市场思维框架）")
+                lines.append(f"> {len(tricks)} 招式，120 篇原创研究提炼\n")
+                for num, name, body in tricks:
+                    body_clean = re.sub(r'<[^>]+>', '', body).strip()[:120]
+                    lines.append(f"- **{num} {name}**: {body_clean}")
+                lines.append("")
+        except Exception:
+            pass
+
+    # 右塔 — Serenity
+    serenity_path = REPORT_DIR / "serenity" / "serenity_methodology.md"
+    if serenity_path.exists():
+        try:
+            text = serenity_path.read_text(encoding="utf-8")
+            # Extract 3-layer framework
+            m = re.search(r'## 二、三层分析框架.*?```(.*?)```', text, re.DOTALL)
+            if m:
+                lines.append("### 🔗 Serenity（产业链卡脖子分析框架）")
+                lines.append(f"> 35 个产业链覆盖，3 层分析 + 3 要素 + 3 生命周期状态\n")
+                framework = m.group(1).strip()
+                for line in framework.split("\n")[:6]:
+                    lines.append(f"  {line}")
+                lines.append("")
+
+            # Extract 3 elements
+            m = re.search(r'## 三、卡脖子三要素.*?\n\n(.*?)(?=\n##|\Z)', text, re.DOTALL)
+            if m:
+                elements = re.findall(r'\|\s*\*\*(.+?)\*\*\s*\|', m.group(1))
+                if elements:
+                    lines.append(f"三要素: {' | '.join(elements)}")
+                    lines.append("")
+        except Exception:
+            pass
+
+    if not lines:
+        return ""
+
+    lines.insert(0, "> Shendu 回答「怎么思考市场」，Serenity 回答「怎么分析产业链」。互补双塔。\n")
+    return "\n".join(lines)
+
+
 def _chain_signal_heat(signals: dict) -> list[dict]:
     """按产业链聚合信号总分，输出产业链热力排名（仅 map_type='chain'）。
 
@@ -2159,6 +2212,14 @@ def generate(today_str: str = "") -> str:
         w("### 📖 深度投研洞见 · 综合研判")
         w()
         w(synth)
+        w()
+
+    # 方法论双塔
+    methods = _methodology_twintower()
+    if methods:
+        w("### 🏗️ 方法论双塔")
+        w()
+        w(methods)
         w()
 
     # 产业链信号热力 — 按 chain_map 聚合信号
