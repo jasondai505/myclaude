@@ -140,7 +140,8 @@
       "PowerShell(Get-Process *)",
       "Bash(tee /tmp/delta_output.txt)",
       "Bash(cd *)",
-      "PowerShell(Out-File *)"
+      "PowerShell(Out-File *)",
+      "PowerShell(& \"C:\\\\miniconda3\\\\python.exe\" -c \"import sqlite3; import json; valid=set\\(item['code'] for item in json.load\\(open\\(r'C:\\\\Users\\\\daixin\\\\myclaude\\\\daily_review\\\\data\\\\stock_codes.json','r',encoding='utf-8'\\)\\)['codes']\\); print\\(f'Valid codes: {len\\(valid\\)}'\\)\")"
     ]
   },
   "PreToolUse": [

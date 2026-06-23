@@ -74,7 +74,7 @@ def _check_delta_today() -> tuple[bool, str]:
 
 EXPECTED_OUTPUTS = [
     # (显示名, 文件路径模板, 目标日期策略, 管线步骤ID, 补跑命令, 优先级, 截止时间)
-    ("复盘报告",   "reports/review/review_{date}.md",              "last_trade", "review",         "python daily_review/run.py",                        "CRITICAL", "17:30"),
+    ("复盘报告",   "reports/review/review_{date}.md",              "last_trade", "review",         "python daily_review/run.py",                        "CRITICAL", "23:59"),
     ("日报简报",   "morning_intel/reports/daily_brief_{date}.md",  "today",      "brief",          "python morning_intel/daily_brief.py",               "HIGH",     "18:00"),
     ("催化筛查",   "reports/catalyst/catalyst_screen_{date}.md",   "today",      "catalyst_screen","python daily_review/catalyst_screen.py",             "CRITICAL", "23:00"),
     ("催化跟踪",   "reports/catalyst/catalyst_track_{date}.md",    "today",      "catalyst_track", "python daily_review/daily_collect.py --tier post_market", "HIGH", "17:45"),

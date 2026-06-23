@@ -86,8 +86,29 @@ def init_db():
 
 
 def save_scores(scores: list[dict]):
+    import json as _json, re as _re
+    from pathlib import Path as _Path
+    try:
+        cache = _json.loads((_Path(__file__).parent / "data" / "stock_codes.json").read_text(encoding="utf-8"))
+        valid_set = {c["code"] for c in cache.get("codes", [])}
+    except Exception:
+        valid_set = set()
+    clean = []
+    rejected = []
+    for s in scores:
+        code = str(s.get("code", "")).strip()
+        if not _re.match(r"^\d{6}$", code):
+            rejected.append(f"{code}(非6位)")
+        elif valid_set and code not in valid_set:
+            rejected.append(f"{code}(不存在)")
+        else:
+            clean.append(s)
+    if rejected:
+        print(f"  feval: ⚠️ 拒绝 {len(rejected)} 个无效代码: {', '.join(rejected[:10])}")
+    if not clean:
+        return
     with _conn() as conn:
-        for s in scores:
+        for s in clean:
             conn.execute(
                 """INSERT OR REPLACE INTO feval_scores
                    (code, name, date, f_score, e_score, v_score, fev_total,

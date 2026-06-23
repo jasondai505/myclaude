@@ -1857,7 +1857,7 @@ def _hot_themes() -> list[dict]:
             nm = names.get(s, "")
             named.append(f"{nm}({s})" if nm else s)
         t["stocks"] = " ".join(named)
-        t["heat"] = min(t["count"] // 5 + 1, 3)
+        t["heat"] = min(t["count"] // 5 + 1, 5)
         t["source_list"] = "+".join(sorted(t["sources"]))
         t["chain_tags"] = " / ".join(tag_map.get(t["theme"], [])[:3])
         result.append(t)
@@ -1904,7 +1904,7 @@ def _discover_chain_xlsx() -> list[Path]:
 def _load_chain_maps() -> dict:
     """从 chain_map DB 加载产业链映射（替代旧 XLSX 解析）。
 
-    Returns: {板块: {层级1: {层级2: [(code, name, '', '', '', ''), ...]}}}
+    Returns: {板块: {层级1: {层级2: [dict, ...]}}}
     """
     try:
         from theme_stock.store import ThemeStockStore
@@ -1923,10 +1923,50 @@ def _load_chain_maps() -> dict:
         l2 = row["segment"] or ""
         code = row["code"]
         name = row["name"] or ""
-        result.setdefault(plate, {}).setdefault(l1, {}).setdefault(l2, []).append(
-            (code, name, "", "", "", "")
-        )
+        result.setdefault(plate, {}).setdefault(l1, {}).setdefault(l2, []).append({
+            "code": code, "name": name, "pct": 0, "mentions": 0, "reason": "",
+        })
     return result
+
+def _compute_trend_signal(codes: list[str], concept_heat: dict, concept_stocks: dict) -> str:
+    """计算链段在盘面概念中的走势信号。"""
+    if not concept_heat or not codes:
+        return "—"
+    hot_concepts = []
+    for concept, heat_pct in concept_heat.items():
+        if not isinstance(heat_pct, (int, float)) or heat_pct < 5:
+            continue
+        stocks = concept_stocks.get(concept, set())
+        overlap = len(set(codes) & stocks)
+        if overlap >= 2:
+            hot_concepts.append((concept, heat_pct))
+    if not hot_concepts:
+        return "—"
+    best = max(hot_concepts, key=lambda x: x[1])
+    return f"🔥{best[0]}({best[1]}%)"
+
+
+def _compute_expectation_gap(mention_density: float, avg_pct: float) -> str:
+    """预期差：高提及密度但价格未动 = 高预期差。"""
+    if mention_density > 200 and abs(avg_pct) < 3:
+        return "🔴高"
+    elif mention_density > 100 and abs(avg_pct) < 5:
+        return "🟡中"
+    elif mention_density < 30 and abs(avg_pct) > 5:
+        return "🟢低"
+    return "🟡中"
+
+
+def _compute_verdict(mention_density: float, avg_pct: float, trend: str) -> str:
+    """综合判断：共振/预期差/走势先行。"""
+    if trend != "—" and abs(avg_pct) > 3:
+        return "🔥共振"
+    elif mention_density > 100 and abs(avg_pct) < 3:
+        return "⏳预期差"
+    elif abs(avg_pct) > 5 and mention_density < 50:
+        return "👀走势先行"
+    return "—"
+
 
 def _chain_heat() -> list[dict]:
     """Calculate heat per chain segment: 板块 → 层级1 → 层级2。
@@ -2163,7 +2203,7 @@ def generate(today_str: str = "") -> str:
         w("| 热度 | 主题 | 信号数 | 来源 | 链环节 | 代表标的 |")
         w("|:----:|------|:-----:|------|------|---------|")
         for h in hot[:15]:
-            w(f"| {'⭐'*min(h['heat'],3)} | {h['theme']} | {h['count']} | {h['source_list']} | {h.get('chain_tags', '')} | {h['stocks']} |")
+            w(f"| {'⭐'*min(h['heat'],5)} | {h['theme']} | {h['count']} | {h['source_list']} | {h.get('chain_tags', '')} | {h['stocks']} |")
         w()
 
     # === 产业链下钻（逻辑×走势双轨验证） ===
@@ -2171,20 +2211,31 @@ def generate(today_str: str = "") -> str:
     if chain_rows:
         w("### 🔗 逻辑×走势双轨验证")
         w()
-        plates_seen = []
-        for ch in chain_rows:
-            if ch["plate"] not in plates_seen:
-                plates_seen.append(ch["plate"])
-                w(f"**{ch['plate']}**  ")
+        w("> 按板块分组，展示链段级的逻辑提及密度 × 走势信号交叉验证。仅显示有共振或预期差的板块。")
         w()
-        w("| 板块 | 层级1 | 层级2 | 代表标的 | 涨跌 | 提及 | 走势信号 | 预期差 | 判断 |")
-        w("|------|------|------|------|:---:|:---:|:-------:|:-----:|:----:|")
-        for ch in chain_rows[:25]:
-            l2_display = ch['l2'] if ch['l2'] and ch['l2'] != '-' else '—'
-            best_label = f"{ch['top_name']}({ch['top_code']})" if ch.get('top_name') else f"{ch['count']}只"
-            pct_str = f"+{ch['avg_pct']}%" if ch['avg_pct'] > 0 else f"{ch['avg_pct']}%"
-            mention_str = f"{ch['total_mentions']}次"
-            w(f"| {ch['plate']} | {ch['l1']} | {l2_display} | {best_label} | {pct_str} | {mention_str} | {ch['trend_signal']} | {ch['expectation_gap']} | **{ch['verdict']}** |")
+        # Group by plate, sort by best verdict per plate
+        from collections import defaultdict
+        plate_groups = defaultdict(list)
+        for ch in chain_rows:
+            plate_groups[ch["plate"]].append(ch)
+        verdict_order = {"🔥共振": 0, "⏳预期差": 1, "👀走势先行": 2, "—": 3}
+        sorted_plates = sorted(plate_groups.items(), key=lambda kv: min(
+            verdict_order.get(ch["verdict"], 4) for ch in kv[1]))
+        w("| 板块 | 链段 | 代表标的 | 涨跌 | 提及 | 走势信号 | 预期差 | 判断 |")
+        w("|------|------|------|:---:|:---:|:-------:|:-----:|:----:|")
+        shown = 0
+        for plate, rows_in_plate in sorted_plates:
+            if all(ch["verdict"] not in ("🔥共振", "⏳预期差") for ch in rows_in_plate):
+                continue
+            rows_in_plate.sort(key=lambda ch: verdict_order.get(ch["verdict"], 4))
+            for ch in rows_in_plate[:5]:
+                seg = f"{ch['l1']}>{ch['l2']}" if ch['l2'] and ch['l2'] != '-' else ch['l1']
+                best_label = f"{ch['top_name']}({ch['top_code']})" if ch.get('top_name') else f"{ch['count']}只"
+                pct_str = f"+{ch['avg_pct']}%" if ch['avg_pct'] > 0 else f"{ch['avg_pct']}%"
+                w(f"| {plate} | {seg} | {best_label} | {pct_str} | {ch['total_mentions']}次 | {ch['trend_signal']} | {ch['expectation_gap']} | **{ch['verdict']}** |")
+                shown += 1
+        if shown == 0:
+            w("| — | _当前无显著交叉信号_ | | | | | | |")
         w()
 
     # === 主题生命周期 ===

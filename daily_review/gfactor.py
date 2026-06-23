@@ -79,8 +79,32 @@ def init_db():
     print("gfactor 表初始化完成")
 
 
+def _load_valid_code_set() -> set[str]:
+    try:
+        import json as _json
+        cache = json.loads((BASE / "data" / "stock_codes.json").read_text(encoding="utf-8"))
+        return {c["code"] for c in cache.get("codes", [])}
+    except Exception:
+        return set()
+
+
 def save_scores(scores: list[dict]):
     if not scores: return
+    valid = _load_valid_code_set()
+    clean = []
+    rejected = []
+    for s in scores:
+        code = str(s.get("code", "")).strip()
+        if not re.match(r"^\d{6}$", code):
+            rejected.append(f"{code}(非6位)")
+        elif code not in valid:
+            rejected.append(f"{code}(不存在)")
+        else:
+            clean.append(s)
+    if rejected:
+        print(f"  gfactor: ⚠️ 拒绝 {len(rejected)} 个无效代码: {', '.join(rejected[:10])}")
+    if not clean:
+        return
     with _conn() as conn:
         conn.executemany(
             "INSERT OR REPLACE INTO gfactor_scores "
@@ -90,9 +114,9 @@ def save_scores(scores: list[dict]):
             [(s["code"], s["name"], s["date"],
               s["g1_score"], s["g1_note"], s["g2_score"], s["g2_note"],
               s["g3_score"], s["g3_note"], s["g4_score"], s["g4_note"],
-              s.get("source", "gfactor")) for s in scores]
+              s.get("source", "gfactor")) for s in clean]
         )
-    print(f"  gfactor: 已保存 {len(scores)} 个评分")
+    print(f"  gfactor: 已保存 {len(clean)} 个评分")
 
 
 # ============================================================
@@ -443,8 +467,12 @@ def score_batch(stocks: list[dict]) -> list[dict]:
 
 
 def score_codes(codes: list[str]) -> list[dict]:
-    print(f"  gfactor: {len(codes)} 只，开始数据增强...")
-    stocks = _enrich_stocks(codes)
+    valid_set = _load_valid_code_set()
+    clean_codes = [c for c in codes if re.match(r"^\d{6}$", c) and c in valid_set]
+    if len(clean_codes) < len(codes):
+        print(f"  gfactor: 过滤 {len(codes) - len(clean_codes)} 个无效代码")
+    print(f"  gfactor: {len(clean_codes)} 只，开始数据增强...")
+    stocks = _enrich_stocks(clean_codes)
     return score_batch(stocks)
 
 

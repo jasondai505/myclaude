@@ -372,6 +372,24 @@ def main():
     # 生成每日仪表盘 + 同步框架文档到 reports vault (Obsidian 首页)
     try:
         from _dashboard import generate, DASHBOARD_PATH
+
+        # 先跑催化筛查、四源交叉、复盘摘要（入库后 Dashboard 才能读到）
+        import subprocess as _sp
+        _post_steps = [
+            ("催化筛查", "catalyst_screen.py"),
+            ("四源交叉", "primary_synthesis.py"),
+            ("复盘摘要", "review_summary.py"),
+        ]
+        for _label, _script in _post_steps:
+            try:
+                _sp.run(
+                    ["python", str(Path(__file__).parent / _script)],
+                    capture_output=True, text=True, timeout=300,
+                    encoding="utf-8", errors="replace",
+                )
+            except Exception as _e:
+                print(f"  [WARN] {_label} 失败: {_e}")
+
         generate()
         import shutil
         shutil.copy(str(DASHBOARD_PATH), str(Path(__file__).parent.parent / "Dashboard.md"))

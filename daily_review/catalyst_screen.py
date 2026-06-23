@@ -709,6 +709,30 @@ def _generate_report(catalysts: list[dict], stock_maps: dict, today: str) -> Pat
     out.write_text("\n".join(L), encoding="utf-8")
     return out
 
+def _load_valid_code_set() -> set[str]:
+    try:
+        cache = json.loads((Path(__file__).parent / "data" / "stock_codes.json").read_text(encoding="utf-8"))
+        return {c["code"] for c in cache.get("codes", [])}
+    except Exception:
+        return set()
+
+
+def _validate_mentioned_codes(catalysts: list[dict]) -> tuple[int, int]:
+    """校验并过滤 mentioned_codes 中的无效代码。返回 (过滤前总数, 过滤掉数)。"""
+    valid = _load_valid_code_set()
+    if not valid:
+        return (0, 0)
+    before = 0
+    removed = 0
+    for cat in catalysts:
+        codes = cat.get("mentioned_codes", [])
+        before += len(codes) if isinstance(codes, list) else 0
+        if isinstance(codes, list):
+            cat["mentioned_codes"] = [c for c in codes if re.match(r"^\d{6}$", str(c)) and str(c) in valid]
+            removed += len(codes) - len(cat["mentioned_codes"])
+    return (before, removed)
+
+
 def _save_json(catalysts: list[dict], stock_maps: dict, today: str, audit: dict = None):
     out = CATALYST_DIR / f"catalyst_screen_{today}.json"
     data = {"date": today, "catalysts": catalysts, "stock_maps": stock_maps,
@@ -817,6 +841,10 @@ def main(today_str: str, phase: int = 12, max_per_source: int = 50):
         print("  [SKIP] 未提取到催化事件")
         return
 
+    b1, r1 = _validate_mentioned_codes(all_extractions)
+    if r1:
+        print(f"    mentioned_codes校验: {b1}个代码中过滤{r1}个无效")
+
     # --- 计算单源行动性（用于 Phase 2 参考）---
     for ex in all_extractions:
         ex["single_score"] = _compute_actionability(ex, 1)
@@ -896,6 +924,9 @@ def main(today_str: str, phase: int = 12, max_per_source: int = 50):
     try:
         from store import save_catalyst_signals, save_catalyst_stock_map, init_db
         init_db()
+        b3, r3 = _validate_mentioned_codes(catalysts)
+        if r3:
+            print(f"    入库前mentioned_codes校验: {b3}个代码中过滤{r3}个无效")
         db_signals = []
         for c in catalysts:
             merged_from = c.get("merged_from", [])
