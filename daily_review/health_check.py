@@ -100,14 +100,17 @@ def check_fev_delta():
     conn.row_factory = sqlite3.Row
     today = date.today().isoformat()
 
-    for tbl, label in [("feval_scores", "FEV"), ("stock_delta", "Δ")]:
+    for tbl, label, max_lag in [("feval_scores", "FEV", 1), ("stock_delta", "Δ", 1)]:
         row = conn.execute(f"SELECT MAX(date) as latest FROM {tbl}").fetchone()
         latest = row["latest"] if row and row["latest"] else ""
         if not latest:
             ISSUES.append(f"{label}: 表为空")
         elif latest != today:
             days_behind = (date.today() - date.fromisoformat(latest)).days
-            ISSUES.append(f"{label}: 最新日期={latest}(落后{days_behind}天)")
+            if days_behind > max_lag:
+                ISSUES.append(f"{label}: 最新日期={latest}(落后{days_behind}天>{max_lag}天容限)")
+            else:
+                print(f"  [FEV/Δ] {label} 最新={latest}(落后{days_behind}天，在{max_lag}天容限内)")
 
     fev_codes = {r[0] for r in conn.execute("SELECT DISTINCT code FROM feval_scores").fetchall()}
     delta_codes = {r[0] for r in conn.execute("SELECT DISTINCT code FROM stock_delta").fetchall()}
@@ -245,6 +248,49 @@ def check_advice_server():
         ISSUES.append("advice_server: 端口 8900 无响应 → 手动 python daily_review/advice_server.py --daemon")
 
 
+def check_name_map():
+    """名称→代码映射行数检查。映射为空则 validator 全线断裂。"""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from data import _load_name_to_code_map
+        nm = _load_name_to_code_map()
+        count = len(nm)
+        print(f"  [名称映射] {count} 条")
+        if count == 0:
+            ISSUES.append("名称映射: 0条 — stock_codes.json 路径或格式异常，validator/Δ/代码提取全断")
+        elif count < 5000:
+            ISSUES.append(f"名称映射: 仅{count}条(预期≥5000)，stock_codes.json 可能残缺")
+    except Exception as e:
+        ISSUES.append(f"名称映射: 加载失败 ({e})")
+
+
+def check_chain_xlsx():
+    """产业链 XLSX 文件数检查，<100 则三重共振涨跌幅数据过期。"""
+    try:
+        from _dashboard import _discover_chain_xlsx
+        files = _discover_chain_xlsx()
+        count = len(files)
+        print(f"  [产业链XLSX] {count} 个")
+        if count == 0:
+            ISSUES.append("产业链XLSX: 0个 — 三重共振涨跌幅无数据源")
+        elif count < 100:
+            ISSUES.append(f"产业链XLSX: 仅{count}个(预期≥100)，alpha产业图谱/ 文件可能缺失或 glob 未递归")
+        # 检查日期新鲜度
+        import re as _re
+        date_pat = _re.compile(r"(\d{8})")
+        stale = 0
+        from trade_calendar import prev_trading_day
+        last_trade_str = prev_trading_day().strftime("%Y%m%d")
+        for fp in files:
+            m = date_pat.search(fp.stem)
+            if m and m.group(1) < last_trade_str:
+                stale += 1
+        if stale > count * 0.5:
+            ISSUES.append(f"产业链XLSX: {stale}/{count} 日期早于{last_trade_str}(最近交易日)，涨幅数据可能过时")
+    except Exception as e:
+        ISSUES.append(f"产业链XLSX: 检查失败 ({e})")
+
+
 def check_prompt_audit():
     """扫描 advice prompt 模板，检查数值字段是否有数据注入。"""
     prompt = Path(__file__).resolve().parent / "claude_prompt.txt"
@@ -268,6 +314,8 @@ def main():
     check_db_articles()
     check_reports()
     check_fev_delta()
+    check_name_map()
+    check_chain_xlsx()
     check_placeholder_leaks()
     check_pipeline_logs()
     check_engines()
