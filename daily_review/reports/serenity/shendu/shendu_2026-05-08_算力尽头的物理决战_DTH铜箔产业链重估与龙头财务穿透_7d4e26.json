@@ -1,0 +1,61 @@
+{
+  "thesis": "科技巨头资本开支已脱离传统财务纪律，进入不可逆的指数级通胀，这不是投资而是生存税，驱动AI硬件底层革命与DTH铜箔产业链史诗级重估。",
+  "variant_perceptions": [
+    {
+      "id": 1,
+      "consensus": "科技巨头的资本开支是正常的投资行为，未来会回归财务纪律。",
+      "variant": "这是不可逆的指数级通胀，是支付生存税，不会停止。",
+      "confidence": "高",
+      "falsification": "如果头部科技公司突然宣布削减AI相关资本开支并回归传统投资回报率考核。"
+    },
+    {
+      "id": 2,
+      "consensus": "AI发展主要由算法和软件创新驱动，硬件只是辅助。",
+      "variant": "AI硬件底层革命（如铜箔等物理材料）是决定算力主权和进化速度的关键瓶颈。",
+      "confidence": "中",
+      "falsification": "如果算法突破大幅降低对特定硬件（如高端铜箔）的依赖，或出现颠覆性替代技术。"
+    },
+    {
+      "id": 3,
+      "consensus": "铜箔是成熟周期性行业，需求增长缓慢，估值中枢稳定。",
+      "variant": "DTH铜箔产业链将因AI算力军备竞赛迎来史诗级重估，需求爆发放大估值弹性。",
+      "confidence": "中",
+      "falsification": "如果全球AI资本开支增速大幅放缓，或铜箔产能迅速扩张导致供需失衡。"
+    },
+    {
+      "id": 4,
+      "consensus": "全球供应链能够充分满足AI算力扩张的原材料需求。",
+      "variant": "无限的资本需求正在对全球供应链进行极限抽血，物理定律将形成供给绝壁。",
+      "confidence": "低",
+      "falsification": "如果原材料扩产周期显著缩短且成本下降，或出现大规模替代方案。"
+    }
+  ],
+  "load_bearing_judgment": "科技巨头资本开支进入不可逆的指数级通胀，这是AI革命的基础和底层驱动力，如果这条判断错误，全篇逻辑崩塌。",
+  "valuation_spectrum": [],
+  "duration_spectrum": [],
+  "risk_signals": [],
+  "chains_involved": [
+    "DTH铜箔产业链",
+    "AI硬件底层"
+  ],
+  "themes": [
+    "算力主权",
+    "物理大逃杀",
+    "AI硬件底层革命",
+    "铜箔产业链重估"
+  ],
+  "serenity_inject": {
+    "chains_to_update": [],
+    "expectation_gap_signals": []
+  },
+  "advice_inject": {
+    "chokemap_signals": [],
+    "w5_risks": [],
+    "w3_gaps": []
+  },
+  "title": "算力尽头的物理决战：DTH铜箔产业链重估与龙头财务穿透",
+  "date": "2026-05-08",
+  "title_clean": "算力尽头的物理决战：DTH铜箔产业链重估与龙头财务穿透",
+  "body_length": 286,
+  "topic_id": 55522158841428814
+}

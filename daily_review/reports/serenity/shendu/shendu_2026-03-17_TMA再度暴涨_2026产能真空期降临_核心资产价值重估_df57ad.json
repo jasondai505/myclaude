@@ -1,0 +1,108 @@
+{
+  "thesis": "全球产业链供给端“刚性约束”与需求端“刚性增长”在2026年产能真空期剧烈碰撞导致TMA价格暴涨。",
+  "variant_perceptions": [
+    {
+      "id": 1,
+      "consensus": "市场认为TMA价格上涨是短期情绪炒作",
+      "variant": "本文认为这是全球供给端刚性约束与需求刚性增长在产能真空期必然结果，非情绪炒作",
+      "confidence": "高",
+      "falsification": "如果2026年内有大量新产能提前投产，则供给紧张缓解，涨价逻辑被证伪"
+    },
+    {
+      "id": 2,
+      "consensus": "市场认为全球TMA定价权仍分散在欧美和中国",
+      "variant": "本文认为美国英力士退出后，定价权已实质性转移至中国",
+      "confidence": "高",
+      "falsification": "如果美国或欧洲有其他企业重启或新建大规模产能，则定价权转移被削弱"
+    },
+    {
+      "id": 3,
+      "consensus": "市场认为TMA扩产周期短、容易增产",
+      "variant": "本文强调TMA高温液相氧化工艺复杂，安评环评壁垒极高，扩产周期长达24-30个月，供给弹性极低",
+      "confidence": "高",
+      "falsification": "如果工艺突破或政策大幅简化审批，扩产周期显著缩短，则供给刚性约束被打破"
+    },
+    {
+      "id": 4,
+      "consensus": "市场认为2026年供给充足，价格难以持续",
+      "variant": "本文认为2026年处于旧产能满负荷、新产能未释放的“青黄不接”期，微小的供给扰动即可引发剧烈反弹",
+      "confidence": "高",
+      "falsification": "如果下游需求出现超预期萎缩，或库存水平大幅高于预期，则供需矛盾缓解"
+    }
+  ],
+  "load_bearing_judgment": "2026年正处于旧产能满负荷、新产能未释放的“青黄不接”期，微小的供给扰动即可引发价格剧烈反弹",
+  "valuation_spectrum": [
+    {
+      "tier": "核心仓",
+      "codes": [],
+      "names": [],
+      "pe_range": "",
+      "logic": "直接受益于TMA涨价且产能确定的企业，业绩兑现确定性高",
+      "chain_segment": "TMA生产"
+    },
+    {
+      "tier": "弹性层",
+      "codes": [],
+      "names": [],
+      "pe_range": "",
+      "logic": "与TMA价格高度相关的中间体或下游企业，但估值已隐含部分预期",
+      "chain_segment": "TMA上下游"
+    },
+    {
+      "tier": "规避",
+      "codes": [],
+      "names": [],
+      "pe_range": "",
+      "logic": "与TMA产业关联度低但被市场错误归因的标的",
+      "chain_segment": ""
+    }
+  ],
+  "duration_spectrum": [
+    {
+      "duration": "短期",
+      "years": "2026",
+      "theme": "供给真空期涨价",
+      "note": "2026年产能青黄不接，价格弹性最大，短期催化明确"
+    },
+    {
+      "duration": "中期",
+      "years": "2027",
+      "theme": "新产能释放预期",
+      "note": "2027年起若新产能陆续投产，供给紧张缓解，价格或回落"
+    },
+    {
+      "duration": "长期",
+      "years": "2029+",
+      "theme": "供需再平衡",
+      "note": "长期看全球产能格局重塑，中国定价权巩固，但价格中枢取决于需求增速"
+    }
+  ],
+  "risk_signals": [],
+  "chains_involved": [
+    "偏苯三酸酐产业链"
+  ],
+  "themes": [
+    "供给侧革命",
+    "产能真空期",
+    "涨价周期",
+    "国产替代"
+  ],
+  "serenity_inject": {
+    "chains_to_update": [],
+    "expectation_gap_signals": []
+  },
+  "advice_inject": {
+    "chokemap_signals": [
+      "美国英力士7万吨永久退出后全球供给格局变化"
+    ],
+    "w5_risks": [],
+    "w3_gaps": [
+      "2026年产能‘青黄不接’带来的供给紧张预期差"
+    ]
+  },
+  "title": "TMA再度暴涨！2026产能真空期降临，核心资产价值重估",
+  "date": "2026-03-17",
+  "title_clean": "TMA再度暴涨！2026产能真空期降临，核心资产价值重估",
+  "body_length": 342,
+  "topic_id": 82811482541814552
+}

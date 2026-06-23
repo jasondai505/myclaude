@@ -1,0 +1,163 @@
+{
+  "thesis": "市场对Warsh就任后capitulate概率估计过高（65-75%），真实概率仅48%，A股alpha源于PBOC的独特政策put和香港稳定币条例的独立催化。",
+  "variant_perceptions": [
+    {
+      "id": 1,
+      "consensus": "市场将Warsh就任定价为可持续2-3年的硬美元鹰派，重仓capitulate trade",
+      "variant": "Warsh拥有双向不败逻辑（AI验证低利率/通胀需紧缩），实际更可能实施soft capitulate（用紧缩话术包装的managed adjustment）",
+      "confidence": "高",
+      "falsification": "如果Warsh在6个月内启动大幅加息而非激进缩表+前置降息，或AI生产率数据持续低于预期"
+    },
+    {
+      "id": 2,
+      "consensus": "5月15日30Y美债上行是市场对Warsh鹰派和财政恐慌的定价",
+      "variant": "30Y上行中真实利率贡献是通胀预期的3倍，市场实际price in的是AI生产力革命对实际增长的上调，而非财政恐慌",
+      "confidence": "高",
+      "falsification": "如果后续30Y美债CPI breakeven通胀显著走阔而上行主要由通胀溢价驱动"
+    },
+    {
+      "id": 3,
+      "consensus": "capitulate概率在65-75%之间",
+      "variant": "正确贝叶斯框架下capitulate真实概率为48%（情景A 45% soft capitulate，情景B 35% hard capitulate，情景C 20% muddle through）",
+      "confidence": "高",
+      "falsification": "如果AI兑现概率实际低于30%或财政主导加速导致债务动态发散率高于预期"
+    },
+    {
+      "id": 4,
+      "consensus": "A股在Fed紧缩周期中缺乏独立结构性机会",
+      "variant": "PBOC是过去15年唯一未做真正QE的主要央行，弹药库远超Fed，构成A股相对美股的结构性政策put；香港稳定币条例构成A股+港股独立催化",
+      "confidence": "中",
+      "falsification": "如果PBOC货币政策空间被汇率或通胀约束大幅压缩，或香港稳定币条例实施效果不及预期"
+    },
+    {
+      "id": 5,
+      "consensus": "Warsh是教条鹰派，将严格执行紧缩",
+      "variant": "Warsh拥有智识弹性，其Hoover框架'AI验证较低均衡利率'给了双向不败话术，且历史上Fed主席在压力下均会软化（Greenspan/Bernanke/Powell先例）",
+      "confidence": "中",
+      "falsification": "如果Warsh前6个月不采取任何软化措施且坚持激进QT直至触发流动性危机"
+    }
+  ],
+  "load_bearing_judgment": "Warsh的Barbell政策（激进缩表+前置降息）叠加AI生产率兑现与否，决定美国财政债务动态是否从发散变为可持续，从而影响全球资产定价；市场对capitulate概率的错误估计是全部分析的基石。",
+  "valuation_spectrum": [
+    {
+      "tier": "核心仓",
+      "codes": [],
+      "names": [],
+      "pe_range": "",
+      "logic": "覆盖AI算力国产替代（情景A最大alpha）、黄金/铜（情景B最佳hedge）、PBOC put受益（全情景幸存）、港股稀缺主题（独立催化）四条独立赛道，占组合55-65%",
+      "chain_segment": ""
+    },
+    {
+      "tier": "弹性层",
+      "codes": [],
+      "names": [],
+      "pe_range": "",
+      "logic": "辅配置占15-25%，逻辑对但未明确业绩兑现标的，可能包括高beta的AI概念股或铜金矿弹性品种",
+      "chain_segment": ""
+    },
+    {
+      "tier": "规避",
+      "codes": [],
+      "names": [],
+      "pe_range": "",
+      "logic": "原文未明确具体规避标的，但隐含规避单纯依赖美股溢出效应的传统外资重仓股",
+      "chain_segment": ""
+    }
+  ],
+  "duration_spectrum": [
+    {
+      "duration": "短期",
+      "years": "2026",
+      "theme": "Warsh就任初期市场波动与capitulate情绪修复",
+      "note": "市场对Warsh定价存在系统性误读，短期（3-6个月）存在预期差修复机会"
+    },
+    {
+      "duration": "中期",
+      "years": "2027",
+      "theme": "AI生产率兑现验证与财政主导博弈",
+      "note": "2026Q3-Q4 Warsh可能在外部冲击下软化，中期关注AI capex滞后效应及PBOC政策宽松落地"
+    },
+    {
+      "duration": "长期",
+      "years": "2029+",
+      "theme": "AI结构性增长与去美元化资产重定价",
+      "note": "Warsh的'年轻人不信任美元买比特币'表态为硬资产长期背书，香港稳定币条例催生新金融基础设施"
+    }
+  ],
+  "risk_signals": [
+    {
+      "type": "估值透支",
+      "target": "黄金、铜等硬资产",
+      "detail": "黄金从近$5600高位48小时内跌近15%，短期波动剧烈，需警惕拥挤交易反转"
+    },
+    {
+      "type": "政策反转",
+      "target": "Warsh货币政",
+      "detail": "若Warsh放弃QT迎合Trump，则个人信誉受损，市场对Fed信任度进一步下降"
+    },
+    {
+      "type": "业绩不达预期",
+      "target": "AI算力国产替代",
+      "detail": "AI对TFP贡献实测仅0.3-0.5pp，低于乐观派1.0pp，若后续数据持续低于预期则情景A概率下降"
+    },
+    {
+      "type": "技术替代",
+      "target": "传统银行股",
+      "detail": "报告提及银行股因收益率曲线陡峭化上涨，但若AI导致金融脱媒加速，长期可能被替代"
+    }
+  ],
+  "chains_involved": [
+    "AI算力国产替代",
+    "黄金/铜矿开采",
+    "PBOC宽松受益（银行/地产/基建）",
+    "港股稀缺主题（稳定币/区块链金融）"
+  ],
+  "themes": [
+    "Warsh时代的美元与美债重构",
+    "AI生产力 vs 财政主导陷阱",
+    "PBOC独立政策put",
+    "香港稳定币条例催化",
+    "去美元化与硬资产配置"
+  ],
+  "serenity_inject": {
+    "chains_to_update": [
+      "AI算力国产替代",
+      "黄金/铜矿开采"
+    ],
+    "expectation_gap_signals": [
+      {
+        "chain_segment": "AI算力国产替代",
+        "gap_type": "高预期差",
+        "detail": "市场对AI兑现概率过于悲观，若情景A实现则该链条受益最大"
+      },
+      {
+        "chain_segment": "黄金/铜矿开采",
+        "gap_type": "走势先行",
+        "detail": "黄金短期暴跌已计入部分hard capitulate风险，但若实际为soft capitulate则存在修复空间"
+      },
+      {
+        "chain_segment": "PBOC宽松受益",
+        "gap_type": "三重共振",
+        "detail": "PBOC弹药充足+中国经济温和复苏+Fed外部压力缓和，三者共振概率高于市场定价"
+      }
+    ]
+  },
+  "advice_inject": {
+    "chokemap_signals": [
+      "30Y TIPS真实利率与breakeven通胀的背离程度",
+      "Warsh前6个月实际QT节奏与幅度",
+      "PBOC降准降息时点"
+    ],
+    "w5_risks": [
+      "美债流动性危机若在情景B下爆发，可能引发全球资产抛售",
+      "Warsh与Trump博弈导致政策不确定性超预期"
+    ],
+    "w3_gaps": [
+      "市场低估soft capitulate概率，高估hard capitulate概率",
+      "市场误解美债收益率上行驱动（真实利率而非财政恐慌）",
+      "市场忽视PBOC结构性政策put和香港稳定币独立催化"
+    ]
+  },
+  "title": "Warsh 美联储时代A股三情景生存框架",
+  "date": "2026-05-24"
+}

@@ -5,6 +5,7 @@ Obsidian 中可用 Homepage 插件设为首页，或固定标签页。
 """
 from __future__ import annotations
 
+import json
 import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -1288,7 +1289,7 @@ def _recent_files(directory: Path, prefix: str, days: int = 7) -> list[Path]:
 
 
 def _aggregate_signals(dr: dict) -> dict:
-    """6源信号矩阵：公告deep_read + 研报 + 新闻信号 + 行业深研 + 社交源 + 催化信号。
+    """7源信号矩阵：公告deep_read + 研报 + 新闻信号 + 行业深研 + 社交源 + 催化信号 + 深度投研洞见。
 
     权重原则：
       - 研报是机构专业研究，1篇即进初步筛选，2篇+其他源可进深度分析
@@ -1296,8 +1297,10 @@ def _aggregate_signals(dr: dict) -> dict:
       - 行业深研提到代表跨行业共识，权重高
       - 公告deep_read通过Stage1硬筛选的至少值10分（已是精选）
       - 新闻边际信号经Haiku扫描已过滤无关内容
+      - 深度投研洞见是非共识深度研究，预期差条数×12
     """
     week_ago = (date.today() - timedelta(days=7)).isoformat()
+    two_months_ago = (date.today() - timedelta(days=60)).isoformat()
     names = _load_name_cache()
     valid_codes = set(names.keys())  # 全市场代码白名单
     if len(valid_codes) < 5000:
@@ -1317,6 +1320,7 @@ def _aggregate_signals(dr: dict) -> dict:
                             "rpt_count": 0, "ns_count": 0,
                             "ind_count": 0, "social_count": 0,
                             "cat_score": 0, "cat_count": 0,
+                            "snd_count": 0,
                             "sources": 0, "total": 0}
 
     # ====== 1. 公告 deep_read（>=20 分即纳入，<20 也给基础分） ======
@@ -1427,6 +1431,27 @@ def _aggregate_signals(dr: dict) -> dict:
     except Exception:
         pass
 
+    # ====== 7. 深度投研洞见（60天窗口，预期差条数 ×12） ======
+    SHENDU_DIR = REPORT_DIR / "serenity" / "shendu"
+    if SHENDU_DIR.exists():
+        for fp in SHENDU_DIR.iterdir():
+            if not fp.name.startswith("shendu_2026") or fp.name.startswith("shendu__"):
+                continue
+            try:
+                data = json.loads(fp.read_text(encoding="utf-8"))
+                if data.get("date", "") < two_months_ago:
+                    continue
+                for v in data.get("valuation_spectrum", []):
+                    for code in v.get("codes", []):
+                        code = str(code).strip().zfill(6)
+                        if len(code) != 6 or not code.isdigit():
+                            continue
+                        _ensure(code)
+                        scores[code]["snd_count"] += 1
+                        scores[code]["sources"] += 1
+            except Exception:
+                pass
+
     # ====== 计算复合分 + 交叉源加分 ======
     for s in scores.values():
         # 重新计算来源数（基于字段是否有数据，而非逐条累加）
@@ -1437,6 +1462,7 @@ def _aggregate_signals(dr: dict) -> dict:
         if s["ind_count"] > 0: src_count += 1
         if s["social_count"] > 0: src_count += 1
         if s["cat_count"] > 0: src_count += 1
+        if s["snd_count"] > 0: src_count += 1
         s["sources"] = src_count
 
         base = (s["dr_score"] * 1.0           # 公告 deep_read: max(score,10) → 10~85
@@ -1444,9 +1470,11 @@ def _aggregate_signals(dr: dict) -> dict:
                 + s["ns_count"] * 8            # 新闻边际信号: 8分/条，Haiku已初筛
                 + s["ind_count"] * 10          # 行业深研提及: 10分/次
                 + s["social_count"] * 10       # 社交源提及: 10分/次（公众号/微博）
-                + s["cat_score"] * 0.8)        # 催化行动分
+                + s["cat_score"] * 0.8         # 催化行动分
+                + s["snd_count"] * 12)         # 深度投研洞见: 12分/条预期差
         cross = 0
-        if s["sources"] >= 6: cross = 65
+        if s["sources"] >= 7: cross = 75
+        elif s["sources"] >= 6: cross = 65
         elif s["sources"] >= 5: cross = 50
         elif s["sources"] >= 4: cross = 35
         elif s["sources"] >= 3: cross = 20
@@ -1628,6 +1656,31 @@ def _hot_themes() -> list[dict]:
                             break
         except Exception:
             pass
+
+    # 5. 深度投研洞见（60天窗口）
+    SHENDU_DIR_HOT = REPORT_DIR / "serenity" / "shendu"
+    if SHENDU_DIR_HOT.exists():
+        two_months_ago = (date.today() - timedelta(days=60)).isoformat()
+        for fp in SHENDU_DIR_HOT.iterdir():
+            if not fp.name.startswith("shendu_2026") or fp.name.startswith("shendu__"):
+                continue
+            try:
+                data = json.loads(fp.read_text(encoding="utf-8"))
+                if data.get("date", "") < two_months_ago:
+                    continue
+                # 从 themes 和 chains_involved 匹配 KW_MAP
+                search_text = " ".join(data.get("themes", []) + data.get("chains_involved", []))
+                # 提取标的代码
+                all_codes = []
+                for v in data.get("valuation_spectrum", []):
+                    all_codes.extend(v.get("codes", []))
+                for kw_group in KW_MAP:
+                    for kw in kw_group:
+                        if kw in search_text:
+                            _add_theme(kw_group[0], "深度投研", all_codes)
+                            break
+            except Exception:
+                pass
 
     result = []
     # Cross-reference with chain maps for sub-sector tags
@@ -1994,25 +2047,25 @@ def generate(today_str: str = "") -> str:
     if signals["deep"] or signals["watch"]:
         w("### 🔬 建议深度分析")
         w()
-        w("| 代码 | 名称 | 板块 | 链环节 | 信号分 | 公告 | 研报 | 新闻 | 行业 | 社交 | 催化 | 源 |")
-        w("|------|------|------|------|:-----:|:---:|:---:|:---:|:---:|:---:|:---:|:--:|")
+        w("| 代码 | 名称 | 板块 | 链环节 | 信号分 | 公告 | 研报 | 新闻 | 行业 | 社交 | 催化 | 深研 | 源 |")
+        w("|------|------|------|------|:-----:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:--:|")
         for s in signals["deep"]:
             plate, link = _chain_cell(s["code"])
             w(f"| {s['code']} | {s['name']} | {plate} | {link} | **{s['total']}** | "
               f"{s['dr_count'] or '—'} | {s['rpt_count'] or '—'} | {s['ns_count'] or '—'} | "
               f"{s['ind_count'] or '—'} | {s['social_count'] or '—'} | {s['cat_count'] or '—'} | "
-              f"{s['sources']} |")
+              f"{s.get('snd_count','—') or '—'} | {s['sources']} |")
         w()
         w("### 👀 建议初步关注")
         w()
-        w("| 代码 | 名称 | 板块 | 链环节 | 信号分 | 公告 | 研报 | 新闻 | 行业 | 社交 | 催化 | 源 |")
-        w("|------|------|------|------|:-----:|:---:|:---:|:---:|:---:|:---:|:---:|:--:|")
+        w("| 代码 | 名称 | 板块 | 链环节 | 信号分 | 公告 | 研报 | 新闻 | 行业 | 社交 | 催化 | 深研 | 源 |")
+        w("|------|------|------|------|:-----:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:--:|")
         for s in signals["watch"]:
             plate, link = _chain_cell(s["code"])
             w(f"| {s['code']} | {s['name']} | {plate} | {link} | {s['total']} | "
               f"{s['dr_count'] or '—'} | {s['rpt_count'] or '—'} | {s['ns_count'] or '—'} | "
               f"{s['ind_count'] or '—'} | {s['social_count'] or '—'} | {s['cat_count'] or '—'} | "
-              f"{s['sources']} |")
+              f"{s.get('snd_count','—') or '—'} | {s['sources']} |")
         w()
     else:
         w("_本周暂无强信号标的_")
@@ -2110,7 +2163,7 @@ def generate(today_str: str = "") -> str:
     w("### 复合分公式")
     w()
     w("```")
-    w("总分 = 公告deep_read分×1.0 + 研报篇数×20 + 新闻信号条数×8 + 行业提及次数×10 + 社交源提及次数×10 + 催化行动分×0.8 + 交叉加分")
+    w("总分 = 公告deep_read分×1.0 + 研报篇数×20 + 新闻信号条数×8 + 行业提及次数×10 + 社交源提及次数×10 + 催化行动分×0.8 + 深度投研VP×12 + 交叉加分")
     w("```")
     w()
     w("### 各源权重")
@@ -2123,12 +2176,13 @@ def generate(today_str: str = "") -> str:
     w("| 行业深研提及 | 次数 | ×10 | 0~N×10 |")
     w("| 社交源提及 | 次数 | ×10 | 0~N×10 |")
     w("| 催化信号 | actionability | ×0.8 | 0~64 |")
+    w("| 深度投研洞见 | VP条数 | ×12 | 0~N×12 |")
     w()
     w("### 交叉源加分")
     w()
-    w("| 覆盖源数 | 2 | 3 | 4 | 5 |")
-    w("|:-------:|:--:|:--:|:--:|:--:|")
-    w("| 加分 | +10 | +20 | +35 | +50 |")
+    w("| 覆盖源数 | 2 | 3 | 4 | 5 | 6 | 7 |")
+    w("|:-------:|:--:|:--:|:--:|:--:|:--:|:--:|")
+    w("| 加分 | +10 | +20 | +35 | +50 | +65 | +75 |")
     w()
     w("### 分级阈值")
     w()

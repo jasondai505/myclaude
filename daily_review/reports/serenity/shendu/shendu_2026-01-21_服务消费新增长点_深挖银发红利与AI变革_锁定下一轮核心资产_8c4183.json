@@ -1,0 +1,51 @@
+{
+  "thesis": "中国经济底层逻辑从总量刺激切换至供给侧质变，政策以‘制度性托底+技术性降本’双轮驱动，采取核心-卫星多头策略捕捉结构性机会。",
+  "variant_perceptions": [
+    {
+      "id": 1,
+      "consensus": "市场普遍认为2025年消费复苏乏力，总量刺激效果边际递减",
+      "variant": "本文指出社会消费品零售总额突破50万亿元，服务消费占比稳定在46.1%以上，消费结构优化而非总量疲软",
+      "confidence": "高",
+      "falsification": "若2026年上半年社零增速显著低于3.7%且服务消费占比下滑，则预期差证伪"
+    },
+    {
+      "id": 2,
+      "consensus": "市场预期2026年政策延续大规模需求侧刺激",
+      "variant": "本文强调政策重心为‘制度性托底+技术性降本’，并非简单总量刺激",
+      "confidence": "中",
+      "falsification": "若2026年一季度出台超预期的消费券或基建投资计划，则判断证伪"
+    },
+    {
+      "id": 3,
+      "consensus": "市场认为经济增长仍依赖传统投资拉动",
+      "variant": "本文认为增长驱动力已转向供给侧结构优化和效率提升",
+      "confidence": "中",
+      "falsification": "若2026年工业增加值中传统行业增速持续高于高技术制造业，则证伪"
+    }
+  ],
+  "load_bearing_judgment": "中国经济底层逻辑已从‘总量刺激’切换到‘供给侧质变’，政策双轮驱动下的结构性机会是未来权益市场主线",
+  "valuation_spectrum": [],
+  "duration_spectrum": [],
+  "risk_signals": [],
+  "chains_involved": [],
+  "themes": [
+    "供给侧质变",
+    "制度性托底",
+    "技术性降本",
+    "核心-卫星策略"
+  ],
+  "serenity_inject": {
+    "chains_to_update": [],
+    "expectation_gap_signals": []
+  },
+  "advice_inject": {
+    "chokemap_signals": [],
+    "w5_risks": [],
+    "w3_gaps": []
+  },
+  "title": "服务消费新增长点：深挖银发红利与AI变革，锁定下一轮核心资产",
+  "date": "2026-01-21",
+  "title_clean": "服务消费新增长点：深挖银发红利与AI变革，锁定下一轮核心资产",
+  "body_length": 361,
+  "topic_id": 55188512844282184
+}

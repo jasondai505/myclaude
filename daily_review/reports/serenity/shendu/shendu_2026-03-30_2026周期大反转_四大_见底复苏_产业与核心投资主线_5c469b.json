@@ -1,0 +1,65 @@
+{
+  "thesis": "市场将迎来由‘盈利反转、供需重塑、需求共振’三大宏观引擎驱动的周期性反转，核心驱动力从估值博弈转向基本面验证。",
+  "variant_perceptions": [
+    {
+      "id": 1,
+      "consensus": "市场对2026年A股表现形成高度一致的乐观预期",
+      "variant": "本文强调乐观预期下需聚焦周期底部的具体产业拐点，而非泛化看多",
+      "confidence": "中",
+      "falsification": "如果2026年宏观数据未出现盈利反转或供需关系恶化，则预期差被证伪"
+    },
+    {
+      "id": 2,
+      "consensus": "市场普遍认为周期反转主要依赖估值修复",
+      "variant": "本文认为核心驱动力已从估值博弈转向基本面验证（盈利与供需）",
+      "confidence": "高",
+      "falsification": "如果估值持续主导市场而基本面未验证，则判断被证伪"
+    },
+    {
+      "id": 3,
+      "consensus": "资源品涨价链被视为短期交易机会",
+      "variant": "本文将其定位为具备供给刚性约束下的实物资产重估主线，弹性凸显",
+      "confidence": "中",
+      "falsification": "如果铜、铝、钾肥等品种的供给约束被打破（如新增产能释放），则涨价逻辑被证伪"
+    }
+  ],
+  "load_bearing_judgment": "2026年市场将由‘盈利反转、供需重塑、需求共振’三大宏观引擎驱动的周期性反转，核心驱动力从估值博弈转向基本面验证。",
+  "valuation_spectrum": [
+    {
+      "tier": "弹性层",
+      "codes": [],
+      "names": [
+        "铜",
+        "铝",
+        "钾肥"
+      ],
+      "pe_range": "",
+      "logic": "供给刚性约束下实物资产重估，铜、铝、钾肥弹性凸显",
+      "chain_segment": "资源品与化工涨价链"
+    }
+  ],
+  "duration_spectrum": [],
+  "risk_signals": [],
+  "chains_involved": [
+    "资源品",
+    "化工"
+  ],
+  "themes": [
+    "周期反转",
+    "涨价链"
+  ],
+  "serenity_inject": {
+    "chains_to_update": [],
+    "expectation_gap_signals": []
+  },
+  "advice_inject": {
+    "chokemap_signals": [],
+    "w5_risks": [],
+    "w3_gaps": []
+  },
+  "title": "2026周期大反转：四大“见底复苏”产业与核心投资主线",
+  "date": "2026-03-30",
+  "title_clean": "2026周期大反转：四大“见底复苏”产业与核心投资主线",
+  "body_length": 299,
+  "topic_id": 14588148151858852
+}

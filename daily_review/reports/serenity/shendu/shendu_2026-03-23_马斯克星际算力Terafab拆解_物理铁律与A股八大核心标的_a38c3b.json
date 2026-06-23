@@ -1,0 +1,50 @@
+{
+  "thesis": "算力向深空的跨星际迁徙是宇宙热力学底层公式锁死的唯一宿命，但布满极值风险，传统估值模型已失效。",
+  "variant_perceptions": [
+    {
+      "id": 1,
+      "consensus": "市场认为Terafab计划将带来算力的线性增长，可用DCF模型估值。",
+      "variant": "DCF模型已沦为牛顿时代的算术游戏，估值必须回归物理第一性原理。",
+      "confidence": "高",
+      "falsification": "如果未来发现地球能突破热力学限制无限扩展算力，则预期差被证伪。"
+    },
+    {
+      "id": 2,
+      "consensus": "市场认为地球可以持续支撑算力扩张。",
+      "variant": "地球热寂是物理铁律，算力必须逃离地球向深空迁徙。",
+      "confidence": "高",
+      "falsification": "如果热力学第二定律被推翻或找到地球上的无限散热方案，则证伪。"
+    },
+    {
+      "id": 3,
+      "consensus": "市场认为星际算力是科幻狂想。",
+      "variant": "星际迁徙是被宇宙热力学公式锁死的唯一宿命，是必然趋势。",
+      "confidence": "中",
+      "falsification": "如果广义相对论或凯斯勒综合征等物理风险被证实无法克服，则星际迁徙不可能。"
+    }
+  ],
+  "load_bearing_judgment": "算力向深空迁徙是被宇宙热力学底层公式锁死的唯一宿命。",
+  "valuation_spectrum": [],
+  "duration_spectrum": [],
+  "risk_signals": [],
+  "chains_involved": [],
+  "themes": [
+    "星际AGI算力",
+    "热力学宿命",
+    "Terafab"
+  ],
+  "serenity_inject": {
+    "chains_to_update": [],
+    "expectation_gap_signals": []
+  },
+  "advice_inject": {
+    "chokemap_signals": [],
+    "w5_risks": [],
+    "w3_gaps": []
+  },
+  "title": "马斯克星际算力Terafab拆解：物理铁律与A股八大核心标的",
+  "date": "2026-03-23",
+  "topic_id": 22811422254541221,
+  "title_clean": "马斯克星际算力Terafab拆解：物理铁律与A股八大核心标的",
+  "body_length": 1070
+}

@@ -1,0 +1,84 @@
+{
+  "thesis": "2026年正成为中国经济动能从‘地产-基建’旧模式向‘科技-制造’新质生产力全面切换的元年，1.25%低息贷款颠覆技改项目经济可行性，聚焦AI与电子信息等三大黄金主线。",
+  "variant_perceptions": [
+    {
+      "id": 1,
+      "consensus": "市场认为科技创新和技改贷款仍是流动性宽松的延续，总量博弈逻辑主导",
+      "variant": "本文认为此轮结构性货币政策是底层资产定价逻辑的重塑，1.25%低息击穿WACC底线，使大批被IRR门槛限制的技改项目具备经济可行性",
+      "confidence": "高",
+      "falsification": "若后续技改项目实际落地率远低于预期，或企业融资意愿未显著提升"
+    },
+    {
+      "id": 2,
+      "consensus": "信贷发放仍依赖传统抵押物，轻资产科技企业难以获得金融支持",
+      "variant": "本文指出信贷逻辑从‘抵押依赖’向‘研发导向’范式转移，首次将AI软件服务等轻资产科技企业纳入金融支持射程",
+      "confidence": "高",
+      "falsification": "若后续信贷政策细则未实质性放宽研发导向贷款标准，或银行风险偏好未转变"
+    },
+    {
+      "id": 3,
+      "consensus": "设备更新主题中市场更关注传统制造业升级",
+      "variant": "本文认为最具弹性的核心是AI与电子信息，是‘全产业智能化升级的底层基座’，承载国产替代重任",
+      "confidence": "中",
+      "falsification": "若AI算力投资增速大幅放缓或国产替代进程受阻"
+    }
+  ],
+  "load_bearing_judgment": "1.25%的历史低息实质性击穿了微观企业的加权平均资本成本（WACC）底线，使得大批原本受制于内部收益率（IRR）门槛的技改项目瞬间具备了极强的经济可行性",
+  "valuation_spectrum": [
+    {
+      "tier": "核心仓",
+      "codes": [],
+      "names": [],
+      "pe_range": "",
+      "logic": "",
+      "chain_segment": ""
+    },
+    {
+      "tier": "弹性层",
+      "codes": [],
+      "names": [],
+      "pe_range": "",
+      "logic": "",
+      "chain_segment": ""
+    },
+    {
+      "tier": "规避",
+      "codes": [],
+      "names": [],
+      "pe_range": "",
+      "logic": "",
+      "chain_segment": ""
+    }
+  ],
+  "duration_spectrum": [
+    {
+      "duration": "中期",
+      "years": "2026-2027",
+      "theme": "设备更新三大黄金主线",
+      "note": "报告明确指出‘锚定未来两年的核心资产’，即2026-2027年"
+    }
+  ],
+  "risk_signals": [],
+  "chains_involved": [],
+  "themes": [
+    "科创朱格拉周期",
+    "新质生产力",
+    "设备更新",
+    "AI与电子信息",
+    "国产替代"
+  ],
+  "serenity_inject": {
+    "chains_to_update": [],
+    "expectation_gap_signals": []
+  },
+  "advice_inject": {
+    "chokemap_signals": [],
+    "w5_risks": [],
+    "w3_gaps": []
+  },
+  "title": "1.2万亿引爆科创朱格拉：设备换新三大主线与核心资产重估",
+  "date": "2026-05-06",
+  "topic_id": 55522158245182484,
+  "title_clean": "1.2万亿引爆科创朱格拉：设备换新三大主线与核心资产重估",
+  "body_length": 590
+}

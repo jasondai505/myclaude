@@ -1,0 +1,80 @@
+{
+  "thesis": "2026年玻璃行业的周期突破并非传统需求复苏驱动，而是由传统板块供给侧革命与新兴技术应用爆发共同构成的哑铃型双轮模型。",
+  "variant_perceptions": [
+    {
+      "id": 1,
+      "consensus": "市场认为本轮玻璃周期反转由地产需求复苏驱动",
+      "variant": "本文认为核心驱动力是行政+市场双重力量推动的供给侧强力出清，而非地产V型反转",
+      "confidence": "高",
+      "falsification": "如果地产需求出现超预期的V型反转，则供给侧出清逻辑被证伪"
+    },
+    {
+      "id": 2,
+      "consensus": "市场忽视上游原料成本变化对利润的影响",
+      "variant": "本文强调纯碱价格崩塌带来的巨大成本红利是利润弹性的重要来源",
+      "confidence": "中",
+      "falsification": "如果纯碱价格因供给收缩而大幅反弹，则成本红利消失"
+    },
+    {
+      "id": 3,
+      "consensus": "市场认为玻璃行业仍属旧周期框架",
+      "variant": "本文认为新兴技术应用爆发（如光伏玻璃、电子玻璃等）构成哑铃另一极，改变行业底层逻辑",
+      "confidence": "中",
+      "falsification": "如果新兴技术领域需求增长不及预期，则技术奇点驱动失效"
+    }
+  ],
+  "load_bearing_judgment": "本轮玻璃周期突破的真实内涵是供给革命与技术奇点共同驱动的哑铃型双轮模型",
+  "valuation_spectrum": [
+    {
+      "tier": "核心仓",
+      "codes": [],
+      "names": [],
+      "pe_range": "",
+      "logic": "原文未明确提及个股，但逻辑指向供给侧出清后剩者为王的传统玻璃龙头",
+      "chain_segment": "传统平板玻璃"
+    },
+    {
+      "tier": "弹性层",
+      "codes": [],
+      "names": [],
+      "pe_range": "",
+      "logic": "原文未明确提及，但逻辑指向受益于新兴技术应用爆发的细分领域公司",
+      "chain_segment": "光伏玻璃/电子玻璃"
+    },
+    {
+      "tier": "规避",
+      "codes": [],
+      "names": [],
+      "pe_range": "",
+      "logic": "原文未提及具体规避标的，但依赖地产V型反转逻辑的标的应规避",
+      "chain_segment": "地产下游玻璃加工"
+    }
+  ],
+  "duration_spectrum": [],
+  "risk_signals": [],
+  "chains_involved": [
+    "玻璃制造产业链",
+    "纯碱产业链",
+    "光伏玻璃产业链"
+  ],
+  "themes": [
+    "供给侧革命",
+    "技术奇点",
+    "成本红利",
+    "哑铃型双轮模型"
+  ],
+  "serenity_inject": {
+    "chains_to_update": [],
+    "expectation_gap_signals": []
+  },
+  "advice_inject": {
+    "chokemap_signals": [],
+    "w5_risks": [],
+    "w3_gaps": []
+  },
+  "title": "2026玻璃新周期：供给革命撞上AI奇点，重估A股“哑铃”机遇",
+  "date": "2026-02-04",
+  "title_clean": "2026玻璃新周期：供给革命撞上AI奇点，重估A股“哑铃”机遇",
+  "body_length": 328,
+  "topic_id": 82811221824588422
+}

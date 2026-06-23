@@ -1,0 +1,125 @@
+{
+  "thesis": "MLCC市场的核心驱动力已高度收敛于单一但极度强劲的引擎——由英伟达Blackwell平台引爆的AI服务器革命，而新能源汽车正遭遇补贴退坡和需求放缓的‘灰犀牛’风险。",
+  "variant_perceptions": [
+    {
+      "id": 1,
+      "consensus": "市场共识认为MLCC行业正经历全行业普遍繁荣。",
+      "variant": "本文认为MLCC市场并非普涨，而是‘K型分化’：AI服务器驱动的高端MLCC爆发式增长，而其他领域（如新能源汽车）需求疲软。",
+      "confidence": "高",
+      "falsification": "如果新能源汽车需求超预期反弹并带动中低端MLCC同步大幅增长，则分化逻辑被证伪。"
+    },
+    {
+      "id": 2,
+      "consensus": "市场共识认为新能源汽车仍是MLCC的核心增长引擎之一。",
+      "variant": "本文判断新能源汽车增长逻辑已部分证伪，补贴退坡和需求放缓构成‘灰犀牛’风险，其作为增长引擎的可靠性下降。",
+      "confidence": "中",
+      "falsification": "如果政策重新加码补贴或出现新的技术突破带动新能源汽车销量持续高增，则该预期差被证伪。"
+    },
+    {
+      "id": 3,
+      "consensus": "市场普遍认为MLCC产能扩张不受严重制约。",
+      "variant": "本文指出日本核心制造设备存在瓶颈，将严重限制产能扩张，尤其对中国本土厂商的追赶构成巨大挑战，加剧高端市场结构性短缺。",
+      "confidence": "高",
+      "falsification": "如果日本设备厂商突然大幅扩产或中国设备实现突破，则供给瓶颈逻辑被证伪。"
+    }
+  ],
+  "load_bearing_judgment": "高端MLCC的结构性短缺完全由AI基础设施建设驱动，且供需缺口将在2026年达4500亿颗、2027年扩大至9800亿颗。",
+  "valuation_spectrum": [
+    {
+      "tier": "核心仓",
+      "codes": [],
+      "names": [],
+      "pe_range": "20-35倍",
+      "logic": "受益于AI服务器MLCC需求确定性增长、业绩兑现能力强且估值合理的高端MLCC供应商。",
+      "chain_segment": "MLCC制造"
+    },
+    {
+      "tier": "弹性层",
+      "codes": [],
+      "names": [],
+      "pe_range": "40-60倍",
+      "logic": "逻辑上受益于AI但当前业绩尚未充分兑现或估值偏高的标的，需等待订单加速落地。",
+      "chain_segment": "MLCC上游材料/设备"
+    },
+    {
+      "tier": "规避",
+      "codes": [],
+      "names": [],
+      "pe_range": "N/A",
+      "logic": "与新能源汽车高度相关的中低端MLCC厂商，因下游需求放缓逻辑错配，存在业绩下行风险。",
+      "chain_segment": "MLCC制造（中低端）"
+    }
+  ],
+  "duration_spectrum": [
+    {
+      "duration": "短期",
+      "years": "2026",
+      "theme": "AI服务器MLCC爆发期",
+      "note": "英伟达Blackwell平台量产驱动，供需缺口首次显现，相关供应链业绩快速释放。"
+    },
+    {
+      "duration": "中期",
+      "years": "2027",
+      "theme": "结构性短缺强化期",
+      "note": "供需缺口扩大至9800亿颗，高端MLCC持续供不应求，产能瓶颈进一步凸显。"
+    },
+    {
+      "duration": "长期",
+      "years": "2029+",
+      "theme": "技术迭代与替代风险",
+      "note": "若出现新一代AI芯片或新型电容器技术，可能改变MLCC需求结构，需关注技术路线演进。"
+    }
+  ],
+  "risk_signals": [
+    {
+      "type": "政策反转",
+      "target": "新能源汽车产业链",
+      "detail": "补贴退坡和需求放缓构成‘灰犀牛’风险，可能进一步压制相关MLCC需求。"
+    }
+  ],
+  "chains_involved": [
+    "MLCC制造",
+    "AI服务器",
+    "新能源汽车"
+  ],
+  "themes": [
+    "K型分化",
+    "AI服务器MLCC",
+    "结构性短缺"
+  ],
+  "serenity_inject": {
+    "chains_to_update": [
+      "MLCC制造",
+      "AI服务器"
+    ],
+    "expectation_gap_signals": [
+      {
+        "chain_segment": "高端MLCC制造",
+        "gap_type": "高预期差",
+        "detail": "市场低估AI服务器对高端MLCC的‘暴力’需求，实际供需缺口远超预期。"
+      },
+      {
+        "chain_segment": "中低端MLCC制造",
+        "gap_type": "走势先行",
+        "detail": "新能源汽车增速放缓已部分反映在股价中，但业绩下修风险尚未完全释放。"
+      }
+    ]
+  },
+  "advice_inject": {
+    "chokemap_signals": [
+      "日本MLCC核心制造设备交期延长",
+      "英伟达Blackwell平台出货量超预期上调"
+    ],
+    "w5_risks": [
+      "新能源汽车补贴政策超预期退坡导致中低端MLCC订单骤降"
+    ],
+    "w3_gaps": [
+      "市场对AI服务器MLCC供需缺口的测算普遍偏低，实际缺口可能更大"
+    ]
+  },
+  "title": "AI引爆“暴力”缺货，MLCC涨价前夜：谁是A股被忽视的核心资产？",
+  "date": "2026-02-25",
+  "title_clean": "AI引爆“暴力”缺货，MLCC涨价前夜：谁是A股被忽视的核心资产？",
+  "body_length": 463,
+  "topic_id": 55188585151114124
+}

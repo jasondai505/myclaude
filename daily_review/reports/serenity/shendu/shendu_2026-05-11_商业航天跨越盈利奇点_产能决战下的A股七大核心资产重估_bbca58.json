@@ -1,0 +1,130 @@
+{
+  "thesis": "中国商业航天产业正从‘叙事驱动’跨越至‘业绩驱动’阶段，面临‘产能决战’核心矛盾，处于宏观流动性、海外拐点与国内基本面三重共振的价值重估极值点。",
+  "variant_perceptions": [
+    {
+      "id": 1,
+      "consensus": "商业航天仍处于概念炒作阶段，估值靠PPT支撑。",
+      "variant": "已进入业绩兑现阶段，海外Rocket Lab跑通商业闭环，国内面临真实订单交付和FCF要求。",
+      "confidence": "高",
+      "falsification": "若国内商业航天企业持续无法实现正向现金流或订单交付低于预期。"
+    },
+    {
+      "id": 2,
+      "consensus": "担忧产能过剩导致行业竞争加剧。",
+      "variant": "核心矛盾是产能不足，尤其是‘星多箭少’，受ITU频轨资源2027年硬性死线驱动。",
+      "confidence": "高",
+      "falsification": "若实际卫星组网进度大幅推迟或频轨资源争夺放松。"
+    },
+    {
+      "id": 3,
+      "consensus": "忽略海外映射，认为A股商业航天独立。",
+      "variant": "海外龙头Rocket Lab单日暴涨34%提供了从烧钱到印钞的映射，是A股估值重估的催化剂。",
+      "confidence": "中",
+      "falsification": "若Rocket Lab后续财报恶化或估值回落，映射效应失效。"
+    },
+    {
+      "id": 4,
+      "consensus": "市场关注技术突破。",
+      "variant": "技术概念验证已不是主要矛盾，产能爬坡和交付能力才是关键。",
+      "confidence": "高",
+      "falsification": "若出现重大技术瓶颈导致现有产能无法释放。"
+    }
+  ],
+  "load_bearing_judgment": "产业的核心矛盾已由技术概念验证全面突变为极端苛刻的‘产能决战’。",
+  "valuation_spectrum": [
+    {
+      "tier": "核心仓",
+      "codes": [
+        "001270.SZ",
+        "688270.SH",
+        "600879.SH"
+      ],
+      "names": [
+        "铖昌科技",
+        "臻镭科技",
+        "航天电子"
+      ],
+      "pe_range": "未提及",
+      "logic": "上游芯片高壁垒高毛利，下游总成绑定国家战略，业绩确定性高。",
+      "chain_segment": "上游芯片/下游总成"
+    },
+    {
+      "tier": "弹性层",
+      "codes": [
+        "688333.SH",
+        "688102.SH",
+        "301005.SZ",
+        "688523.SH"
+      ],
+      "names": [
+        "铂力特",
+        "斯瑞新材",
+        "超捷股份",
+        "航天环宇"
+      ],
+      "pe_range": "未提及",
+      "logic": "受益行业产能扩张，业绩弹性大但估值较高，处于业绩拐点。",
+      "chain_segment": "上游制造/中游组件"
+    },
+    {
+      "tier": "规避",
+      "codes": [],
+      "names": [],
+      "pe_range": "",
+      "logic": "",
+      "chain_segment": ""
+    }
+  ],
+  "duration_spectrum": [
+    {
+      "duration": "短期",
+      "years": "2026",
+      "theme": "业绩兑现",
+      "note": "海外映射与国内订单交付催化，盈利奇点验证。"
+    },
+    {
+      "duration": "中期",
+      "years": "2027",
+      "theme": "产能决战",
+      "note": "ITU频轨资源截止期前，产能爬坡决定成败。"
+    },
+    {
+      "duration": "长期",
+      "years": "2029+",
+      "theme": "星座运营",
+      "note": "星座组网完成，进入运营及数据服务阶段。"
+    }
+  ],
+  "risk_signals": [],
+  "chains_involved": [
+    "商业航天",
+    "卫星互联网",
+    "航天芯片",
+    "航天制造"
+  ],
+  "themes": [
+    "产能决战",
+    "新质生产力",
+    "盈利奇点"
+  ],
+  "serenity_inject": {
+    "chains_to_update": [],
+    "expectation_gap_signals": [
+      {
+        "chain_segment": "整体",
+        "gap_type": "三重共振",
+        "detail": "宏观流动性溢价、海外产业拐点催化与国内基本面爆发三重共振。"
+      }
+    ]
+  },
+  "advice_inject": {
+    "chokemap_signals": [],
+    "w5_risks": [],
+    "w3_gaps": []
+  },
+  "title": "商业航天跨越盈利奇点：产能决战下的A股七大核心资产重估",
+  "date": "2026-05-11",
+  "topic_id": 14422512141412222,
+  "title_clean": "商业航天跨越盈利奇点：产能决战下的A股七大核心资产重估",
+  "body_length": 958
+}

@@ -1,0 +1,51 @@
+{
+  "thesis": "市场将Warsh就任定价为hard capitulate（硬美元鹰派），但实际soft capitulate概率更高，基于AI生产力革命对实际增长的上调以及Warsh的“AI验证较低均衡利率”修辞框架。",
+  "variant_perceptions": [
+    {
+      "id": 1,
+      "consensus": "Warsh就任美联储主席将带来可持续2-3年的硬美元鹰派，重仓capitulate trade，capitulate概率65-75%。",
+      "variant": "capitulate真实概率仅为48%，其中soft capitulate（紧缩话术包装的managed adjustment）概率45%，远高于市场假设。",
+      "confidence": "高",
+      "falsification": "如果后续美债收益率上行主要由通胀预期驱动而非真实利率，或Warsh公开表态偏离其Hoover Institution的修辞框架。"
+    },
+    {
+      "id": 2,
+      "consensus": "5月15日30Y美债上行+11bp是“财政恐慌”所致。",
+      "variant": "真实利率上行+30bp是通胀预期上行+10bp的3倍，市场定价的是AI生产力革命对实际增长的上调，而非财政恐慌。",
+      "confidence": "高",
+      "falsification": "如果后续TIPS收益率与通胀预期同步回落，或财政赤字超预期扩大引发恐慌。"
+    },
+    {
+      "id": 3,
+      "consensus": "Warsh是纯粹鹰派，将推行强硬紧缩。",
+      "variant": "Warsh在Hoover Institution已建立“AI验证较低均衡利率”的修辞框架，给了他双向不败的话术，soft capitulate概率远高于市场假设。",
+      "confidence": "中",
+      "falsification": "如果Warsh在正式场合明确否定AI对均衡利率的影响，或实际政策利率路径大幅高于市场预期。"
+    }
+  ],
+  "load_bearing_judgment": "市场将Warsh就任定价为capitulate概率65-75%是错误的，真实概率仅48%，且其中soft capitulate占45%，这是全篇最关键的判断。",
+  "valuation_spectrum": [],
+  "duration_spectrum": [],
+  "risk_signals": [],
+  "chains_involved": [],
+  "themes": [
+    "AI生产力革命",
+    "美联储政策框架"
+  ],
+  "serenity_inject": {
+    "chains_to_update": [],
+    "expectation_gap_signals": []
+  },
+  "advice_inject": {
+    "chokemap_signals": [
+      "5月15日30Y美债上行+11bp中，10Y TIPS（real yield）上行+30bp，10Y breakeven inflation仅上行+10bp，真实利率与通胀预期背离"
+    ],
+    "w5_risks": [],
+    "w3_gaps": []
+  },
+  "title": "Warsh 美联储时代A股三情景生存框架",
+  "date": "2026-05-24",
+  "topic_id": 14422588428814442,
+  "title_clean": "Warsh 美联储时代A股三情景生存框架",
+  "body_length": 560
+}

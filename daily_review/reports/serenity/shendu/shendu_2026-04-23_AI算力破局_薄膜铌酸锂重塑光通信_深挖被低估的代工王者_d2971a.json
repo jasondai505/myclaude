@@ -1,0 +1,110 @@
+{
+  "thesis": "薄膜铌酸锂不是传统光通信演进图谱上的工艺改良，而是一场彻底推倒重来的底层物理法则重塑，是支撑AI算力持续指数级增长的绝对确定性技术路线。",
+  "variant_perceptions": [
+    {
+      "id": 1,
+      "consensus": "市场认为硅光和EML路线可通过工艺改良继续支撑1.6T/3.2T时代",
+      "variant": "本文认为硅光和EML已撞向物理墙（RC常数、自由载流子吸收、热串扰），TFLN才是唯一解",
+      "confidence": "高",
+      "falsification": "如果硅光或EML在单波200G/400G下实现与TFLN相当的眼图和功耗水平，则预期差被证伪"
+    },
+    {
+      "id": 2,
+      "consensus": "市场认为LPO方案因DSP功耗降低而有一定应用，但认为TFLN只是众多备选之一",
+      "variant": "本文认为TFLN以极低插损和半波电压完美适配LPO，可使光模块功耗暴降约40%，是LPO落地的物理基石",
+      "confidence": "高",
+      "falsification": "如果TFLN调制器实际量产良率不足导致Vπ或插损劣化，无法实现功耗暴降，则预期差被证伪"
+    },
+    {
+      "id": 3,
+      "consensus": "市场认为CPO封装面临热管理难题，对硅光集成路线仍有期待",
+      "variant": "本文认为TFLN耐高温且尺寸小，是CPO和全光网络的底层物理基石，而硅光路线因热串扰严重难以在高密度CPO环境中生存",
+      "confidence": "中",
+      "falsification": "如果硅光集成在CPO中通过混合集成或新材料克服热串扰，且TFLN在CPO中遇到新的散热或耦合问题，则预期差被证伪"
+    }
+  ],
+  "load_bearing_judgment": "TFLN以其千GHz级带宽、极低功耗和纯线性电光效应，是通向单波200G/400G时代的唯一解，而非备选项。",
+  "valuation_spectrum": [
+    {
+      "tier": "核心仓",
+      "codes": [],
+      "names": [],
+      "pe_range": "",
+      "logic": "业绩兑现+估值合理：直接受益于1.6T/3.2T光模块放量的TFLN芯片及器件厂商",
+      "chain_segment": "薄膜铌酸锂调制器芯片/器件"
+    },
+    {
+      "tier": "弹性层",
+      "codes": [],
+      "names": [],
+      "pe_range": "",
+      "logic": "逻辑对但贵/未兑现：上游铌酸锂晶圆材料供应商及TFLN专用设备厂商",
+      "chain_segment": "铌酸锂衬底材料/TFLN工艺设备"
+    },
+    {
+      "tier": "规避",
+      "codes": [],
+      "names": [],
+      "pe_range": "",
+      "logic": "因果错配/伪相关：传统硅光和EML光模块厂商，可能因技术替代而受损",
+      "chain_segment": "传统硅光/EML光模块"
+    }
+  ],
+  "duration_spectrum": [
+    {
+      "duration": "短期",
+      "years": "2026",
+      "theme": "1.6T光模块放量前夕",
+      "note": "2026年1.6T光模块需求紧迫，TFLN作为关键器件开始批量出货验证"
+    },
+    {
+      "duration": "中期",
+      "years": "2027",
+      "theme": "3.2T互联曙光与LPO量产",
+      "note": "3.2T光互联迫近现实，TFLN+ LPO方案功耗优势凸显，渗透率快速提升"
+    },
+    {
+      "duration": "长期",
+      "years": "2029+",
+      "theme": "全光网络底层物理革命",
+      "note": "TFLN成为百万卡智算中心CPO和全光网络的绝对基石，产业生态成熟"
+    }
+  ],
+  "risk_signals": [],
+  "chains_involved": [
+    "光通信产业链",
+    "AI算力基础设施产业链"
+  ],
+  "themes": [
+    "薄膜铌酸锂",
+    "1.6T光模块",
+    "LPO线性直驱",
+    "CPO共封装光学",
+    "算力功耗墙"
+  ],
+  "serenity_inject": {
+    "chains_to_update": [],
+    "expectation_gap_signals": [
+      {
+        "chain_segment": "薄膜铌酸锂调制器芯片",
+        "gap_type": "高预期差",
+        "detail": "市场未充分认知TFLN在单波200G/400G下的绝对物理优势，存在代差级认知偏差"
+      },
+      {
+        "chain_segment": "LPO光模块",
+        "gap_type": "走势先行",
+        "detail": "LPO方案对TFLN的依赖尚未被市场定价，TFLN产能和良率变化将先于股价反应"
+      }
+    ]
+  },
+  "advice_inject": {
+    "chokemap_signals": [],
+    "w5_risks": [],
+    "w3_gaps": []
+  },
+  "title": "AI算力破局：薄膜铌酸锂重塑光通信，深挖被低估的代工王者",
+  "date": "2026-04-23",
+  "topic_id": 55522111584212824,
+  "title_clean": "AI算力破局：薄膜铌酸锂重塑光通信，深挖被低估的代工王者",
+  "body_length": 1224
+}

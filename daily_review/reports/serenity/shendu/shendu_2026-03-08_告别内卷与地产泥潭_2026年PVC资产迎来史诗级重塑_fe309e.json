@@ -1,0 +1,115 @@
+{
+  "thesis": "当前PVC盘面的异动，绝非一场游资主导的情绪炒作，而是一场积蓄已久、波澜壮阔的产业底层逻辑剧变，中国PVC核心资产正在经历一场史诗级的'估值重塑'。",
+  "variant_perceptions": [
+    {
+      "id": 1,
+      "consensus": "PVC是夕阳产业、严重过剩、地产后周期绝对拖累",
+      "variant": "产业底层逻辑剧变，供需紧平衡曙光初现，新周期启动",
+      "confidence": "高",
+      "falsification": "如果地产需求超预期下滑且新基建增量不及预期，则供需宽松局面延续"
+    },
+    {
+      "id": 2,
+      "consensus": "本轮上涨是游资炒作或商品超跌反弹",
+      "variant": "是供给侧改革、成本冲击、需求重构多维共振引发的系统性重估",
+      "confidence": "高",
+      "falsification": "如果后续库存快速回升且价格回落至前低，则短期交易催化消失"
+    },
+    {
+      "id": 3,
+      "consensus": "PVC供给过剩将长期持续，无序扩张难以遏制",
+      "variant": "顶层'反内卷'政策强制清退超300万吨落后产能，行业进入产能负增长",
+      "confidence": "高",
+      "falsification": "如果政策执行力度不足，落后产能复产或新增产能获批，则出清逻辑被破坏"
+    },
+    {
+      "id": 4,
+      "consensus": "中国PVC在全球成本竞争中处于劣势",
+      "variant": "中东地缘危机推高海外乙烯法成本，中国煤化工成本洼地夺取全球定价权",
+      "confidence": "中",
+      "falsification": "如果中东地缘缓和、原油价格回落，则海外成本优势恢复"
+    }
+  ],
+  "load_bearing_judgment": "永久性关停超300万吨无效与落后产能，打断无序扩张链条，行业正式进入'产能负增长'与利润修复时代，供需紧平衡曙光初现。",
+  "valuation_spectrum": [
+    {
+      "tier": "核心仓",
+      "codes": [],
+      "names": [],
+      "pe_range": "",
+      "logic": "行业龙头受益供给出清和成本优势，业绩兑现确定性高",
+      "chain_segment": "PVC产业链"
+    },
+    {
+      "tier": "弹性层",
+      "codes": [],
+      "names": [],
+      "pe_range": "",
+      "logic": "小市值高弹性品种，逻辑正确但估值尚未充分反映",
+      "chain_segment": "PVC产业链"
+    },
+    {
+      "tier": "规避",
+      "codes": [],
+      "names": [],
+      "pe_range": "",
+      "logic": "与地产高度绑定且无转型迹象的伪相关标的",
+      "chain_segment": "PVC产业链"
+    }
+  ],
+  "duration_spectrum": [
+    {
+      "duration": "短期",
+      "years": "2026",
+      "theme": "抢出口逼空行情",
+      "note": "出口退税取消政策引发阶段性抢出口，显性及隐性库存被抽干，触发期现两端暴力逼空"
+    },
+    {
+      "duration": "中期",
+      "years": "2027",
+      "theme": "供给侧改革出清",
+      "note": "永久关停超300万吨产能效果显现，行业供需格局由过剩转向紧平衡"
+    },
+    {
+      "duration": "长期",
+      "years": "2029+",
+      "theme": "新基建需求重构",
+      "note": "十五五超大规模新基建（城市管网、国家水网）接棒地产，带来百万吨级确定性增量"
+    }
+  ],
+  "risk_signals": [],
+  "chains_involved": [
+    "PVC产业链",
+    "煤-电-电石-氯碱一体化产业链"
+  ],
+  "themes": [
+    "周期觉醒",
+    "估值重塑",
+    "供给侧改革",
+    "新基建",
+    "出口退税",
+    "逼空行情"
+  ],
+  "serenity_inject": {
+    "chains_to_update": [],
+    "expectation_gap_signals": [
+      {
+        "chain_segment": "电石-PVC",
+        "gap_type": "高预期差",
+        "detail": "市场认为供给严重过剩，实际供给出清超预期，供需紧平衡提前到来"
+      }
+    ]
+  },
+  "advice_inject": {
+    "chokemap_signals": [
+      "出口退税取消引发抢出口，显性及隐性库存快速去化"
+    ],
+    "w5_risks": [],
+    "w3_gaps": []
+  },
+  "title": "告别内卷与地产泥潭，2026年PVC资产迎来史诗级重塑",
+  "date": "2026-03-08",
+  "topic_id": 14588121851248252,
+  "title_clean": "告别内卷与地产泥潭，2026年PVC资产迎来史诗级重塑",
+  "body_length": 1411
+}

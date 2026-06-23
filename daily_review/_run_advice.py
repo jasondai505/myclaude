@@ -645,6 +645,160 @@ def _inject_supply_chain_intel(today: str) -> str:
         return f"（晨间情报读取失败: {e}）"
 
 
+def _inject_shendu_insights(today: str) -> str:
+    """注入深度投研洞见信号（60天内 + 行情复活）。
+
+    分层：
+      1. 近期信号（60天内）：format_for_advice() 格式化为 Markdown
+      2. 复活信号（60天以上 + 行情匹配）：历史VP与当日热点板块/强势股有交集则复活
+    """
+    SHENDU_DIR = BASE / "reports" / "serenity" / "shendu"
+    if not SHENDU_DIR.exists():
+        return "_（深度投研洞见数据不可用）_"
+
+    two_months_ago = (date.today() - timedelta(days=60)).isoformat()
+
+    recent_articles = []
+    archived_articles = []
+
+    for fp in sorted(SHENDU_DIR.iterdir()):
+        if not fp.name.startswith("shendu_2026") or fp.name.startswith("shendu__"):
+            continue
+        try:
+            data = json.loads(fp.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if data.get("date", "") >= two_months_ago:
+            recent_articles.append(data)
+        else:
+            archived_articles.append(data)
+
+    lines = []
+
+    # === 近期信号 ===
+    if recent_articles:
+        lines.append("## 📖 深度投研洞见 · 近期信号（60天内）")
+        lines.append(f"> {len(recent_articles)} 篇近期深度文章\n")
+
+        # 承重判断汇总
+        lbjs = [(a.get("date", ""), a.get("load_bearing_judgment", ""))
+                for a in recent_articles if a.get("load_bearing_judgment")]
+        if lbjs:
+            lines.append("### 关键承重判断")
+            for d, lbj in lbjs[-10:]:
+                lines.append(f"- [{d}] {lbj[:150]}")
+            lines.append("")
+
+        # 高置信度预期差
+        all_vps = []
+        for a in recent_articles:
+            for vp in a.get("variant_perceptions", []):
+                all_vps.append({
+                    "date": a.get("date", ""),
+                    "title": a.get("title_clean", "") or a.get("title", ""),
+                    "consensus": vp.get("consensus", ""),
+                    "variant": vp.get("variant", ""),
+                    "confidence": vp.get("confidence", ""),
+                    "falsification": vp.get("falsification", ""),
+                })
+
+        high_vps = [vp for vp in all_vps if vp["confidence"] == "高"]
+        if high_vps:
+            lines.append(f"### W3 高置信度预期差（{len(high_vps)} 条）")
+            for vp in high_vps[-15:]:
+                lines.append(f"- [{vp['date']}] **{vp['consensus'][:60]}** → {vp['variant'][:80]}")
+                if vp["falsification"]:
+                    lines.append(f"  证伪: {vp['falsification'][:80]}")
+            lines.append("")
+
+        # 风险信号
+        all_risks = []
+        for a in recent_articles:
+            for r in a.get("risk_signals", []):
+                all_risks.append({
+                    "date": a.get("date", ""),
+                    "type": r.get("type", ""),
+                    "target": r.get("target", ""),
+                    "detail": r.get("detail", ""),
+                })
+        if all_risks:
+            lines.append(f"### W5 近期风险信号（{len(all_risks)} 条）")
+            for r in all_risks[-10:]:
+                lines.append(f"- [{r['date']}] **{r['type']}** — {r['target']}: {r['detail'][:80]}")
+            lines.append("")
+
+    # === 复活信号 ===
+    if archived_articles:
+        # 当日热点判断：读取今日板块异动数据
+        today_hot_sectors = set()
+        today_hot_stocks = set()
+        try:
+            sector_fp = BASE / "reports" / "feeds" / f"sector_heat_{today}.json"
+            if sector_fp.exists():
+                sector_data = json.loads(sector_fp.read_text(encoding="utf-8"))
+                for s in sector_data[:10] if isinstance(sector_data, list) else []:
+                    if isinstance(s, dict):
+                        today_hot_sectors.add(s.get("sector", ""))
+                        for sc in s.get("stocks", []):
+                            if isinstance(sc, str) and len(sc) == 6:
+                                today_hot_stocks.add(sc)
+        except Exception:
+            pass
+
+        # 如果当日板块数据不可用，用 theme 文件替代
+        if not today_hot_sectors:
+            try:
+                theme_fp = BASE / "reports" / f"review_{today}.md"
+                if theme_fp.exists():
+                    text = theme_fp.read_text(encoding="utf-8")
+                    for m in re.finditer(r'[036]\d{5}', text):
+                        today_hot_stocks.add(m.group(0))
+            except Exception:
+                pass
+
+        revived = []
+        for a in archived_articles:
+            # 检查板块匹配
+            chains = set(a.get("chains_involved", []))
+            themes = set(a.get("themes", []))
+            codes_in_article = set()
+            for v in a.get("valuation_spectrum", []):
+                for c in v.get("codes", []):
+                    codes_in_article.add(str(c).strip().zfill(6))
+
+            # 复活条件：板块交集 OR 标的交集
+            chain_match = bool(chains & today_hot_sectors) or bool(themes & today_hot_sectors)
+            stock_match = bool(codes_in_article & today_hot_stocks)
+
+            if chain_match or stock_match:
+                match_type = []
+                if chain_match: match_type.append("板块匹配")
+                if stock_match: match_type.append("标的匹配")
+                revived.append({
+                    "date": a.get("date", ""),
+                    "title": (a.get("title_clean", "") or a.get("title", ""))[:60],
+                    "match": "+".join(match_type),
+                    "thesis": (a.get("thesis", "") or "")[:120],
+                    "vps": a.get("variant_perceptions", []),
+                })
+
+        if revived:
+            lines.append("## 📋 历史存档复活（行情匹配）")
+            lines.append(f"> 当日热点与 {len(revived)} 篇历史深度文章存在交集\n")
+            for r in revived[:8]:
+                lines.append(f"- [{r['date']}] **{r['title']}** ({r['match']})")
+                lines.append(f"  核心论点: {r['thesis'][:100]}")
+                for vp in r["vps"][:2]:
+                    if vp.get("confidence") == "高":
+                        lines.append(f"  预期差: {vp.get('consensus','')[:50]} → {vp.get('variant','')[:60]}")
+                lines.append("")
+
+    if not lines:
+        return "_（深度投研洞见: 暂无近期信号或行情匹配）_"
+
+    return "\n".join(lines)
+
+
 def _inject_intel_dimensions(today: str) -> str:
     """注入五维信号预处理结果。暂为占位，后续由 _preprocess_intel.py 产出。"""
     path = BASE / "reports" / "feeds" / f"intel_dimensions_{today}.md"
@@ -2831,6 +2985,7 @@ def main():
     weibo = _inject_weibo(today)
     primary_synthesis = _inject_primary_synthesis(today)
     marginal = _inject_marginal(today)
+    shendu_insights = _inject_shendu_insights(today)
     recurring = _scan_recurring_themes(today)
     theme_clock = _inject_theme_clock(today)
     theme_lifecycle = _inject_theme_lifecycle_labels(today)
@@ -2904,6 +3059,7 @@ def main():
         .replace("%%YESTERDAY_LOGIC%%", yesterday_logic)
         .replace("%%FEV_TABLE%%", fev_table)
         .replace("%%GFACTOR_TABLE%%", gfactor_table)
+        .replace("%%SHENDU_INSIGHTS%%", shendu_insights)
         .replace("%%CATALYST_SCREEN%%", _inject_catalyst_screen(today))
         .replace("%%CATALYST_TRACK%%", _inject_catalyst_track(today))
         .replace("%%DEEP_READ%%", feeds.get("%%DEEP_READ%%", ""))

@@ -1,0 +1,69 @@
+{
+  "thesis": "真正的‘卡脖子’不是PPO，而是产业链利润分配中的‘超额传导’环节",
+  "variant_perceptions": [
+    {
+      "id": 1,
+      "consensus": "PPO涨价 → DMP也会涨价 → 寻找DMP标的（如002102 ST能特）",
+      "variant": "DMP议价能力弱、扩产周期短（1–2年）、海外进口可替代，PPO厂超额传导导致DMP单吨利润仅小幅提升；超额传导赢家是PCB厂（传导率179%）",
+      "confidence": "高",
+      "falsification": "若DMP产能出现长期不可替代的供给缺口，或下游PCB需求骤降导致PPO厂被迫让利，则此判断被证伪"
+    }
+  ],
+  "load_bearing_judgment": "PPO厂超额传导（投入端+94%，产出端+125%，传导率133%）导致DMP单吨利润仅小幅提升，而PCB厂超额传导率179%成为最大赢家",
+  "valuation_spectrum": [
+    {
+      "tier": "核心仓",
+      "codes": [],
+      "names": [],
+      "pe_range": "",
+      "logic": "PCB厂超额传导率最高（179%），受益最确定，但需具体标的",
+      "chain_segment": "PCB"
+    },
+    {
+      "tier": "弹性层",
+      "codes": [],
+      "names": [],
+      "pe_range": "",
+      "logic": "CCL厂传导率104%，同步受益但弹性不如PCB",
+      "chain_segment": "CCL"
+    },
+    {
+      "tier": "规避",
+      "codes": [
+        "002102"
+      ],
+      "names": [
+        "ST能特"
+      ],
+      "pe_range": "",
+      "logic": "DMP议价能力弱，涨价传导不充分，利润增厚有限",
+      "chain_segment": "DMP"
+    }
+  ],
+  "duration_spectrum": [],
+  "risk_signals": [],
+  "chains_involved": [
+    "PPO树脂产业链",
+    "AI算力产业链"
+  ],
+  "themes": [
+    "朱拜勒事件",
+    "AI算力",
+    "PPO涨价",
+    "超额传导"
+  ],
+  "serenity_inject": {
+    "chains_to_update": [],
+    "expectation_gap_signals": []
+  },
+  "advice_inject": {
+    "chokemap_signals": [],
+    "w5_risks": [],
+    "w3_gaps": []
+  },
+  "title": "导弹击中 PPO：AI 算力时代的国产替代窗口期",
+  "date": "2026-05-27",
+  "topic_id": 55522522858144814,
+  "title_clean": "导弹击中 PPO：AI 算力时代的国产替代窗口期",
+  "body_length": 578
+}
