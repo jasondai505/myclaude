@@ -583,17 +583,35 @@ def main():
 
     # 正文已在采集阶段抓全，直接用 DB 里的 description
     articles_with_body = []
+    shendu_articles = []
     for r in rows:
         body = (r.get("description") or "").strip()
-        articles_with_body.append({
-            "feed": r.get("feed_source", "").strip() or "未分类",
+        feed = r.get("feed_source", "").strip()
+        a = {
+            "feed": feed or "未分类",
             "date": (r.get("pub_date") or "")[:10],
             "title": r.get("title", "").strip(),
             "body": body,
-        })
+        }
+        articles_with_body.append(a)
+        if feed == "深度投研洞见" and len(body) > 500:
+            shendu_articles.append(a)
     fetched = sum(1 for a in articles_with_body if a["body"])
     failed = len(articles_with_body) - fetched
     print(f"  正文: {fetched} 成功, {failed} 缺失")
+
+    # 深度投研洞见 → 专用结构化提取器
+    if shendu_articles:
+        print(f"\n  深度投研洞见: {len(shendu_articles)} 篇 → 结构化提取...")
+        for sa in shendu_articles:
+            try:
+                from extractors.shendu import extract as shendu_extract, inject_to_serenity
+                data = shendu_extract(sa["body"], sa["title"], sa["date"])
+                if data:
+                    inject_to_serenity(data)
+                    print(f"    ✓ {sa['title'][:40]}...")
+            except Exception as e:
+                print(f"    ✗ {sa['title'][:30]}...: {e}")
 
     # 阶段一
     print(f"\n  阶段一: 逐篇拆解 (synthesis)...")
