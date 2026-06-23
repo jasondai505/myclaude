@@ -1731,6 +1731,39 @@ def _hot_themes() -> list[dict]:
             except Exception:
                 pass
 
+    # 6. Sonnet 综合研判 — 未兑现预期差主题（加权×3，标注「研判」）
+    synth_path = REPORT_DIR / "serenity" / "shendu_synthesis.md"
+    if synth_path.exists():
+        try:
+            synth_text = synth_path.read_text(encoding="utf-8")
+            # 从「未兑现预期差 Top 20」段落提取关键词
+            in_unfulfilled = False
+            for line in synth_text.split("\n"):
+                if "当前未兑现预期差" in line:
+                    in_unfulfilled = True
+                    continue
+                if in_unfulfilled and line.startswith("###"):
+                    break
+                if in_unfulfilled:
+                    for kw_group in KW_MAP:
+                        for kw in kw_group:
+                            if kw in line:
+                                # 研判来源加权×3，强调其来自综合研判框架
+                                for _ in range(3):
+                                    _add_theme(kw_group[0], "研判", [])
+                                break
+            # 从四模式段落也提取
+            mode_section = re.search(r'### 第四部分.*?(?=---|\Z)', synth_text, re.DOTALL)
+            if mode_section:
+                mode_text = mode_section.group(0)
+                for kw_group in KW_MAP:
+                    for kw in kw_group:
+                        if kw in mode_text:
+                            _add_theme(kw_group[0], "研判", [])
+                            break
+        except Exception:
+            pass
+
     result = []
     # Cross-reference with chain maps for sub-sector tags
     chains = _load_chain_maps()
