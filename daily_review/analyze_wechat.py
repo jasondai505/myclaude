@@ -581,17 +581,10 @@ def main():
 
     from roles import get_client as _get_client
 
-    # 抓取正文
-    print(f"  抓取 {len(rows)} 篇文章正文...")
+    # 正文已在采集阶段抓全，直接用 DB 里的 description
     articles_with_body = []
     for r in rows:
-        url = (r.get("url") or "").strip()
-        body = ""
-        if url.startswith("https://mp.weixin.qq.com"):
-            time.sleep(random.uniform(FETCH_DELAY_MIN, FETCH_DELAY_MAX))
-            body = _scrape_article(url)
-        else:
-            body = (r.get("description") or "").strip()
+        body = (r.get("description") or "").strip()
         articles_with_body.append({
             "feed": r.get("feed_source", "").strip() or "未分类",
             "date": (r.get("pub_date") or "")[:10],
@@ -600,7 +593,7 @@ def main():
         })
     fetched = sum(1 for a in articles_with_body if a["body"])
     failed = len(articles_with_body) - fetched
-    print(f"  正文: {fetched} 成功, {failed} 失败")
+    print(f"  正文: {fetched} 成功, {failed} 缺失")
 
     # 阶段一
     print(f"\n  阶段一: 逐篇拆解 (synthesis)...")
