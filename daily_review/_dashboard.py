@@ -1651,13 +1651,37 @@ def _hot_themes() -> list[dict]:
 
 
 def _discover_chain_xlsx() -> list[Path]:
-    """Auto-discover chain map XLSX files: *产业链*涨跌幅.xlsx"""
+    """Auto-discover chain map XLSX files: *产业链*涨跌幅.xlsx.
+
+    递归搜索项目根及 alpha产业图谱/ 子目录，同产业链取文件名日期最新的。
+    """
+    import re as _re
     project_root = Path(__file__).parent.parent
-    xlsx_files = []
-    for pattern in ["*产业链*涨跌幅.xlsx", "*产业链*.xlsx"]:
+    candidates: dict[str, Path] = {}  # plate_name → best file
+    date_pat = _re.compile(r"(\d{8})")
+    for pattern in ["**/*产业链*涨跌幅.xlsx", "**/*产业链*.xlsx"]:
         for fp in project_root.glob(pattern):
-            if fp not in xlsx_files:
-                xlsx_files.append(fp)
+            stem = fp.stem
+            # 提取产业链名称（去掉日期后缀）
+            m = date_pat.search(stem)
+            key = stem[:m.start()].rstrip("_-") if m else stem
+            existing = candidates.get(key)
+            if existing is None:
+                candidates[key] = fp
+            else:
+                # 取文件名日期更新的
+                def _extract_date(p: Path) -> int:
+                    dm = date_pat.search(p.stem)
+                    return int(dm.group(1)) if dm else 0
+                if _extract_date(fp) > _extract_date(existing):
+                    candidates[key] = fp
+    xlsx_files = sorted(candidates.values())
+    if not xlsx_files:
+        # fallback: 非递归搜索根目录
+        for pattern in ["*产业链*涨跌幅.xlsx", "*产业链*.xlsx"]:
+            for fp in project_root.glob(pattern):
+                if fp not in xlsx_files:
+                    xlsx_files.append(fp)
     return sorted(xlsx_files)
 
 
