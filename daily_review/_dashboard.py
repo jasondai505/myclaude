@@ -1491,6 +1491,55 @@ def _aggregate_signals(dr: dict) -> dict:
     return {"deep": deep[:20], "watch": watch[:20]}
 
 
+def _shendu_synthesis_digest() -> str:
+    """提取综合研判报告的核心要点，注入 Dashboard。"""
+    synth_path = REPORT_DIR / "serenity" / "shendu_synthesis.md"
+    if not synth_path.exists():
+        return ""
+    try:
+        text = synth_path.read_text(encoding="utf-8")
+    except Exception:
+        return ""
+
+    # 提取第一部分的阶段划分
+    lines = []
+    lines.append("> 由 Sonnet 综合研判 120 篇深度投研洞见产出 | [全文](serenity/shendu_synthesis.md)\n")
+
+    # 提取底层世界观
+    m = re.search(r'\*\*底层世界观\*\*[：:]\s*(.+?)(?:\n|$)', text)
+    if m:
+        lines.append(f"**核心叙事**: {m.group(1)[:200]}\n")
+
+    # 提取三个月度的阶段划分
+    stages = re.findall(r'\*\s+\*\*第[一二三]幕[：:].+?\*\*[—–-](.+?)(?:\n|$)', text)
+    if stages:
+        lines.append("**阶段演化**:")
+        for i, s in enumerate(stages):
+            stage_names = ["铺垫与播种", "发现与共振", "演绎与兑现"]
+            if i < len(stage_names):
+                lines.append(f"- {stage_names[i]}: {s[:150]}")
+        lines.append("")
+
+    # 提取预测回溯评分表（截取部分）
+    in_table = False
+    table_count = 0
+    for line_text in text.split("\n"):
+        if "完全正确" in line_text or "方向正确" in line_text:
+            in_table = True
+        if in_table and line_text.startswith("|") and table_count < 6:
+            lines.append(line_text[:200])
+            table_count += 1
+        elif in_table and not line_text.startswith("|"):
+            if table_count >= 1:
+                break
+
+    # 链接完整报告
+    if lines:
+        lines.append("\n*[查看完整研判 →](serenity/shendu_synthesis.md)*")
+
+    return "\n".join(lines)
+
+
 def _chain_signal_heat(signals: dict) -> list[dict]:
     """按产业链聚合信号总分，输出产业链热力排名（仅 map_type='chain'）。
 
@@ -2069,6 +2118,14 @@ def generate(today_str: str = "") -> str:
         w()
     else:
         w("_本周暂无强信号标的_")
+        w()
+
+    # 深度投研洞见综合研判摘要
+    synth = _shendu_synthesis_digest()
+    if synth:
+        w("### 📖 深度投研洞见 · 综合研判")
+        w()
+        w(synth)
         w()
 
     # 产业链信号热力 — 按 chain_map 聚合信号

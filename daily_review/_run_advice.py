@@ -793,6 +793,51 @@ def _inject_shendu_insights(today: str) -> str:
                         lines.append(f"  预期差: {vp.get('consensus','')[:50]} → {vp.get('variant','')[:60]}")
                 lines.append("")
 
+    # === 综合研判摘要 ===
+    synth_path = BASE / "reports" / "serenity" / "shendu_synthesis.md"
+    if synth_path.exists():
+        try:
+            synth_text = synth_path.read_text(encoding="utf-8")
+            # 提取核心叙事
+            m = re.search(r'\*\*底层世界观\*\*[：:]\s*(.+?)(?:\n|$)', synth_text)
+            if m:
+                lines.append("## 🧠 综合研判 · 核心叙事")
+                lines.append(f"> {m.group(1)[:250]}")
+                lines.append("")
+
+            # 提取四个跨主题模式
+            lines.append("### 跨主题底层模式")
+            mode_section = re.search(r'### 第四部分.*?(?=---|\Z)', synth_text, re.DOTALL)
+            if mode_section:
+                mode_text = mode_section.group(0)
+                patterns = re.findall(r'\*\*模式\d[：:].+?\*\*[—–-](.+?)(?:\n|$)', mode_text)
+                for p in patterns[:4]:
+                    lines.append(f"- {p[:150]}")
+                lines.append("")
+
+            # 提取预测回溯简表
+            lines.append("### 预测准确度回溯")
+            in_table = False
+            count = 0
+            for line_text in synth_text.split("\n"):
+                if "完全正确" in line_text or "方向正确" in line_text:
+                    in_table = True
+                if in_table and line_text.startswith("|") and count < 7:
+                    if count == 0:  # header
+                        lines.append(line_text[:180])
+                    elif count > 0:
+                        # extract key parts
+                        parts = line_text.split("|")
+                        if len(parts) >= 4:
+                            lines.append(f"| {parts[1].strip()[:30]} | {parts[2].strip()[:10]} | {parts[3].strip()[:100]} |")
+                    count += 1
+                elif in_table and not line_text.startswith("|"):
+                    if count >= 1:
+                        break
+            lines.append("")
+        except Exception:
+            pass
+
     if not lines:
         return "_（深度投研洞见: 暂无近期信号或行情匹配）_"
 
