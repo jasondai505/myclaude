@@ -613,6 +613,23 @@ def main():
             except Exception as e:
                 print(f"    ✗ {sa['title'][:30]}...: {e}")
 
+    # 韭研脱水研报 → 催化事件提取器
+    jiuyan_articles = [a for a in articles_with_body
+                       if a["feed"] == "韭研脱水研报" and len(a["body"]) > 200]
+    if jiuyan_articles:
+        total_events = 0
+        for ja in jiuyan_articles:
+            try:
+                from extractors.jiuyan import extract as jiuyan_extract, inject_to_catalyst_screen
+                events = jiuyan_extract(ja["body"], ja["title"], ja["date"])
+                if events:
+                    n = inject_to_catalyst_screen(events)
+                    total_events += n
+            except Exception as e:
+                pass
+        if total_events:
+            print(f"  韭研脱水: {len(jiuyan_articles)} 篇 → {total_events} 催化事件 → catalyst_screen")
+
     # 阶段一
     print(f"\n  阶段一: 逐篇拆解 (synthesis)...")
     s1_client = _get_client("synthesis", timeout=TIMEOUT)

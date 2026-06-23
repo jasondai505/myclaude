@@ -110,7 +110,7 @@ def extract(body: str, title: str = "", date_str: str = "") -> dict | None:
         return None
 
     client = _get_client()
-    prompt = _EXTRACT_PROMPT.format(body=body[:8000])
+    prompt = _EXTRACT_PROMPT.format(body=body[:6000])  # 6000字上限，防token溢出
 
     for attempt in range(3):
         try:
