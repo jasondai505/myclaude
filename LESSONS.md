@@ -47,7 +47,7 @@
 - .env.example 被 .env.* 规则误杀，需 git add -f
 - `reports/` 在 .gitignore，dashboard/feed_index 不能 git add
 - 探索 Agent 审计可能出现误报（engine_focus/emerging_dragon 实际被 run.py 调用，单主因归因实际已正确）
-- 理杏仁并行化因 Tab 缩进问题中途放弃（revert 了文件），下次用 Write 工具重写整个函数
+- ✅ ~~理杏仁并行化~~ — 已完成 2026-06-20（`49e2ab4`，`data/__init__.py:1787` ThreadPoolExecutor(max_workers=5)）
 
 ### 下次会话建议
 - ✅ ~~走势归因分析~~ — 已完成 2026-06-20
