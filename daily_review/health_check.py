@@ -248,6 +248,32 @@ def check_advice_server():
         ISSUES.append("advice_server: 端口 8900 无响应 → 手动 python daily_review/advice_server.py --daemon")
 
 
+def check_silent_excepts():
+    """扫描 daily_review/ 下 try/except:pass 静默吞错点。
+    静默失效的第一大来源——except 块只有 pass 且无日志。
+    """
+    import ast as _ast
+    silent = 0
+    KEY_FILES = [f for f in (Path(__file__).resolve().parent).rglob("*.py")
+                 if f.name not in ("health_check.py",)]
+    for fp in KEY_FILES:
+        try:
+            tree = _ast.parse(fp.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.Try):
+                for handler in node.handlers:
+                    body = [s for s in handler.body
+                            if not (isinstance(s, _ast.Expr) and isinstance(s.value, _ast.Constant)
+                                    and isinstance(s.value.value, str))]
+                    if len(body) == 0:  # 只有字符串常量或完全为空 = 静默吞错
+                        silent += 1
+    print(f"  [except审计] {silent} 处 try/except:pass")
+    if silent > 50:
+        ISSUES.append(f"except审计: {silent}处静默吞错(>50)，建议逐步加日志或告警")
+
+
 def check_name_map():
     """名称→代码映射行数检查。映射为空则 validator 全线断裂。"""
     try:
@@ -321,6 +347,7 @@ def main():
     check_engines()
     check_advice_server()
     check_system_resources()
+    check_silent_excepts()
     check_prompt_audit()
 
     if ISSUES:

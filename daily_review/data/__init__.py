@@ -445,7 +445,11 @@ def _load_name_map() -> dict[str, str]:
         cache = Path(__file__).parent / "stock_codes.json"
         if cache.exists():
             data = json.loads(cache.read_text(encoding="utf-8"))
-            return {c["code"]: c["name"] for c in data.get("codes", [])}
+            result = {c["code"]: c["name"] for c in data.get("codes", [])}
+            if len(result) < 5000:
+                import sys as _sys
+                print(f"[WARN] _load_name_map: 仅{len(result)}条, 代码白名单将降级", file=_sys.stderr)
+            return result
     except Exception:
         pass
     return {}
@@ -474,6 +478,9 @@ def _load_name_to_code_map() -> dict[str, str]:
                     _NAME_TO_CODE[name] = code
     except Exception:
         pass
+    if len(_NAME_TO_CODE) < 5000:
+        import sys as _sys
+        print(f"[WARN] _load_name_to_code_map: 仅{len(_NAME_TO_CODE)}条, validator/Δ/代码提取将降级", file=_sys.stderr)
     return _NAME_TO_CODE
 
 
