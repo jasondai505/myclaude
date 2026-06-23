@@ -27,7 +27,7 @@ CATALYST_DIR.mkdir(parents=True, exist_ok=True)
 
 MULTI_MAP_PATH = Path(__file__).parent / "data" / "multi_concept_map.json"
 
-BATCH_SIZE = 10
+BATCH_SIZE = 15
 TOP_CATALYSTS_FOR_MAPPING = 5
 
 # ============================================================
@@ -148,7 +148,7 @@ _EXTRACT_PROMPT = """你是A股事件驱动分析师。从以下帖子中提取*
 - 纯复盘总结（"今天XX涨了"无新信息）
 - 已充分定价的旧闻（市场已反应>3天）
 
-提取以下类型的催化：
+提取以下类型的催化（⚠️ supply_shock/price_spike 优先级最高，最容易漏检，仔细扫描每一条）：
 - supply_shock: 供给冲击（停产/出口管制/矿山事故/产能退出）
 - price_spike: 价格异动（涨价函/报价跳涨/原材料暴涨）
 - demand_surge: 需求爆发（大额订单/客户导入/政策驱动需求）
