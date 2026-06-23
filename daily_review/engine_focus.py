@@ -59,6 +59,8 @@ def compute_composite_score(
     _score_momentum(scores, stock)
     _score_catalyst(scores, stock, lhb_info, research, zsxq_mentions, limit_up_label)
     _score_bom_moat(scores, stock["code"], bom_moat)
+    _score_chain_anchor(scores, stock["code"])
+    _score_shendu_tier(scores, stock["code"])
     _score_tech_risk(scores, stock, crash_warnings)
 
     return _compute_advice(scores)
@@ -214,6 +216,56 @@ def _score_bom_moat(scores: dict, code: str, bom_moat: dict | None):
         bonus = 0
 
     scores["bom"] = bonus
+
+
+def _score_chain_anchor(scores: dict, code: str):
+    """chain_map DB 产业链锚定加权：有链位置 +3~5 分。"""
+    try:
+        from theme_stock.store import ThemeStockStore
+        store = ThemeStockStore()
+        store.init_db()
+        row = store._get_conn().execute(
+            "SELECT COUNT(*) as cnt FROM chain_map WHERE code=? AND map_type='chain'",
+            (code,)
+        ).fetchone()
+        if row and row["cnt"] >= 3:
+            scores["chain"] = 5
+        elif row and row["cnt"] >= 1:
+            scores["chain"] = 3
+        else:
+            scores["chain"] = 0
+    except Exception:
+        scores["chain"] = 0
+
+
+def _score_shendu_tier(scores: dict, code: str):
+    """Shendu 估值分层加权：核心仓 +5，弹性层 +2，规避 -3。"""
+    try:
+        import json
+        from pathlib import Path
+        shendu_dir = Path(__file__).parent / "reports" / "serenity" / "shendu"
+        if not shendu_dir.exists():
+            scores["shendu"] = 0
+            return
+        for fp in shendu_dir.iterdir():
+            if not fp.name.startswith("shendu_2026") or fp.name.startswith("shendu__"):
+                continue
+            data = json.loads(fp.read_text(encoding="utf-8"))
+            for v in data.get("valuation_spectrum", []):
+                if str(code).zfill(6) in [str(c).zfill(6) for c in v.get("codes", [])]:
+                    tier = v.get("tier", "")
+                    if tier == "核心仓":
+                        scores["shendu"] = 5
+                    elif tier == "弹性层":
+                        scores["shendu"] = 2
+                    elif tier == "规避":
+                        scores["shendu"] = -3
+                    else:
+                        scores["shendu"] = 1
+                    return
+        scores["shendu"] = 0
+    except Exception:
+        scores["shendu"] = 0
 
 
 # ============================================================
