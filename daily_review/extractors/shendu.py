@@ -147,13 +147,17 @@ def extract(body: str, title: str = "", date_str: str = "") -> dict | None:
                 data = json.loads(m.group(0))
             except json.JSONDecodeError:
                 pass
-    # 模式3: 从第一个 { 到最后一个 }
+    # 模式3: 从第一个 { 到最后一个 }，容错尾部逗号
     if data is None:
         start = text.find("{")
         end = text.rfind("}")
         if start >= 0 and end > start:
+            raw = text[start:end + 1]
+            # 修复常见 JSON 格式问题
+            raw = re.sub(r",\s*([}\]])", r"\1", raw)  # 尾部逗号
+            raw = re.sub(r"(\d+)\.\s*([}\]])", r"\1\2", raw)  # 数字后跟 . 而非 ,
             try:
-                data = json.loads(text[start:end + 1])
+                data = json.loads(raw)
             except json.JSONDecodeError:
                 pass
     if data is None:
@@ -166,49 +170,27 @@ def extract(body: str, title: str = "", date_str: str = "") -> dict | None:
 
 
 def inject_to_serenity(data: dict) -> bool:
-    """将提取结果注入 Serenity KB。
+    """将提取结果注入 Serenity 体系。
 
-    更新对应产业链的预期差信号，作为主题生命周期的补充维度。
+    写 JSON 到 reports/serenity/shendu/，供 advice/ChokeMap 引用。
     """
     if not data:
         return False
-    si = data.get("serenity_inject", {})
-    if not si:
-        return False
 
     try:
-        from daily_review.serenity_kb import init_db, get_stock_scores
-        init_db()
-    except Exception:
-        return False
+        out_dir = Path(__file__).resolve().parent.parent / "reports" / "serenity" / "shendu"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        date_str = data.get("date", "unknown")
+        out_path = out_dir / f"shendu_{date_str}.json"
+        out_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    chains = si.get("chains_to_update", [])
-    gaps = si.get("expectation_gap_signals", [])
-    if not chains and not gaps:
-        return False
-
-    # 写分析日志到 serenity DB（预期差信号作为 analysis_log 记录）
-    try:
-        import sqlite3
-        from datetime import datetime
-        db = Path(__file__).resolve().parent.parent / "data" / "serenity.db"
-        conn = sqlite3.connect(str(db))
-        conn.execute(
-            "INSERT OR REPLACE INTO analysis_log (chain_name, analysis_type, "
-            "content, created_at) VALUES (?, ?, ?, ?)",
-            ("深度投研洞见", "expectation_gap",
-             json.dumps({"chains": chains, "gaps": gaps,
-                         "thesis": data.get("thesis", ""),
-                         "title": data.get("title", "")},
-                        ensure_ascii=False),
-             datetime.now().strftime("%Y-%m-%d %H:%M")),
-        )
-        conn.commit()
-        conn.close()
-        print(f"  [深度投研→Serenity] 注入 {len(chains)} 链, {len(gaps)} 预期差")
+        chains = data.get("chains_involved", [])
+        vps = data.get("variant_perceptions", [])
+        print(f"  [深度投研→Serenity] {out_path.name}: "
+              f"{len(chains)}链, {len(vps)}预期差, {len(data.get('risk_signals',[]))}风险")
         return True
     except Exception as e:
-        print(f"  [深度投研→Serenity] 注入失败: {e}")
+        print(f"  [深度投研→Serenity] 写入失败: {e}")
         return False
 
 
