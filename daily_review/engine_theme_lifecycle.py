@@ -57,6 +57,25 @@ def lifecycle(lookback: int = LOOKBACK) -> list[dict]:
     week_ago = (today - timedelta(days=7)).isoformat()
     two_weeks_ago = (today - timedelta(days=14)).isoformat()
 
+    # Shendu 主题背书：匹配 shendu JSON 中的 themes/chains
+    shendu_backed = set()
+    try:
+        shendu_dir = Path(__file__).parent / "reports" / "serenity" / "shendu"
+        if shendu_dir.exists():
+            two_months = (date.today() - timedelta(days=60)).isoformat()
+            for fp in shendu_dir.iterdir():
+                if not fp.name.startswith("shendu_2026") or fp.name.startswith("shendu__"):
+                    continue
+                try:
+                    d = json.loads(fp.read_text(encoding="utf-8"))
+                    if d.get("date", "") >= two_months:
+                        for t in d.get("themes", []) + d.get("chains_involved", []):
+                            shendu_backed.add(t)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
     result = []
     for theme, data in themes.items():
         dates = sorted(data["dates"])
@@ -96,6 +115,7 @@ def lifecycle(lookback: int = LOOKBACK) -> list[dict]:
             "first_date": first, "last_date": last, "trend": trend,
             "has_trend": has_trend, "signal_count": data["count"],
             "max_score": data["max_score"], "avg_score": avg_score,
+            "shendu_backed": theme in shendu_backed,
         })
 
     state_order = {"active": 0, "confirmed": 1, "emerging": 2, "cooling": 3, "dormant": 4}
