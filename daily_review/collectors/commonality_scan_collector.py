@@ -19,6 +19,35 @@ import store
 SOURCE_NAME = "commonality_scan"
 
 
+def _save_to_sector_log(today: str, day_data: dict) -> int:
+    """将概念计数写入 sector_rotation_log，供板块轮动 engine 使用。"""
+    concept_counts = day_data.get("concept_counts", {})
+    if not concept_counts:
+        return 0
+    # 去噪：排除占位符概念和单只标的的概念
+    rows = []
+    for concept, cnt in sorted(concept_counts.items()):
+        if not concept or concept == "--" or cnt <= 1:
+            continue
+        rows.append({
+            "date": today,
+            "row_type": "index_score",
+            "score": cnt,
+            "sector": concept,
+        })
+    if rows:
+        import store as _st
+        _st.init_db()
+        with _st._conn() as conn:
+            conn.execute("DELETE FROM sector_rotation_log WHERE date = ? AND row_type = 'index_score'", (today,))
+            conn.executemany(
+                "INSERT INTO sector_rotation_log "
+                "(date, row_type, score, sector) VALUES (?, ?, ?, ?)",
+                [(r["date"], r["row_type"], r["score"], r["sector"]) for r in rows],
+            )
+    return len(rows)
+
+
 def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> dict:
     today = until.isoformat()
 
@@ -43,12 +72,14 @@ def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> di
         day_data["date"] = today
         save_cache(day_data)
 
+        n_sectors = _save_to_sector_log(today, day_data)
+
         pool_n = day_data.get("pool_count", 0)
         lu_n = day_data.get("limit_up_count", 0)
         mc_n = sum(day_data.get("multi_counts", {}).values())
         return {
             "last_date": today, "status": "ok",
-            "message": f"强势池{pool_n}只(涨停{lu_n}) · 多概念标签{mc_n}个",
+            "message": f"强势池{pool_n}只(涨停{lu_n}) · 多概念标签{mc_n}个 · sector_log +{n_sectors}概念",
         }
     except Exception as e:
         return {
