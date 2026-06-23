@@ -1299,10 +1299,18 @@ def _aggregate_signals(dr: dict) -> dict:
     """
     week_ago = (date.today() - timedelta(days=7)).isoformat()
     names = _load_name_cache()
+    valid_codes = set(names.keys())  # 全市场代码白名单
+    if len(valid_codes) < 5000:
+        valid_codes = None  # 白名单不可靠，放行所有6位代码
     scores: dict[str, dict] = {}
 
     def _ensure(code):
-        code = str(code).zfill(6)
+        code = str(code).strip()
+        if not code.isdigit() or len(code) != 6:
+            return
+        code = code.zfill(6)
+        if valid_codes is not None and code not in valid_codes:
+            return
         if code not in scores:
             scores[code] = {"code": code, "name": names.get(code, ""),
                             "dr_score": 0, "dr_count": 0,
