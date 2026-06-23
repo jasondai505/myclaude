@@ -630,6 +630,21 @@ def main():
         if total_events:
             print(f"  韭研脱水: {len(jiuyan_articles)} 篇 → {total_events} 催化事件 → catalyst_screen")
 
+    # 寻找低估 → 价格信号 + 催化剂日历
+    xunzhao_articles = [a for a in articles_with_body
+                        if a["feed"] == "寻找低估" and len(a["body"]) > 200]
+    if xunzhao_articles:
+        for xa in xunzhao_articles:
+            try:
+                from extractors.xunzhao import extract as xz_extract, inject as xz_inject, format_summary
+                data = xz_extract(xa["body"], xa["title"], xa["date"])
+                if data:
+                    r = xz_inject(data)
+                    print(f"  寻找低估: {xa['date']} → "
+                          f"{r['price']}价格/{r['calendar']}日历/{r['earnings']}业绩")
+            except Exception as e:
+                pass
+
     # 阶段一
     print(f"\n  阶段一: 逐篇拆解 (synthesis)...")
     s1_client = _get_client("synthesis", timeout=TIMEOUT)
