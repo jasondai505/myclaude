@@ -1926,13 +1926,28 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
     # C轨: 催化前2 (从 catalyst_screen JSON，排除F/G轨)
     existing_codes = track_f_codes | track_g_codes
     track_c = []
+    # 走势确认加分：已确认催化 +15 分，让市场验证过的逻辑排前面
+    confirmed_names: set[str] = set()
+    try:
+        import store as _st
+        from datetime import timedelta as _td
+        for i in range(21):
+            d = (date.fromisoformat(today) - _td(days=i)).isoformat()
+            for row in _st.query_catalyst_by_date(d, min_score=20):
+                if row.get("price_confirmed"):
+                    confirmed_names.add(row["catalyst_name"])
+    except Exception:
+        pass
+    CONFIRMED_BOOST = 15
     try:
         cat_path = CATALYST_DIR / f"catalyst_screen_{today}.json"
         if cat_path.exists():
             cat_data = json.loads(cat_path.read_text(encoding="utf-8"))
             cat_candidates = cat_data.get("catalysts", [])
             cat_maps = cat_data.get("stock_maps", {})
-            for cat in sorted(cat_candidates, key=lambda x: -x.get("final_actionability", 0)):
+            for cat in sorted(cat_candidates, key=lambda x: -(
+                x.get("final_actionability", 0) + (CONFIRMED_BOOST if x.get("catalyst_name", "") in confirmed_names else 0)
+            )):
                 for s in cat_maps.get(cat.get("catalyst_name", ""), []):
                     code = s.get("code", "")
                     if not code or code in existing_codes:
@@ -1943,15 +1958,19 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
                     cand = candidate_map.get(code, {})
                     fv = fev_map.get(code, {})
                     d = delta_map.get(code, {})
+                    cat_name = cat.get("catalyst_name", "?")
+                    is_confirmed = cat_name in confirmed_names
                     track_c.append({
                         "code": code,
                         "name": s.get("name", cand.get("name", "?")),
-                        "catalyst": cat.get("catalyst_name", "?"),
-                        "actionability": cat.get("final_actionability", 0),
+                        "catalyst": cat_name,
+                        "actionability": cat.get("final_actionability", 0) + (CONFIRMED_BOOST if is_confirmed else 0),
+                        "actionability_raw": cat.get("final_actionability", 0),
+                        "confirmed": is_confirmed,
                         "fev": fv.get("fev", 0),
                         "fevd": fv.get("fev", 0) + (d.get("delta_score", 0) if d else 0),
                         "confidence": s.get("confidence", "?"),
-                        "source": "催化驱动",
+                        "source": "催化驱动" + (" ✅走势确认" if is_confirmed else ""),
                     })
                     existing_codes.add(code)
                     break
@@ -2060,8 +2079,10 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
             driver = c.get("source", "催化") or "催化"
 
         # 催化逻辑
-        if track_label == "C" and c.get("source") == "催化驱动":
+        if track_label == "C" and c.get("source", "").startswith("催化驱动"):
             logic = f"{c.get('catalyst','?')} ({c.get('actionability',0)}分)"
+            if c.get("confirmed"):
+                logic += " ✅走势确认"
         elif track_label == "C":
             logic = c.get("source", "补位")
         else:
