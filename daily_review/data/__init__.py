@@ -442,7 +442,7 @@ def _load_name_map() -> dict[str, str]:
     try:
         from pathlib import Path
         import json
-        cache = Path(__file__).parent / "data" / "stock_codes.json"
+        cache = Path(__file__).parent / "stock_codes.json"
         if cache.exists():
             data = json.loads(cache.read_text(encoding="utf-8"))
             return {c["code"]: c["name"] for c in data.get("codes", [])}
@@ -464,7 +464,7 @@ def _load_name_to_code_map() -> dict[str, str]:
     try:
         from pathlib import Path
         import json
-        cache = Path(__file__).parent / "data" / "stock_codes.json"
+        cache = Path(__file__).parent / "stock_codes.json"
         if cache.exists():
             data = json.loads(cache.read_text(encoding="utf-8"))
             for c in data.get("codes", []):
