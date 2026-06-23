@@ -490,7 +490,7 @@ text = download_report_pdf(pdf_url, info_code)
 
 ### 三条操作备忘
 
-**③ 数据新鲜度是实时面板的隐形杀手**：三个 engine（sector_rotation/market_rhythm/similar_days）已写好但依赖手动导入的 `sector_rotation_log`，数据停在 2026-05-27。`commonality_cache` 生成脚本在 `_archive/` 里但没接入管线。功能在，数据死。任何 Dashboard 新段落的 checklist：**这个数据源是谁在刷新？多久刷新一次？**
+**③ 数据新鲜度**：✅ 已修复 2026-06-24 — `commonality_scan_collector` 每日写入 `sector_rotation_log`，`engine_sector_rotation`/`engine_similar_days` 恢复数据驱动。`engine_market_rhythm` 需 phase 分类逻辑（`phase_launch/relay/expand/backflow`），暂未覆盖。
 
 **④ 大概念的噪音需要双重阈值**：锂电池概念 593 只成分股，8 只涨停 = 1.3%，不算热但绝对数触发了阈值。解法：比率阈值（10%）管小概念 + 绝对数阈值（≥10只）管大概念，且概念必须在 baseline 中才纳入。走势信号与链段的重叠阈值 ≥2 只股票才算有效匹配，避免单只股票的多标签噪音污染链段级别信号。
 
