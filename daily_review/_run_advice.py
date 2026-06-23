@@ -1865,7 +1865,22 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
             c["deep_read_bonus"] = 1
         else:
             c["deep_read_bonus"] = 0
-        c["fevd_adjusted"] = c["fevd"] + c["continuity_bonus"] + c["deep_read_bonus"]
+        # chain_map 锚定加权：有产业链位置的标的 +2
+        chain_bonus = 0
+        try:
+            from theme_stock.store import ThemeStockStore
+            store = ThemeStockStore()
+            store.init_db()
+            row = store._get_conn().execute(
+                "SELECT COUNT(*) as cnt FROM chain_map WHERE code=? AND map_type='chain'",
+                (code,)
+            ).fetchone()
+            if row and row["cnt"] >= 1:
+                chain_bonus = 2
+        except Exception:
+            pass
+        c["chain_anchor_bonus"] = chain_bonus
+        c["fevd_adjusted"] = c["fevd"] + c["continuity_bonus"] + c["deep_read_bonus"] + chain_bonus
 
     # ================================================================
     # 三轨席位制：FEVΔ 5席 + G-Factor 3席 + 催化 2席
