@@ -27,7 +27,10 @@ def _process_one_day(date_str: str) -> dict:
     saved_count = 0
     raw_count = 0
 
-    # 幂等：已处理过的日期跳过
+    # 幂等：超过3天的旧日期，已有结果就跳过
+    # 近3天不跳过——公告可能延迟发布（盘后/次日），INSERT OR REPLACE 处理重复
+    from datetime import date as _date, timedelta as _td
+    days_ago = (_date.today() - _date.fromisoformat(date_str)).days
     conn = store.get_conn()
     try:
         already = conn.execute(
@@ -35,9 +38,9 @@ def _process_one_day(date_str: str) -> dict:
         ).fetchone()[0]
     finally:
         conn.close()
-    if already > 0:
+    if already > 0 and days_ago > 3:
         return {"stage1_count": 0, "stage2_count": 0, "saved_count": 0,
-                "raw_count": 0, "msg": f"({date_str}) 已有{already}条结果，跳过"}
+                "raw_count": 0, "msg": f"({date_str}) 已有{already}条结果(>{3}天前)，跳过"}
 
     announcements = store.query_announcements(date_str)
     if not announcements:
