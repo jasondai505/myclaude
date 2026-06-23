@@ -640,21 +640,26 @@ def _load_concept_stocks() -> dict[str, list[str]]:
 
 def _build_code_chain_map() -> dict[str, list[dict]]:
     """构建代码→产业链映射（从 theme_stock chain_map DB, chain 优先于 bucket）。"""
-    from theme_stock.store import ThemeStockStore
-    store = ThemeStockStore()
-    store.init_db()
-    code_map: dict[str, list[dict]] = {}
-    for row in store._get_conn().execute(
-        """SELECT DISTINCT code, industry as plate, tier as l1, segment as l2, map_type
-           FROM chain_map WHERE market='A'
-           ORDER BY CASE map_type WHEN 'chain' THEN 0 ELSE 1 END"""
-    ):
-        code_map.setdefault(row["code"], []).append({
-            "plate": row["plate"], "l1": row["l1"], "l2": row["l2"],
-            "map_type": row["map_type"],
-        })
-    store.close()
-    return code_map
+    try:
+        from theme_stock.store import ThemeStockStore
+    except ImportError:
+        return {}
+    try:
+        store.init_db()
+        code_map: dict[str, list[dict]] = {}
+        for row in store._get_conn().execute(
+            """SELECT DISTINCT code, industry as plate, tier as l1, segment as l2, map_type
+               FROM chain_map WHERE market='A'
+               ORDER BY CASE map_type WHEN 'chain' THEN 0 ELSE 1 END"""
+        ):
+            code_map.setdefault(row["code"], []).append({
+                "plate": row["plate"], "l1": row["l1"], "l2": row["l2"],
+                "map_type": row["map_type"],
+            })
+        store.close()
+        return code_map
+    except Exception:
+        return {}
 
 
 def _render_theme_lifecycle(w) -> list[dict]:
@@ -1456,7 +1461,10 @@ def _chain_signal_heat(signals: dict) -> list[dict]:
     输入: _aggregate_signals() 返回的 {"deep": [...], "watch": [...]}
     输出: [{industry, total_signal, stock_count, top_stocks, heat}, ...]
     """
-    from theme_stock.store import ThemeStockStore
+    try:
+        from theme_stock.store import ThemeStockStore
+    except ImportError:
+        return []
 
     all_stocks = signals.get("deep", []) + signals.get("watch", [])
     if not all_stocks:
@@ -1465,8 +1473,11 @@ def _chain_signal_heat(signals: dict) -> list[dict]:
     codes = [s["code"] for s in all_stocks]
     name_by_code = {s["code"]: s["name"] for s in all_stocks}
 
-    store = ThemeStockStore()
-    store.init_db()
+    try:
+        store = ThemeStockStore()
+        store.init_db()
+    except Exception:
+        return []
     placeholders = ",".join("?" for _ in codes)
     cur = store._get_conn().execute(
         f"SELECT code, industry FROM chain_map WHERE code IN ({placeholders}) AND map_type='chain'",
