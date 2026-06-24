@@ -473,16 +473,21 @@ def _parse_layer1_scores(text: str) -> list[dict]:
                 score_str = parts[idx]
                 score_match = re.search(r"(\d+)", score_str)
                 score = int(score_match.group(1)) if score_match else 0
-                if score > 10:
-                    score = min(10, score // 10)
                 segments.append({
                     "tier": parts[0],
                     "segment": parts[1] if len(parts) >= 5 else parts[0],
-                    "chokepoint_score": score,
+                    "_raw_score": score,
                     "supply_status": parts[2] if len(parts) >= 5 else "",
                 })
         elif in_table and not line.startswith("|"):
             in_table = False
+    # 比例归一化：以表内最高分为 10，避免 //10 整数除法全员同分
+    if segments:
+        raw_scores = [s["_raw_score"] for s in segments if s["_raw_score"] > 0]
+        max_raw = max(raw_scores) if raw_scores else 1
+        for s in segments:
+            raw = s.pop("_raw_score")
+            s["chokepoint_score"] = max(1, min(10, round(raw / max_raw * 10))) if raw > 0 else 0
     return segments
 
 

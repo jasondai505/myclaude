@@ -173,8 +173,8 @@ def _dossier_count() -> int:
     return len(list(d.glob("*.md"))) if d.exists() else 0
 
 
-def _score_dossier(text: str, latest_date: str) -> tuple[int, str]:
-    """计算研报档案星级评分 (1-5).
+def _score_dossier(text: str, latest_date: str) -> int:
+    """计算研报档案原始评分 (0-100).
 
     维度: 信号强度(30) + LLM评分(30) + 机构数(15) + 信号频率(15) + 新鲜度(10)
     """
@@ -211,13 +211,22 @@ def _score_dossier(text: str, latest_date: str) -> tuple[int, str]:
         except Exception:
             pass
 
+    return score
+
+
+def _stars_from_score(score: int, max_score: int) -> tuple[str, str]:
+    """比例制星级：score/max_score → ★。"""
     STARS = {5: "★★★★★", 4: "★★★★", 3: "★★★", 2: "★★", 1: "★"}
-    if score >= 70: n = 5
-    elif score >= 50: n = 4
-    elif score >= 30: n = 3
-    elif score >= 15: n = 2
-    else: n = 1
-    return (score, f'<span class="star-{n}">{STARS[n]}</span>', STARS[n])
+    if max_score <= 0:
+        n = 1
+    else:
+        ratio = score / max_score
+        if ratio >= 0.7: n = 5
+        elif ratio >= 0.5: n = 4
+        elif ratio >= 0.3: n = 3
+        elif ratio >= 0.15: n = 2
+        else: n = 1
+    return (f'<span class="star-{n}">{STARS[n]}</span>', STARS[n])
 
 
 def _generate_dossier_index():
@@ -246,13 +255,19 @@ def _generate_dossier_index():
         display = f"{name} ({fp.stem[:6]})" if name else fp.stem[:6]
         sigs = re.findall(r"- \[(\w+)\]\s*(.+?)(?:\s*\([+-]?\d+分\))?\s*$", text, re.MULTILINE)
         sig_type, sig_desc = sigs[-1] if sigs else ("", "")
-        raw_score, html_stars, plain_stars = _score_dossier(text, latest)
+        raw_score = _score_dossier(text, latest)
         dossiers.append({
             "display": display, "code": fp.stem[:6],
             "latest_date": latest,
             "sig_type": sig_type, "sig_desc": sig_desc,
-            "stars": html_stars, "score": raw_score,
+            "score": raw_score,
         })
+
+    # 比例制星级：以最高分档为基准
+    max_score = max((x["score"] for x in dossiers), default=1)
+    for x in dossiers:
+        html_stars, _ = _stars_from_score(x["score"], max_score)
+        x["stars"] = html_stars
 
     # 按日期倒序, 同日期按星级降序
     dossiers.sort(key=lambda x: (x["latest_date"], x["score"]), reverse=True)
@@ -1647,7 +1662,12 @@ def _chain_signal_heat(signals: dict) -> list[dict]:
 
     result = []
     for ind, v in ind_scores.items():
-        heat = min(5, round(v["total_signal"] / max(max_score / 4, 1)))
+        ratio = v["total_signal"] / max_score
+        if ratio >= 0.5: heat = 5
+        elif ratio >= 0.25: heat = 4
+        elif ratio >= 0.1: heat = 3
+        elif ratio >= 0.05: heat = 2
+        else: heat = 1
         top = sorted(v["codes"], key=lambda c: sum(
             s["total"] for s in all_stocks if s["code"] == c
         ), reverse=True)[:8]
@@ -1669,9 +1689,38 @@ def _hot_themes() -> list[dict]:
     themes: dict[str, dict] = {}
     names = _load_name_cache()
 
+    # 构建 code→chain关键词 索引（前置到采集层，避免无关标的污染主题）
+    chains = _load_chain_maps()
+    code_chain_kw: dict[str, set[str]] = {}
+    chain_all_kw: set[str] = set()
+    if chains:
+        for plate, l1_map in chains.items():
+            for l1, l2_map in l1_map.items():
+                for l2, stocks in l2_map.items():
+                    kws = {plate, l1, l2} if l2 and l2 != '-' else {plate, l1}
+                    chain_all_kw.update(kws)
+                    for s in stocks:
+                        code_chain_kw.setdefault(s["code"], set()).update(kws)
+
+    def _stock_matches_theme(code: str, theme_kw: str) -> bool:
+        """检查标的 chain 关键词是否含主题关键字（含 KW_MAP 别名）。"""
+        skw = code_chain_kw.get(code, set())
+        if not skw:
+            return True  # 无 chain 映射的标的不过滤
+        for g in KW_MAP:
+            if g[0] == theme_kw:
+                return any(akw in ckw for akw in g for ckw in skw)
+        return theme_kw in " ".join(skw)
+
     def _add_theme(keyword, source, stocks=None):
         if not keyword or keyword in ("—", "other", "deep_read", "tech_breakthrough", "policy_change"):
             return
+        # 板块主题有 chain 条目时才过滤标的；跨板块事件保留原始标的
+        theme_in_chain = any(kw in ckw for kw in (
+            next((list(g) for g in KW_MAP if g[0] == keyword), [keyword])
+        ) for ckw in chain_all_kw)
+        if theme_in_chain and stocks:
+            stocks = [s for s in stocks if _stock_matches_theme(str(s), keyword)]
         if keyword not in themes:
             themes[keyword] = {"theme": keyword, "count": 0, "sources": set(), "stocks": set()}
         themes[keyword]["count"] += 1
@@ -1828,7 +1877,6 @@ def _hot_themes() -> list[dict]:
 
     result = []
     # Cross-reference with chain maps for sub-sector tags
-    chains = _load_chain_maps()
     tag_map: dict[str, list[str]] = {}
     if chains:
         for plate, l1_map in chains.items():
@@ -1850,40 +1898,10 @@ def _hot_themes() -> list[dict]:
                                     tag_map[kw_group[0]].append(plate_tag)
                                 break
 
-    # 构建 code→chain关键词 索引（plate/l1/l2 分词，用于标的-主题归属校验）
-    code_chain_kw: dict[str, set[str]] = {}
-    chain_all_kw: set[str] = set()
-    if chains:
-        for plate, l1_map in chains.items():
-            for l1, l2_map in l1_map.items():
-                for l2, stocks in l2_map.items():
-                    kws = {plate, l1, l2} if l2 and l2 != '-' else {plate, l1}
-                    chain_all_kw.update(kws)
-                    for s in stocks:
-                        code_chain_kw.setdefault(s["code"], set()).update(kws)
-
     max_count = max((t["count"] for t in themes.values()), default=1)
 
     for t in themes.values():
         stock_list = list(t["stocks"])
-        theme_kw = t["theme"]
-        kw_aliases = []
-        for g in KW_MAP:
-            if g[0] == theme_kw:
-                kw_aliases = list(g)
-                break
-        if not kw_aliases:
-            kw_aliases = [theme_kw]
-        # 板块主题（chain_map 有对应条目）才过滤标的；跨板块事件（涨价/断供）保留原始标的
-        theme_in_chain = any(kw in ckw for kw in kw_aliases for ckw in chain_all_kw)
-        if theme_in_chain and stock_list:
-            filtered = []
-            for s in stock_list:
-                skw = code_chain_kw.get(s, set())
-                if any(akw in ckw for akw in kw_aliases for ckw in skw):
-                    filtered.append(s)
-            if filtered:
-                stock_list = filtered
         named = []
         for s in stock_list[:3]:
             nm = names.get(s, "")

@@ -35,20 +35,28 @@ END = "2026-06-14"
 
 STARS = {5: "★★★★★", 4: "★★★★", 3: "★★★", 2: "★★", 1: "★"}
 
-def _industry_stars(count: int, hot_level: str, inst_count: int) -> str:
-    """根据研报篇数、LLM热度、机构数计算星级(CSS class着色)。"""
+def _industry_score(count: int, hot_level: str, inst_count: int) -> int:
+    """根据研报篇数、LLM热度、机构数计算原始评分。"""
     score = 0
     score += min(count * 0.8, 40)
     score += min(inst_count * 2.5, 25)
     hot_score = {"🔥": 30, "📌": 20, "👀": 10}
     score += hot_score.get(hot_level, 5)
     if count >= 30: score += 5
+    return score
 
-    if score >= 70: n = 5
-    elif score >= 50: n = 4
-    elif score >= 30: n = 3
-    elif score >= 15: n = 2
-    else: n = 1
+
+def _industry_stars_from_score(score: int, max_score: int) -> str:
+    """比例制星级：score/max_score → ★。"""
+    if max_score <= 0:
+        n = 1
+    else:
+        ratio = score / max_score
+        if ratio >= 0.7: n = 5
+        elif ratio >= 0.5: n = 4
+        elif ratio >= 0.3: n = 3
+        elif ratio >= 0.15: n = 2
+        else: n = 1
     return f'<span class="star-{n}">{STARS[n]}</span>'
 
 def main():
@@ -171,9 +179,18 @@ def main():
         "|:----:|------|:----:|:----:|----------|----------|",
     ]
 
+    # 先算原始评分，再比例制分配星级
+    ind_scores = []
     for a in analyses:
         hot = a.get("hot_level", "👀")
-        stars = _industry_stars(a.get("count", 0), hot, a.get("inst_count", 0))
+        raw = _industry_score(a.get("count", 0), hot, a.get("inst_count", 0))
+        ind_scores.append(raw)
+    max_score = max(ind_scores) if ind_scores else 1
+
+    for a in analyses:
+        hot = a.get("hot_level", "👀")
+        raw = _industry_score(a.get("count", 0), hot, a.get("inst_count", 0))
+        stars = _industry_stars_from_score(raw, max_score)
         buf.append(
             f"| {stars} | {a['industry']} | {a.get('count','')} | "
             f"{a.get('inst_count','')} | "
@@ -186,7 +203,8 @@ def main():
         buf.extend(["", "## 重点行业深度解读", ""])
         for a in deep_items:
             hot = a.get("hot_level", "👀")
-            stars = _industry_stars(a.get("count", 0), hot, a.get("inst_count", 0))
+            raw = _industry_score(a.get("count", 0), hot, a.get("inst_count", 0))
+            stars = _industry_stars_from_score(raw, max_score)
             buf.extend([
                 f"### {stars} {a['industry']} ({a.get('count', 0)}篇 · {a.get('inst_count', 0)}家机构)",
                 "",
