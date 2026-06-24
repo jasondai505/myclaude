@@ -18,6 +18,7 @@ from pathlib import Path
 from utils import setup_console
 setup_console()
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import REPORT_DIR
 

@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 sys.stdout.reconfigure(encoding="utf-8")
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 from store import (
     query_zsxq_by_date, query_wechat_articles, query_jiuyang_reports,
