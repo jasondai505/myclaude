@@ -82,9 +82,9 @@ def _theme_block_amount_summary(stocks, zt_set, hot100_set):
     return line
 
 
-def _render_theme_block(lines, t, stocks, narrative_labels, level_icons, zt_pool, hot100_set, theme_pool_lookup):
+def _render_theme_block(lines, t, stocks, narrative_labels, level_icons, zt_pool, hot100_set, theme_pool_lookup, theme_rating=None):
     n_label = narrative_labels.get(t.get("narrative", ""), "")
-    label, score = rate_theme(t)
+    label, score = theme_rating if theme_rating else rate_theme(t)
     alpha = t.get("alpha_label", "")
     driver = t.get("driver", "")
     cons = t.get("consecutive_days", 0)

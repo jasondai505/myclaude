@@ -1,6 +1,6 @@
 """报告段落渲染函数 — 从 render_report 提取的各 Markdown 段落"""
 from config import OVERSEAS_MAP
-from engine import rate_theme
+from engine import rate_theme, rate_themes_batch
 from report_utils import (
     _render_10d_row, _render_10d_board_row, _render_classified_table, _render_theme_block,
     _render_focus_table, _fmt_5d, _cell, _fmt_strength_row, _fmt_theme_amount_line,
@@ -212,13 +212,14 @@ def render_themes(lines, themes, theme_stock_details, focus_pool_data,
             else:
                 major = [t for t in filtered if len(details.get(t["theme"], [])) >= 2 or t.get("today_count", 0) >= 3]
                 minor = [t for t in filtered if t not in major]
-                for t in major:
+                major_ratings = rate_themes_batch(major)
+                for t, rating in zip(major, major_ratings):
                     stocks = details.get(t["theme"], [])
-                    _render_theme_block(lines, t, stocks, narrative_labels, level_icons, zt_pool, hot100_set, theme_pool_lookup)
+                    _render_theme_block(lines, t, stocks, narrative_labels, level_icons, zt_pool, hot100_set, theme_pool_lookup, theme_rating=rating)
                 if minor:
                     minor_parts = []
-                    for t in minor:
-                        label, score = rate_theme(t)
+                    minor_ratings = rate_themes_batch(minor)
+                    for t, (label, score) in zip(minor, minor_ratings):
                         minor_parts.append(f"{t['theme']}({score}{label})")
                     lines.append(f"**其他相关题材**: {'、'.join(minor_parts)}\n")
     else:
@@ -260,15 +261,18 @@ def render_themes(lines, themes, theme_stock_details, focus_pool_data,
         lines.append("### 题材分级总览\n")
         lines.append("| 级别 | 题材 | 叙事阶段 | Alpha来源 | 评分 | 今日涨停 | 连续天数 | 累计涨停 |")
         lines.append("|:----:|------|:--------:|-----------|:----:|--------:|--------:|--------:|")
-        for t in sorted(high_level, key=lambda x: (-x["level"], -x["today_count"])):
-            n_label = narrative_labels.get(t.get("narrative", ""), "")
+        sorted_hl = sorted(high_level, key=lambda x: (-x["level"], -x["today_count"]))
+        entries = []
+        for t in sorted_hl:
             a = aesthetics_map.get(t["theme"], {})
-            alpha = a.get("alpha_label", "")
-            entry = {**t, "alpha_label": alpha, "surge_score": a.get("surge_score", 0)}
-            label, score = rate_theme(entry)
+            entry = {**t, "alpha_label": a.get("alpha_label", ""), "surge_score": a.get("surge_score", 0)}
+            entries.append((t, entry))
+        hl_ratings = rate_themes_batch([e[1] for e in entries])
+        for (t, entry), (label, score) in zip(entries, hl_ratings):
+            n_label = narrative_labels.get(t.get("narrative", ""), "")
             lines.append(
                 f"| {level_icons.get(t['level'], t['label'])} "
-                f"| {t['theme']} | {n_label} | {alpha} | {score} {label} | {t['today_count']} "
+                f"| {t['theme']} | {n_label} | {entry.get('alpha_label', '')} | {score} {label} | {t['today_count']} "
                 f"| {t['consecutive_days']} | {t['cumulative_stocks']} |"
             )
         lines.append("")

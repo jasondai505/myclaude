@@ -505,7 +505,8 @@ def classify_themes_by_trend(theme_result: dict,
     return groups
 
 
-def rate_theme(t: dict) -> tuple[str, int]:
+def rate_theme(t: dict, max_score: int = 0) -> tuple[str, int]:
+    """主题评分（1-10 量表）+ 评级。max_score>0 时用比例制，否则用固定阈值。"""
     level = t.get("level", 0)
     narrative = t.get("narrative", "")
     cons = t.get("consecutive_days", 0)
@@ -541,15 +542,25 @@ def rate_theme(t: dict) -> tuple[str, int]:
 
     score = max(1, min(score, 10))
 
-    if score >= 8:
-        label = "★★★"
-    elif score >= 6:
-        label = "★★"
-    elif score >= 4:
-        label = "★"
+    if max_score > 0:
+        ratio = score / max_score
+        if ratio >= 0.8: label = "★★★"
+        elif ratio >= 0.6: label = "★★"
+        elif ratio >= 0.4: label = "★"
+        else: label = "☆"
     else:
-        label = "☆"
+        if score >= 8: label = "★★★"
+        elif score >= 6: label = "★★"
+        elif score >= 4: label = "★"
+        else: label = "☆"
     return label, score
+
+
+def rate_themes_batch(themes: list[dict]) -> list[tuple[str, int]]:
+    """批量评分：以最高分为基准的比例制星级。"""
+    raw = [rate_theme(t, max_score=0)[1] for t in themes]
+    mx = max(raw) if raw else 1
+    return [rate_theme(t, max_score=mx) for t in themes]
 
 
 def build_merged_theme_pool(hot_df, pop_pool, gain_pool, *,

@@ -17,7 +17,7 @@ from engine_sentiment import (
 )
 from engine_themes import (
     analyze_themes, build_theme_stock_details, expand_theme_stocks,
-    classify_themes_by_trend, rate_theme, normalize_theme,
+    classify_themes_by_trend, rate_theme, rate_themes_batch, normalize_theme,
     build_merged_theme_pool, attach_merged_to_themes, analyze_theme_aesthetics,
     enrich_themes_with_bom,
 )
