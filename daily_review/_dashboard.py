@@ -1850,14 +1850,53 @@ def _hot_themes() -> list[dict]:
                                     tag_map[kw_group[0]].append(plate_tag)
                                 break
 
+    # 构建 code→chain关键词 索引（plate/l1/l2 分词，用于标的-主题归属校验）
+    code_chain_kw: dict[str, set[str]] = {}
+    chain_all_kw: set[str] = set()
+    if chains:
+        for plate, l1_map in chains.items():
+            for l1, l2_map in l1_map.items():
+                for l2, stocks in l2_map.items():
+                    kws = {plate, l1, l2} if l2 and l2 != '-' else {plate, l1}
+                    chain_all_kw.update(kws)
+                    for s in stocks:
+                        code_chain_kw.setdefault(s["code"], set()).update(kws)
+
+    max_count = max((t["count"] for t in themes.values()), default=1)
+
     for t in themes.values():
         stock_list = list(t["stocks"])
+        theme_kw = t["theme"]
+        kw_aliases = []
+        for g in KW_MAP:
+            if g[0] == theme_kw:
+                kw_aliases = list(g)
+                break
+        if not kw_aliases:
+            kw_aliases = [theme_kw]
+        # 板块主题（chain_map 有对应条目）才过滤标的；跨板块事件（涨价/断供）保留原始标的
+        theme_in_chain = any(kw in ckw for kw in kw_aliases for ckw in chain_all_kw)
+        if theme_in_chain and stock_list:
+            filtered = []
+            for s in stock_list:
+                skw = code_chain_kw.get(s, set())
+                if any(akw in ckw for akw in kw_aliases for ckw in skw):
+                    filtered.append(s)
+            if filtered:
+                stock_list = filtered
         named = []
         for s in stock_list[:3]:
             nm = names.get(s, "")
             named.append(f"{nm}({s})" if nm else s)
         t["stocks"] = " ".join(named)
-        t["heat"] = min(t["count"] // 5 + 1, 5)
+        # 比例制星级：count / max_count
+        ratio = t["count"] / max_count
+        if ratio >= 0.5: heat = 5
+        elif ratio >= 0.25: heat = 4
+        elif ratio >= 0.1: heat = 3
+        elif ratio >= 0.05: heat = 2
+        else: heat = 1
+        t["heat"] = heat
         t["source_list"] = "+".join(sorted(t["sources"]))
         t["chain_tags"] = " / ".join(tag_map.get(t["theme"], [])[:3])
         result.append(t)
