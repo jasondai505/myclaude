@@ -158,6 +158,17 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_mc_code ON marginal_changes(code);
             CREATE INDEX IF NOT EXISTS idx_mc_date ON marginal_changes(date);
             CREATE INDEX IF NOT EXISTS idx_mc_theme ON marginal_changes(theme);
+
+            CREATE TABLE IF NOT EXISTS selection_history (
+                code        TEXT NOT NULL,
+                date        TEXT NOT NULL,
+                name        TEXT NOT NULL,
+                track       TEXT NOT NULL,
+                hold_period TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (code, date)
+            );
+            CREATE INDEX IF NOT EXISTS idx_sh_code ON selection_history(code);
+            CREATE INDEX IF NOT EXISTS idx_sh_date ON selection_history(date);
         """)
 
 
@@ -1942,4 +1953,40 @@ def query_hunting_ground_stocks(domain: str = "") -> list[dict]:
     else:
         with _conn() as conn:
             rows = conn.execute("SELECT * FROM hunting_ground_stocks").fetchall()
+    return [dict(r) for r in rows]
+
+
+def save_selection_history(date: str, selections: list[dict]) -> int:
+    """批量写入当日精选标的。已存在的(code, date)覆盖更新。"""
+    if not selections:
+        return 0
+    with _conn() as conn:
+        count = 0
+        for s in selections:
+            conn.execute(
+                "INSERT OR REPLACE INTO selection_history (code, date, name, track, hold_period) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (s["code"], date, s["name"], s["track"], s.get("hold_period", "")),
+            )
+            count += 1
+    return count
+
+
+def query_selection_lookback(code: str, before_date: str, days: int = 30) -> list[dict]:
+    """查询某标的在[before_date - days, before_date]内的入选记录，按日期倒序。"""
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM selection_history WHERE code = ? AND date <= ? AND date >= date(?, ?) "
+            "ORDER BY date DESC",
+            (code, before_date, before_date, f"-{days} days"),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def query_selection_history(date: str) -> list[dict]:
+    """查询某日全部入选标的。"""
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM selection_history WHERE date = ?", (date,),
+        ).fetchall()
     return [dict(r) for r in rows]

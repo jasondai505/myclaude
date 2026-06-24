@@ -1837,6 +1837,14 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
 
     for c in candidates:
         hp = yesterday_holds.get(c["code"], "")
+        if not hp:
+            # 昨日未入选 → 查DB选股历史，取最近一次持有期标签
+            try:
+                rows = store.query_selection_lookback(c["code"], today, days=30)
+                if rows:
+                    hp = rows[0].get("hold_period", "")
+            except Exception:
+                pass
         if hp == "长线底仓":
             c["continuity_bonus"] = 5
         elif hp == "中线趋势":
@@ -2031,6 +2039,19 @@ def _build_selection(output: str, feeds: dict[str, str], today: str) -> str:
             break
 
     selection = track_f + track_g + track_c
+
+    # 持久化选股历史，供 _build_daily_diff 回溯分类和连续性加分
+    try:
+        import store as _store
+        _store.save_selection_history(today, [
+            {"code": c["code"], "name": c["name"],
+             "track": "F" if c in track_f else ("G" if c in track_g else "C"),
+             "hold_period": c.get("hold_period", "")}
+            for c in selection
+        ])
+    except Exception:
+        pass
+
     rank_emoji = ["🥇", "🥈", "🥉"] + ["4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
 
     # 时间姿态
@@ -2332,11 +2353,36 @@ def _build_daily_diff(today_output: str, yesterday: str, today: str) -> str:
     new_entries = today_set - yesterday_set
     exited = yesterday_set - today_set
 
+    # 回溯分类：今日新出现但历史上入选过的 → 归入「回归」
+    LOOKBACK_BY_PERIOD = {"长线底仓": 30, "中线趋势": 14, "短线催化": 5}
+    returning: dict[str, dict] = {}
+    if new_entries:
+        try:
+            for code in sorted(new_entries):
+                rows = store.query_selection_lookback(code, today, days=30)
+                if not rows:
+                    continue
+                hp = rows[0].get("hold_period", "")
+                max_lb = LOOKBACK_BY_PERIOD.get(hp, 14)
+                cutoff = (datetime.strptime(today, "%Y-%m-%d") - timedelta(days=max_lb)).strftime("%Y-%m-%d")
+                recent = [r for r in rows if r["date"] >= cutoff]
+                if recent:
+                    returning[code] = {
+                        "name": today_stocks[code]["name"],
+                        "prev_date": recent[0]["date"],
+                        "hold_period": hp,
+                        "fevd": today_stocks[code]["fevd"],
+                        "delta": today_stocks[code]["delta"],
+                    }
+        except Exception:
+            pass
+    new_entries = new_entries - set(returning.keys())
+
     jaccard = len(continued) / len(yesterday_set | today_set) if (yesterday_set | today_set) else 0
 
     lines = ["", "## 📈 日间变化说明", "",
              f"> 较昨日（{yesterday}）精选标的对比 · 相似度: **{jaccard:.0%}** "
-             f"（延续 {len(continued)} / 新进 {len(new_entries)} / 退出 {len(exited)}）", ""]
+             f"（延续 {len(continued)} / 回归 {len(returning)} / 新进 {len(new_entries)} / 退出 {len(exited)}）", ""]
 
     if continued:
         lines.append("### ✅ 延续标的")
@@ -2352,6 +2398,22 @@ def _build_daily_diff(today_output: str, yesterday: str, today: str) -> str:
             lines.append(
                 f"| {t['name']}({code}) | {y['fevd']} | **{t['fevd']}** | "
                 f"{diff_str} {note} |"
+            )
+        lines.append("")
+
+    if returning:
+        lines.append("### 🔁 回归标的")
+        lines.append("")
+        lines.append("| 标的 | FEVΔ | Δ | 上次入选 | 持有期 | 回归原因 |")
+        lines.append("|------|:----:|:--:|---------|:------:|---------|")
+        for code in sorted(returning, key=lambda c: -returning[c]["fevd"]):
+            r = returning[code]
+            sign = "+" if r["delta"] > 0 else ""
+            ds = f"{sign}{r['delta']}" if r["delta"] != 0 else "0"
+            reason = "催化信号重现" if r["delta"] > 0 else "FEVΔ排名回升"
+            lines.append(
+                f"| {r['name']}({code}) | **{r['fevd']}** | {ds} | "
+                f"{r['prev_date']} | {r['hold_period'] or '未标注'} | {reason} |"
             )
         lines.append("")
 
