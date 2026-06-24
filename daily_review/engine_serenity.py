@@ -22,16 +22,14 @@ BASE = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE))
 sys.path.insert(0, str(BASE.parent))
 
-MODEL = os.getenv("DR_LLM_MODEL", "claude-haiku-4-5-20251001")
-TIMEOUT = 45
 MAX_TOKENS = 3000
 
 
 # ============================================================
-# API key
+# LLM client (unified through roles)
 # ============================================================
 
-from daily_review.llm import _load_api_key
+from roles import get_client, get_model
 
 
 # ============================================================
@@ -137,18 +135,16 @@ def _fetch_fev_scores(codes: list[str]) -> str:
 # ============================================================
 
 def _call_llm(prompt: str) -> str:
-    api_key = _load_api_key()
-    if not api_key:
-        return ""
     try:
-        from anthropic import Anthropic
-    except ImportError:
+        client = get_client("scan")
+        model = get_model("scan")
+    except Exception as e:
+        print(f"  [WARN] serenity LLM client 不可用: {e}")
         return ""
 
     try:
-        client = Anthropic(api_key=api_key, timeout=TIMEOUT)
         resp = client.messages.create(
-            model=MODEL,
+            model=model,
             max_tokens=MAX_TOKENS,
             messages=[{"role": "user", "content": prompt}],
             thinking={"type": "disabled"},

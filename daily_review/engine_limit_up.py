@@ -78,19 +78,19 @@ def _build_llm_context(stocks: list, quotes: dict) -> str:
     return "\n".join(lines)
 
 
-from llm import _load_api_key
+from roles import get_client, get_model
 
 
 def _call_llm_batch(stocks_batch: list, quotes: dict) -> list[dict]:
     ctx = _build_llm_context(stocks_batch, quotes)
     try:
-        from anthropic import Anthropic
-    except ImportError:
+        client = get_client("scan")
+        model = get_model("scan")
+    except Exception:
         return []
-    client = Anthropic(api_key=_load_api_key())
     try:
         resp = client.messages.create(
-            model=os.getenv("DR_LLM_MODEL", "claude-haiku-4-5-20251001"),
+            model=model,
             max_tokens=2000,
             temperature=0.3,
             system="你是A股涨停板分析师。只输出JSON数组，不要其他文字。",
@@ -110,8 +110,11 @@ def _call_llm_batch(stocks_batch: list, quotes: dict) -> list[dict]:
 
 
 def _run_llm_analysis(stocks: list, quotes: dict, label: str = "") -> list[dict]:
-    api_key = _load_api_key()
-    if not api_key or not stocks:
+    if not stocks:
+        return []
+    try:
+        get_client("scan")
+    except Exception:
         return []
 
     BATCH_SIZE = 8
