@@ -54,7 +54,7 @@ def _load_ocr_texts(source_type: str = "serenity", max_chars: int = 50000) -> li
     with sqlite3.connect(str(TRACKER_DB)) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT file_path, ocr_chars FROM ocr_tracker WHERE source_type=? AND analysis_done=0",
+            "SELECT file_path, ocr_text FROM ocr_tracker WHERE source_type=? AND analysis_done=0 AND ocr_text IS NOT NULL AND ocr_text != ''",
             (source_type,)
         ).fetchall()
     if not rows:
@@ -63,21 +63,10 @@ def _load_ocr_texts(source_type: str = "serenity", max_chars: int = 50000) -> li
     texts = []
     total = 0
     for r in rows:
-        fp = r["file_path"]
-        try:
-            # Read OCR text from corresponding json if available
-            json_path = Path(fp).parent / "ocr_results.json"
-            if json_path.exists():
-                all_results = json.loads(json_path.read_text(encoding="utf-8"))
-                for item in all_results:
-                    if item.get("file") == Path(fp).name:
-                        text = item.get("text", "")
-                        if text and total + len(text) <= max_chars:
-                            texts.append({"file": fp, "text": text})
-                            total += len(text)
-                        break
-        except Exception:
-            pass
+        text = r["ocr_text"] or ""
+        if text and total + len(text) <= max_chars:
+            texts.append({"file": r["file_path"], "text": text})
+            total += len(text)
 
     return texts
 

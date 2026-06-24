@@ -74,11 +74,16 @@ def _init_tracker():
             file_path TEXT NOT NULL,
             file_mtime REAL,
             ocr_chars INTEGER,
+            ocr_text TEXT,
             source_type TEXT,
             extracted_at TEXT,
             analysis_done INTEGER DEFAULT 0
         )""")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_ocr_path ON ocr_tracker(file_path)")
+        # Add ocr_text column if missing (migration from v1)
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(ocr_tracker)").fetchall()]
+        if "ocr_text" not in cols:
+            conn.execute("ALTER TABLE ocr_tracker ADD COLUMN ocr_text TEXT")
 
 
 def _file_hash(filepath: str) -> str:
@@ -94,14 +99,16 @@ def is_new(filepath: str) -> bool:
         return r is None
 
 
-def mark_done(filepath: str, ocr_chars: int, source_type: str = ""):
+def mark_done(filepath: str, ocr_chars: int, source_type: str = "", ocr_text: str = ""):
     _init_tracker()
     fh = _file_hash(filepath)
     mtime = Path(filepath).stat().st_mtime
     with sqlite3.connect(str(TRACKER_DB)) as conn:
         conn.execute(
-            "INSERT OR REPLACE INTO ocr_tracker VALUES (?,?,?,?,?,?,0)",
-            (fh, filepath, mtime, ocr_chars, source_type, datetime.now().isoformat()),
+            "INSERT OR REPLACE INTO ocr_tracker "
+            "(file_hash, file_path, file_mtime, ocr_chars, source_type, extracted_at, analysis_done, ocr_text) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (fh, filepath, mtime, ocr_chars, source_type, datetime.now().isoformat(), 0, ocr_text),
         )
 
 
@@ -137,14 +144,14 @@ def scan_dir(dirpath: str) -> list[str]:
 
 
 def process_image(filepath: str) -> dict | None:
-    """处理单张图片: OCR → 分类 → 返回结果。不负责 LLM 提取。"""
+    """处理单张图片: OCR → 分类 → 返回结果（含文本）。"""
     text = ocr_file(filepath)
     if not text or len(text) < 50:
-        mark_done(filepath, len(text), "empty")
+        mark_done(filepath, len(text), "empty", text)
         return None
 
     source = classify(text)
-    mark_done(filepath, len(text), source)
+    mark_done(filepath, len(text), source, text)
     return {
         "file": filepath,
         "chars": len(text),
