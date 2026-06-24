@@ -163,7 +163,7 @@ def _scrape_body(url: str) -> str:
 # RSS 拉取 + 全文抓取
 # ============================================================
 
-def _fetch() -> list[dict]:
+def _fetch(since_str: str = "") -> list[dict]:
     req = Request(_JSON_URL, headers={"User-Agent": config.UA,
                   "Accept": "application/json"})
     with urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
@@ -174,6 +174,15 @@ def _fetch() -> list[dict]:
     if stale_msg:
         print(f"  [STALE] {stale_msg}")
         _alert_rss(stale_msg)
+
+    # 只处理窗口内的文章（避免浪费正文抓取时间）
+    if since_str:
+        in_window = [it for it in items
+                     if (it.get("date_modified", "") or "")[:10] >= since_str]
+        items = in_window
+        skipped = len(data.get("items", [])) - len(items)
+        if skipped:
+            print(f"  过滤旧文章: {skipped} 篇（< {since_str}），保留 {len(items)} 篇")
 
     rows = []
     for it in items:
@@ -262,9 +271,10 @@ def run(since: date, until: date,
         universe_fn: Callable[[date], set[str]] = None) -> dict:
     section(f"采集微信公众号 {fmt_iso(since)} ~ {fmt_iso(until)}")
     store.init_feeds_tables()
+    since_str = fmt_iso(since)
 
     try:
-        raw = _fetch()
+        raw = _fetch(since_str)
     except Exception as e:
         msg = f"RSS 不可达: {e}"
         print(f"  [DEAD] {msg}")
@@ -279,7 +289,6 @@ def run(since: date, until: date,
         return {"last_date": fmt_iso(until), "added": 0, "status": "error",
                 "message": msg}
 
-    since_str = fmt_iso(since)
     rows = [r for r in raw if r["pub_date"][:10] >= since_str]
 
     if not rows:
