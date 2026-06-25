@@ -883,6 +883,31 @@ def _inject_zsxq(today: str) -> str:
         return f"（星球帖子读取失败: {e}）"
 
 
+def _inject_us_after_hours() -> str:
+    """注入美股盘后/盘前异动数据（yfinance，5分钟缓存）。"""
+    import json
+    try:
+        from data import fetch_us_after_hours
+        ah = fetch_us_after_hours()
+        if not ah:
+            return "（美股盘后数据暂不可用，yfinance 限流或网络异常）"
+        # 只保留有盘后/盘前异动的标的，减少噪音
+        movers = {}
+        for ticker, d in ah.items():
+            post_chg = d.get("post_chg_pct")
+            pre_price = d.get("pre_price")
+            if post_chg and abs(post_chg) >= 1:
+                movers[ticker] = d
+            elif pre_price:
+                movers[ticker] = d
+        if not movers:
+            # 返回所有数据（即使无明显异动）
+            movers = ah
+        return json.dumps(movers, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"（美股盘后数据获取异常: {e}）"
+
+
 def _inject_jiuyang(today: str) -> str:
     """注入韭研公社脱水研报（最近2天）。"""
     today_path = BASE / "reports" / "feeds" / f"jiuyang_{today}.md"
@@ -3158,6 +3183,7 @@ def main():
     must_consider = _inject_must_consider()
     yesterday_logic = _inject_yesterday_logic(yesterday)
     feeds["%%ZSXQ%%"] = _inject_zsxq(today)
+    feeds["%%US_AFTER_HOURS%%"] = _inject_us_after_hours()
     feeds["%%JIUYANG%%"] = jiuyang
     feeds["%%WEIBO%%"] = weibo
     feeds["%%PRIMARY_SYNTHESIS%%"] = primary_synthesis

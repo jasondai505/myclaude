@@ -94,6 +94,13 @@
 %%OVERSEAS_MAP%%
 ```
 
+**美股盘后/盘前异动（REAL DATA — yfinance 实时拉取，5分钟缓存，勿修改）**
+```json
+%%US_AFTER_HOURS%%
+```
+> 若某标的有 post_chg_pct 且绝对值 ≥3%，必须作为隔夜信号在 W1 或隔夜外围中标注。
+```
+
 **个股关键数据（REAL DATA — 含 FEV / G-Factor / Δ，勿修改）**
 ```json
 %%STOCK_CONTEXT%%

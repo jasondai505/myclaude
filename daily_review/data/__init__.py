@@ -1906,3 +1906,58 @@ def fetch_bulk_pe_pb(codes: list[str]) -> dict[str, dict[str, float]]:
         if bi // 30 % 20 == 19:
             time.sleep(1.5)  # 每 20 批额外等待，防限流
     return result
+
+
+# ============================================================
+# 美股盘后数据 (yfinance)
+# ============================================================
+
+_US_AH_CACHE: dict[str, dict] = {}
+_US_AH_CACHE_TIME: float = 0
+_US_AH_CACHE_TTL = 300  # 5分钟
+
+_US_YF_TICKERS = {
+    "NVDA", "AMD", "AVGO", "MRVL", "INTC", "MU", "WDC",
+    "AMAT", "LRCX", "KLAC", "ASML", "SMCI", "ANET", "VRT",
+    "TSLA", "LCID", "MSFT", "AAPL", "GOOGL", "META", "AMZN",
+}
+
+
+def fetch_us_after_hours() -> dict[str, dict]:
+    """拉取美股核心标的盘后/盘前价格（yfinance，5分钟缓存）。
+
+    返回 {ticker: {close, post_price, post_chg_pct, pre_price, state}}。
+    失败返回 {}，不阻塞流水线。
+    """
+    import time as _time
+    global _US_AH_CACHE, _US_AH_CACHE_TIME
+
+    now = _time.time()
+    if _US_AH_CACHE and (now - _US_AH_CACHE_TIME) < _US_AH_CACHE_TTL:
+        return _US_AH_CACHE
+
+    try:
+        import yfinance as yf
+    except ImportError:
+        return {}
+
+    result = {}
+    for i, ticker in enumerate(sorted(_US_YF_TICKERS)):
+        try:
+            tk = yf.Ticker(ticker)
+            info = tk.info
+            result[ticker] = {
+                "close": info.get("regularMarketPreviousClose") or info.get("previousClose"),
+                "post_price": info.get("postMarketPrice"),
+                "post_chg_pct": info.get("postMarketChangePercent"),
+                "pre_price": info.get("preMarketPrice"),
+                "state": info.get("marketState", ""),
+            }
+        except Exception:
+            continue
+        if i < len(_US_YF_TICKERS) - 1:
+            _time.sleep(0.3)
+
+    _US_AH_CACHE = result
+    _US_AH_CACHE_TIME = now
+    return result
