@@ -860,6 +860,29 @@ def _inject_intel_dimensions(today: str) -> str:
         return f"（五维信号读取失败: {e}）"
 
 
+def _inject_zsxq(today: str) -> str:
+    """注入知识星球最近12小时帖子（直接从DB拉，不经摘要，确保关键信号不丢失）。"""
+    try:
+        import store
+        from datetime import datetime as _dt, timedelta as _td
+        since = (_dt.now() - _td(hours=12)).strftime("%Y-%m-%dT%H:%M:%S")
+        rows = store.query_zsxq_by_date(today)
+        if not rows:
+            rows = store.query_zsxq_by_date((_dt.now() - _td(days=1)).strftime("%Y-%m-%d"))
+        recent = [r for r in rows if r.get("create_time", "") >= since]
+        if not recent:
+            recent = rows[-30:] if rows else []
+        lines = []
+        for r in recent[-40:]:
+            ts = (r.get("create_time", "") or "")[:16]
+            title = (r.get("title") or "")[:100]
+            text = (r.get("text") or "")[:300]
+            lines.append(f"[{ts}] {title}\n  {text}")
+        return "\n\n".join(lines) if lines else "（星球暂无今日帖子）"
+    except Exception as e:
+        return f"（星球帖子读取失败: {e}）"
+
+
 def _inject_jiuyang(today: str) -> str:
     """注入韭研公社脱水研报（最近2天）。"""
     today_path = BASE / "reports" / "feeds" / f"jiuyang_{today}.md"
@@ -3134,6 +3157,7 @@ def main():
     theme_lifecycle = _inject_theme_lifecycle_labels(today)
     must_consider = _inject_must_consider()
     yesterday_logic = _inject_yesterday_logic(yesterday)
+    feeds["%%ZSXQ%%"] = _inject_zsxq(today)
     feeds["%%JIUYANG%%"] = jiuyang
     feeds["%%WEIBO%%"] = weibo
     feeds["%%PRIMARY_SYNTHESIS%%"] = primary_synthesis
