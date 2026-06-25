@@ -15,7 +15,7 @@ CSS = """
 body {
   font-family: "Microsoft YaHei", "PingFang SC", "Helvetica Neue", sans-serif;
   font-size: 15px; line-height: 1.7; color: #1a1a1a;
-  background: #fff; padding: 40px 48px; max-width: 880px; margin: 0 auto;
+  background: #fff; padding: 40px 48px; max-width: 1320px; margin: 0 auto;
 }
 h1 { font-size: 22px; color: #111; border-bottom: 2px solid #2563eb; padding-bottom: 8px; margin: 28px 0 14px; }
 h2 { font-size: 19px; color: #1e40af; margin: 24px 0 10px; padding-left: 8px; border-left: 3px solid #2563eb; }
@@ -53,7 +53,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 </html>"""
 
 
-def md_to_image(md_path: str, max_width=880) -> bytes:
+def md_to_image(md_path: str, max_width=1320) -> bytes:
     text = Path(md_path).read_text(encoding='utf-8')
 
     # MD → HTML
