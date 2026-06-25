@@ -79,9 +79,9 @@ def _scrape_article(url: str) -> str:
     except Exception as e:
         print(f"    [skip] {e}")
         return ""
-    m = re.search(r'id="js_content"[^>]*>(.*?)</div>', html, re.DOTALL)
+    m = re.search(r'id="js_content"[^>]*>(.*?)(</div>|$)', html, re.DOTALL)
     if not m:
-        m = re.search(r'class="rich_media_content[^"]*"[^>]*>(.*?)</div>',
+        m = re.search(r'class="rich_media_content[^"]*"[^>]*>(.*?)(</div>|$)',
                       html, re.DOTALL)
     if not m:
         return ""

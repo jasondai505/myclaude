@@ -133,9 +133,10 @@ PIPELINES: dict[str, dict[str, Any]] = {
     },
     "wechat_only": {
         "name": "仅公众号分析",
-        "desc": "微信公众号两阶段 AI 分析",
+        "desc": "微信公众号全流程：健康检查 → 采集 → AI 分析",
         "steps": [
-            {"id": "wechat", "name": "公众号分析", "cmd": "python daily_review/analyze_wechat.py"},
+            {"id": "wechat_collect", "name": "公众号采集", "cmd": "python daily_review/daily_collect.py --source wechat --days 1"},
+            {"id": "wechat_analyze", "name": "公众号分析", "cmd": "python daily_review/analyze_wechat.py"},
         ],
     },
 }

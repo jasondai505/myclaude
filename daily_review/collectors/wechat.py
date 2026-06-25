@@ -98,9 +98,9 @@ def _scrape_wechat(url: str) -> str:
     except Exception:
         return ""
 
-    m = re.search(r'id="js_content"[^>]*>(.*?)</div>', html_text, re.DOTALL)
+    m = re.search(r'id="js_content"[^>]*>(.*?)(</div>|$)', html_text, re.DOTALL)
     if not m:
-        m = re.search(r'class="rich_media_content[^"]*"[^>]*>(.*?)</div>',
+        m = re.search(r'class="rich_media_content[^"]*"[^>]*>(.*?)(</div>|$)',
                       html_text, re.DOTALL)
     if not m:
         return ""
