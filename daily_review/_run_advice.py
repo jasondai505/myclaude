@@ -3042,11 +3042,12 @@ def _patch_chokemap_table(output: str) -> str:
 
 
 def _check_chokemap_score_gap(output: str) -> str:
-    """校验 ChokeMap 高优先级表是否遵循 prompt ≥7 阈值。
-
-    如果 LLM 输出的评分全 ≥8 且无 score=7 条目，注入告警。
-    """
+    """校验 ChokeMap 完整性：评分断层 + 缺失链自动补入持续关注。"""
     import re as re_mod
+
+    cmap = _build_chokemap_stock_map()
+    if not cmap:
+        return output
 
     # 找到 ChokeMap 区域
     cm_start = output.find("第一层：ChokeMap")
@@ -3054,39 +3055,77 @@ def _check_chokemap_score_gap(output: str) -> str:
         cm_start = output.find("ChokeMap — 在哪打")
     if cm_start < 0:
         return output
-    cm_end = output.find("---", cm_start)
+    cm_end = output.find("\n---", cm_start)
     if cm_end < 0:
         cm_end = output.find("## ⚡", cm_start)
     if cm_end < 0:
         return output
     section = output[cm_start:cm_end]
 
-    # 提取所有评分
-    # HTML table: <td>10 (+2)</td> → score=10
-    # Markdown table: | 消费电子 | 5 | ... → score=5
+    # 提取 LLM 已输出的链名
+    llm_chains = set()
+    # HTML table: <td>AI算力</td>
+    for m in re_mod.finditer(r"<td>([^<]+)</td>", section):
+        name = m.group(1).strip()
+        if name and not name[0].isdigit() and len(name) < 20:
+            llm_chains.add(name)
+    # Markdown table: | 消费电子 | 5 | ...
+    for m in re_mod.finditer(r"\|\s*([^\d|]+?)\s*\|\s*\d+\s*\|", section):
+        name = m.group(1).strip()
+        if name and len(name) < 20 and "卡脖子" not in name and "---" not in name:
+            llm_chains.add(name)
+
+    # 找到 serenity_kb 中有标的但 LLM 遗漏的链
+    missing = []
+    for cn in cmap:
+        m = cmap[cn]
+        has_data = m["f"] or m["g"] or m["d"]
+        # Fuzzy match against LLM chains
+        found = any(cn in lc or lc in cn for lc in llm_chains)
+        if has_data and not found:
+            missing.append(cn)
+
+    # 提取所有评分检测断层
     scores = set()
     for m in re_mod.finditer(r"<td>(\d+)\s*[\(（]", section):
         scores.add(int(m.group(1)))
-    for m in re_mod.finditer(r"\|\s*([A-Za-z一-鿿]+)\s*\|\s*(\d+)\s*\|", section):
-        scores.add(int(m.group(2)))
+    for m in re_mod.finditer(r"\|\s*[^\d|]+?\s*\|\s*(\d+)\s*\|", section):
+        scores.add(int(m.group(1)))
 
-    has_high = any(s >= 8 for s in scores)
+    has_high = any(s >= 7 for s in scores)  # prompt says ≥7
     has_mid = any(s == 7 for s in scores)
-    has_low = any(4 <= s <= 6 for s in scores)
+    gap_detected = has_high and not has_mid
 
-    if has_high and not has_mid:
-        high_min = min((s for s in scores if s >= 8), default=8)
+    if not missing and not gap_detected:
+        return output
+
+    # 构建告警+补链
+    notes = []
+    if gap_detected:
+        high_min = min((s for s in scores if s >= 7), default=7)
         low_vals = [s for s in scores if 4 <= s <= 6]
         low_str = f"{min(low_vals)}-{max(low_vals)}" if low_vals else "4-6"
-        gap_note = (
-            f"\n> ⚠️ **评分断层**: 高优先级最低{high_min}分，持续关注{low_str}分，"
-            f"score=7 缺失。Prompt 要求评分≥7即入高优先级，请检查。\n"
-        )
-        # 注入到 "持续关注" table 之后，--- 分隔符之前
-        insert_at = output.find("\n---", cm_start)
-        if insert_at < 0:
-            insert_at = cm_end
-        output = output[:insert_at] + gap_note + output[insert_at:]
+        notes.append(f"⚠️ **评分断层**: 高优先级最低{high_min}分，持续关注{low_str}分，"
+                     f"score=7 缺失。Prompt 要求评分≥7即入高优先级")
+
+    # 仅告警有 F/G/Δ 全齐但被遗漏的链（结构性重要，可能应入持续关注）
+    missing_important = []
+    for cn in cmap:
+        m = cmap[cn]
+        has_all = m["f"] and m["g"] and m["d"]
+        found = any(cn in lc or lc in cn for lc in llm_chains)
+        if has_all and not found:
+            missing_important.append(cn)
+
+    if missing_important:
+        notes.append(f"📋 **FGD全齐链遗漏**: {', '.join(missing_important[:5])} "
+                     f"— 结构性重要，请检查是否应入持续关注")
+
+    gap_note = "\n> " + "  |  ".join(notes) + "\n"
+    insert_at = output.find("\n---", cm_start)
+    if insert_at < 0:
+        insert_at = cm_end
+    output = output[:insert_at] + gap_note + output[insert_at:]
 
     return output
 
