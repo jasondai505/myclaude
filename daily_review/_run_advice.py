@@ -3041,6 +3041,56 @@ def _patch_chokemap_table(output: str) -> str:
     return output[:tbody_start + 7] + new_tbody + output[tbody_end:]
 
 
+def _check_chokemap_score_gap(output: str) -> str:
+    """校验 ChokeMap 高优先级表是否遵循 prompt ≥7 阈值。
+
+    如果 LLM 输出的评分全 ≥8 且无 score=7 条目，注入告警。
+    """
+    import re as re_mod
+
+    # 找到 ChokeMap 区域
+    cm_start = output.find("第一层：ChokeMap")
+    if cm_start < 0:
+        cm_start = output.find("ChokeMap — 在哪打")
+    if cm_start < 0:
+        return output
+    cm_end = output.find("---", cm_start)
+    if cm_end < 0:
+        cm_end = output.find("## ⚡", cm_start)
+    if cm_end < 0:
+        return output
+    section = output[cm_start:cm_end]
+
+    # 提取所有评分
+    # HTML table: <td>10 (+2)</td> → score=10
+    # Markdown table: | 消费电子 | 5 | ... → score=5
+    scores = set()
+    for m in re_mod.finditer(r"<td>(\d+)\s*[\(（]", section):
+        scores.add(int(m.group(1)))
+    for m in re_mod.finditer(r"\|\s*([A-Za-z一-鿿]+)\s*\|\s*(\d+)\s*\|", section):
+        scores.add(int(m.group(2)))
+
+    has_high = any(s >= 8 for s in scores)
+    has_mid = any(s == 7 for s in scores)
+    has_low = any(4 <= s <= 6 for s in scores)
+
+    if has_high and not has_mid:
+        high_min = min((s for s in scores if s >= 8), default=8)
+        low_vals = [s for s in scores if 4 <= s <= 6]
+        low_str = f"{min(low_vals)}-{max(low_vals)}" if low_vals else "4-6"
+        gap_note = (
+            f"\n> ⚠️ **评分断层**: 高优先级最低{high_min}分，持续关注{low_str}分，"
+            f"score=7 缺失。Prompt 要求评分≥7即入高优先级，请检查。\n"
+        )
+        # 注入到 "持续关注" table 之后，--- 分隔符之前
+        insert_at = output.find("\n---", cm_start)
+        if insert_at < 0:
+            insert_at = cm_end
+        output = output[:insert_at] + gap_note + output[insert_at:]
+
+    return output
+
+
 def _diff_chokemap(new_output: str, today: str) -> str:
     """当日重跑时，对比新旧 ChokeMap 主题变化。"""
     path = BASE / "reports" / "advice" / f"advice_{today}_0730.md"
@@ -3284,6 +3334,7 @@ def main():
     output = _validate_code_names(output)
     output = _validate_dow_claims(output, yesterday)
     output = _patch_chokemap_table(output)
+    output = _check_chokemap_score_gap(output)
     # ChokeMap 变化说明（当日重跑时对比）
     chokemap_diff = _diff_chokemap(output, today)
     if chokemap_diff:
