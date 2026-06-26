@@ -353,6 +353,9 @@ def _write_report(data: dict, single_results: list[dict],
     ]
     if failed:
         buf[-1] += f" | {failed} 篇无正文"
+    shendu_reports_list = data.get("shendu_reports", [])
+    if shendu_reports_list:
+        buf.append(f"> 🔬 深度投研洞见独立报告: {len(shendu_reports_list)} 篇 | 见 reports/shendu/")
     buf.append("")
     _existing_report = path.exists()
 
@@ -617,18 +620,29 @@ def main():
     failed = len(articles_with_body) - fetched
     print(f"  正文: {fetched} 成功, {failed} 缺失")
 
-    # 深度投研洞见 → 专用结构化提取器
+    # 深度投研洞见 → 专用结构化提取器（独立管道，跳过 S1/S2）
+    shendu_reports = []
     if shendu_articles:
         print(f"\n  深度投研洞见: {len(shendu_articles)} 篇 → 结构化提取...")
+        from extractors.shendu import (
+            extract as shendu_extract,
+            inject_to_serenity,
+            render_markdown,
+        )
         for sa in shendu_articles:
             try:
-                from extractors.shendu import extract as shendu_extract, inject_to_serenity
                 data = shendu_extract(sa["body"], sa["title"], sa["date"])
                 if data:
                     inject_to_serenity(data)
-                    print(f"    ✓ {sa['title'][:40]}...")
+                    report_path = render_markdown(data)
+                    shendu_reports.append(report_path)
+                    print(f"    ✓ {sa['title'][:40]}... → {report_path.name if report_path else 'no report'}")
             except Exception as e:
                 print(f"    ✗ {sa['title'][:30]}...: {e}")
+
+    # 深度投研洞见 从标准管道中排除（已独立分析）
+    shendu_feeds = {"深度投研洞见"}
+    s1_articles = [a for a in articles_with_body if a["feed"] not in shendu_feeds]
 
     # 韭研脱水研报 → 催化事件提取器
     jiuyan_articles = [a for a in articles_with_body
@@ -662,34 +676,47 @@ def main():
             except Exception as e:
                 pass
 
-    # 阶段一
-    print(f"\n  阶段一: 逐篇拆解 (synthesis)...")
-    s1_client = _get_client("synthesis", timeout=TIMEOUT)
-    single_results = []
-    for i, a in enumerate(articles_with_body):
-        sr = _analyze_single(s1_client, a["feed"], a["date"], a["title"], a["body"])
-        single_results.append(sr)
-        score = sr.get("relevance_score", 0)
-        stars = "★" * score + "☆" * (5 - score)
-        print(f"    [{i+1}/{len(articles_with_body)}] {stars} "
-              f"{a['title'][:30]}...")
+    # 阶段一（排除深度投研洞见，已独立分析）
+    if s1_articles:
+        print(f"\n  阶段一: 逐篇拆解 (synthesis, {len(s1_articles)}篇)...")
+        s1_client = _get_client("synthesis", timeout=TIMEOUT)
+        single_results = []
+        for i, a in enumerate(s1_articles):
+            sr = _analyze_single(s1_client, a["feed"], a["date"], a["title"], a["body"])
+            single_results.append(sr)
+            score = sr.get("relevance_score", 0)
+            stars = "★" * score + "☆" * (5 - score)
+            print(f"    [{i+1}/{len(s1_articles)}] {stars} "
+                  f"{a['title'][:30]}...")
+    else:
+        print(f"\n  阶段一: 无标准管道文章（仅深度投研洞见，已独立分析）")
+        single_results = []
 
     # 阶段二
-    print(f"\n  阶段二: 综合研判 (deep)...")
-    s2_client = _get_client("deep", timeout=TIMEOUT)
-    data = _synthesize(s2_client, single_results, today)
-    if not data:
-        print("  Sonnet 不可用")
-        _write_report({}, single_results, today, fetched, failed)
-        return
+    if single_results:
+        print(f"\n  阶段二: 综合研判 (deep)...")
+        s2_client = _get_client("deep", timeout=TIMEOUT)
+        data = _synthesize(s2_client, single_results, today)
+        if not data:
+            print("  Sonnet 不可用")
+            _write_report({}, single_results, today, fetched, failed)
+            return
 
-    # 阶段三: 引擎客观验证
-    print(f"\n  阶段三: 引擎客观验证...")
-    data = _enrich_with_engine(data, single_results)
+        # 阶段三: 引擎客观验证
+        print(f"\n  阶段三: 引擎客观验证...")
+        data = _enrich_with_engine(data, single_results)
+    else:
+        print(f"\n  阶段二/三: 跳过（仅深度投研洞见，已独立分析）")
+        data = {}
+
+    # 注入深度投研洞见独立报告链接
+    if shendu_reports:
+        data["shendu_reports"] = [str(r) for r in shendu_reports]
 
     _write_report(data, single_results, today, fetched, failed)
     store.mark_wechat_analyzed(articles_with_body)
-    print(f"  完成（已标记 {len(articles_with_body)} 篇为已分析）")
+    shendu_info = f" + {len(shendu_reports)}篇深度投研独立报告" if shendu_reports else ""
+    print(f"  完成（已标记 {len(articles_with_body)} 篇为已分析{shendu_info}）")
 
 
 if __name__ == "__main__":

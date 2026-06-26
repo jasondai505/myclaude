@@ -194,6 +194,98 @@ def inject_to_serenity(data: dict) -> bool:
         return False
 
 
+def render_markdown(data: dict, out_dir: Path = None) -> Path | None:
+    """从结构化 JSON 生成独立可读的 markdown 报告。"""
+    if not data:
+        return None
+
+    if out_dir is None:
+        out_dir = Path(__file__).resolve().parent.parent / "reports" / "shendu"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    date_str = data.get("date", "unknown")
+    out_path = out_dir / f"shendu_{date_str}.md"
+
+    title = data.get("title", "深度投研洞见")
+    buf = [f"# 深度投研洞见 {date_str}", "", f"> {title}", ""]
+
+    thesis = data.get("thesis", "")
+    if thesis:
+        buf.extend(["## 核心论点", "", thesis, ""])
+
+    lbj = data.get("load_bearing_judgment", "")
+    if lbj:
+        buf.extend(["## 承重判断", "", f"> {lbj}", ""])
+
+    vps = data.get("variant_perceptions", [])
+    if vps:
+        buf.extend([f"## 预期差 ({len(vps)}条)", ""])
+        buf.append("| # | 市场共识 | 本文判断 | 置信度 | 证伪条件 |")
+        buf.append("|---|---------|---------|:--:|---------|")
+        for vp in vps:
+            buf.append(f"| {vp.get('id','')} | {vp.get('consensus','')} | "
+                       f"{vp.get('variant','')} | {vp.get('confidence','')} | "
+                       f"{vp.get('falsification','')} |")
+        buf.append("")
+
+    vs = data.get("valuation_spectrum", [])
+    if vs:
+        buf.append("## 估值分层")
+        buf.append("")
+        for v in vs:
+            tier = v.get("tier", "")
+            emoji = {"核心仓": "🟢", "弹性层": "🟡", "规避": "🔴"}.get(tier, "⚪")
+            buf.append(f"### {emoji} {tier}")
+            buf.append("")
+            codes = v.get("codes", [])
+            names = v.get("names", [])
+            pe = v.get("pe_range", "")
+            logic = v.get("logic", "")
+            seg = v.get("chain_segment", "")
+            for i, (c, n) in enumerate(zip(codes, names)):
+                suffix = f" | {pe}" if i == 0 else ""
+                buf.append(f"- **{c} {n}**{suffix}: {logic if i == 0 else ''}")
+            if seg:
+                buf.append(f"  - 链环节: {seg}")
+            buf.append("")
+
+    ds = data.get("duration_spectrum", [])
+    if ds:
+        buf.extend(["## 久期光谱", ""])
+        buf.append("| 久期 | 时间 | 主题 | 说明 |")
+        buf.append("|------|------|------|------|")
+        for d in ds:
+            buf.append(f"| {d.get('duration','')} | {d.get('years','')} | "
+                       f"{d.get('theme','')} | {d.get('note','')} |")
+        buf.append("")
+
+    risks = data.get("risk_signals", [])
+    if risks:
+        buf.extend(["## 风险信号", ""])
+        for r in risks:
+            buf.append(f"- **[{r.get('type','')}]** {r.get('target','')}: {r.get('detail','')}")
+        buf.append("")
+
+    chains = data.get("chains_involved", [])
+    if chains:
+        buf.extend(["## 涉及产业链", "", ", ".join(chains), ""])
+
+    themes = data.get("themes", [])
+    if themes:
+        buf.extend(["## 主题关键词", "", ", ".join(themes), ""])
+
+    si = data.get("serenity_inject", {})
+    if si:
+        gaps = si.get("expectation_gap_signals", [])
+        if gaps:
+            buf.extend(["## Serenity 预期差信号", ""])
+            for g in gaps:
+                buf.append(f"- **{g.get('chain_segment','')}** [{g.get('gap_type','')}]: {g.get('detail','')}")
+            buf.append("")
+
+    out_path.write_text("\n".join(buf), encoding="utf-8")
+    return out_path
+
+
 def format_for_advice(data: dict) -> str:
     """将提取结果格式化为可注入 advice prompt 的文本。"""
     if not data:
