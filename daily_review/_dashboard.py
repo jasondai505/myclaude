@@ -895,8 +895,15 @@ def _render_hypotheses(w):
         terms = h.get('key_terms', [h['name']])
         w(f"> 创建: {h.get('created', '?')} | 关键词: {', '.join(terms[:5])}")
         w()
+        if h.get("updated") and h["updated"] != h.get("created"):
+            w(f"> 最近证据: {h['updated']}")
+            w()
 
         if ev["sources"]:
+            # 持久化更新时间
+            if today_str != h.get("updated"):
+                h["updated"] = today_str
+                _save_hypotheses(hypotheses)
             w("| 来源 | 详情 |")
             w("|------|------|")
             for s in ev["sources"]:
@@ -1706,7 +1713,7 @@ def _hot_themes() -> list[dict]:
         """检查标的 chain 关键词是否含主题关键字（含 KW_MAP 别名）。"""
         skw = code_chain_kw.get(code, set())
         if not skw:
-            return True  # 无 chain 映射的标的不过滤
+            return False  # 无 chain 映射的标的排除，避免茅台被归入算力
         for g in KW_MAP:
             if g[0] == theme_kw:
                 return any(akw in ckw for akw in g for ckw in skw)

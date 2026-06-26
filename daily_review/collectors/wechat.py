@@ -163,13 +163,15 @@ def _scrape_body(url: str) -> str:
 # RSS 拉取 + 全文抓取
 # ============================================================
 
-def _fetch(since_str: str = "") -> list[dict]:
+def _fetch(since_str: str = "") -> tuple[list[dict], int]:
+    """返回 (窗口内文章列表, RSS原始文章总数)"""
     req = Request(_JSON_URL, headers={"User-Agent": config.UA,
                   "Accept": "application/json"})
     with urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
         data = json.loads(resp.read().decode("utf-8"))
 
     items = data.get("items", [])
+    total_rss = len(items)
     stale_msg = _check_freshness(items)
     if stale_msg:
         print(f"  [STALE] {stale_msg}")
@@ -180,7 +182,7 @@ def _fetch(since_str: str = "") -> list[dict]:
         in_window = [it for it in items
                      if (it.get("date_modified", "") or "")[:10] >= since_str]
         items = in_window
-        skipped = len(data.get("items", [])) - len(items)
+        skipped = total_rss - len(items)
         if skipped:
             print(f"  过滤旧文章: {skipped} 篇（< {since_str}），保留 {len(items)} 篇")
 
@@ -234,7 +236,7 @@ def _fetch(since_str: str = "") -> list[dict]:
             time.sleep(FETCH_DELAY)
 
     print(f"  全文抓取: {fetched}/{len(rows)} 成功")
-    return rows
+    return rows, total_rss
 
 
 def _write_md(d: date, rows: list[dict]) -> Path:
@@ -274,7 +276,7 @@ def run(since: date, until: date,
     since_str = fmt_iso(since)
 
     try:
-        raw = _fetch(since_str)
+        raw, total_rss = _fetch(since_str)
     except Exception as e:
         msg = f"RSS 不可达: {e}"
         print(f"  [DEAD] {msg}")
@@ -282,18 +284,23 @@ def run(since: date, until: date,
         store.upsert_collect_status(SOURCE_NAME, fmt_iso(until), "error", msg, 0)
         return {"last_date": fmt_iso(until), "added": 0, "status": "error", "message": msg}
 
-    if not raw:
-        msg = "JSON Feed 返回空"
+    if total_rss == 0:
+        msg = "JSON Feed 返回空（RSS 可能需重新登录）"
         _alert_rss("⚠️ 公众号RSS返回空 — 可能需要重新登录")
         store.upsert_collect_status(SOURCE_NAME, fmt_iso(until), "error", msg, 0)
         return {"last_date": fmt_iso(until), "added": 0, "status": "error",
                 "message": msg}
 
+    if not raw:
+        msg = f"RSS 有 {total_rss} 篇但窗口内 ({since_str}~) 无新文章"
+        store.upsert_collect_status(SOURCE_NAME, fmt_iso(until), "skip", msg, 0)
+        return {"last_date": fmt_iso(until), "added": 0, "status": "skip",
+                "message": msg}
+
     rows = [r for r in raw if r["pub_date"][:10] >= since_str]
 
     if not rows:
-        msg = f"无新文章（最新 {len(raw)} 篇均早于 {since_str}）"
-        _alert_rss(f"⚠️ 公众号24h内无新文章 — 最新: {raw[0]['pub_date'][:10] if raw else '未知'}")
+        msg = f"无新文章（RSS {total_rss} 篇均早于 {since_str}）"
         store.upsert_collect_status(SOURCE_NAME, fmt_iso(until), "skip", msg, 0)
         return {"last_date": fmt_iso(until), "added": 0, "status": "skip",
                 "message": msg}
