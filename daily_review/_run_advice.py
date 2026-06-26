@@ -3085,28 +3085,27 @@ def _check_chokemap_score_gap(output: str) -> str:
         if has_data and not found:
             missing.append(cn)
 
-    # 提取所有评分检测断层
-    scores = set()
-    for m in re_mod.finditer(r"<td>(\d+)\s*[\(（]", section):
-        scores.add(int(m.group(1)))
-    for m in re_mod.finditer(r"\|\s*[^\d|]+?\s*\|\s*(\d+)\s*\|", section):
-        scores.add(int(m.group(1)))
+    # 仅提取 HTML table 评分（高优先级），不含 markdown 持续关注表
+    html_scores = set()
+    # 找到 <tbody> 区间，只在这里取分
+    tbody_start = section.find("<tbody>")
+    tbody_end = section.find("</tbody>", tbody_start) if tbody_start >= 0 else -1
+    if tbody_start >= 0 and tbody_end > tbody_start:
+        html_section = section[tbody_start:tbody_end]
+        for m in re_mod.finditer(r"<td>(\d+)\s*[\(（]", html_section):
+            html_scores.add(int(m.group(1)))
 
-    has_high = any(s >= 7 for s in scores)  # prompt says ≥7
-    has_mid = any(s == 7 for s in scores)
-    gap_detected = has_high and not has_mid
+    # 检查是否有 <8 分的条目误入高优先级 HTML table
+    low_in_high = [s for s in html_scores if s < 8]
 
-    if not missing and not gap_detected:
+    if not missing and not low_in_high:
         return output
 
-    # 构建告警+补链
+    # 构建告警
     notes = []
-    if gap_detected:
-        high_min = min((s for s in scores if s >= 7), default=7)
-        low_vals = [s for s in scores if 4 <= s <= 6]
-        low_str = f"{min(low_vals)}-{max(low_vals)}" if low_vals else "4-6"
-        notes.append(f"⚠️ **评分断层**: 高优先级最低{high_min}分，持续关注{low_str}分，"
-                     f"score=7 缺失。Prompt 要求评分≥7即入高优先级")
+    if low_in_high:
+        notes.append(f"⚠️ **低分误入**: 高优先级表出现 {sorted(low_in_high)} 分的条目，"
+                     f"应降至持续关注（≥8 才入高优先级）")
 
     # 仅告警有 F/G/Δ 全齐但被遗漏的链（结构性重要，可能应入持续关注）
     missing_important = []
