@@ -144,6 +144,80 @@ def _analyze_single(client, feed: str, pub_date: str, title: str,
         print(f"      [Haiku err] {e}")
         return {}
 
+# ============================================================
+# 深度投研洞见 -> zsxq 两阶段管线（跨篇综合研判）
+# ============================================================
+
+_S1_ZSXQ = """你是 A 股基本面分析师。分析以下深度投研洞见文章。
+
+{batch}
+
+对每篇输出一个 JSON 对象，全部放入数组:
+[
+  {{
+    "idx": 序号(1-{n}),
+    "title": "标题(截取前50字)",
+    "thesis": "核心论点（1-2句，引用原文关键数据和逻辑）",
+    "key_facts": ["关键事实1", "关键事实2"],
+    "tickers": [{{"code": "6位代码", "name": "简称", "direction": "看多/看空/中性", "relevance": "关联逻辑"}}],
+    "category": "半导体/新能源/AI算力/消费/宏观/医药/资源/汽车/军工/其他",
+    "relevance_score": 1-5
+  }}
+]
+只输出 JSON 数组，不要其他文字。"""
+
+_S2_ZSXQ = """你是 A 股基本面投资分析师。今天是 {today}。
+
+以下是深度投研洞见文章的逐篇拆解（来源为专业投资报告）：
+
+{articles_json}
+
+我的自选股池（仅供参考我的关注方向）：{watchlist}
+
+请综合研判，输出 JSON:
+{{
+  "market_narrative": "当前核心叙事（3-4句，共识+分歧+情绪）",
+  "themes": [
+    {{
+      "name": "主题",
+      "conviction": "高/中/低",
+      "post_indices": [1,2,5],
+      "thesis": "核心逻辑（引用原文数据和事件）",
+      "catalyst": "近期催化及时间节点",
+      "horizon": "短期/中期/长期",
+      "related_stocks": ["6位代码"],
+      "risk": "主要风险"
+    }}
+  ],
+  "divergences": [
+    {{
+      "topic": "分歧话题",
+      "bull_view": "看多逻辑及来源",
+      "bear_view": "看空逻辑及来源",
+      "our_take": "基于多源信息的判断（1-2句）"
+    }}
+  ],
+  "watchlist_alerts": [
+    {{
+      "code": "6位代码",
+      "signal": "正面/负面/关注",
+      "reason": "具体逻辑（引用原文数据）",
+      "urgency": "高/中/低"
+    }}
+  ],
+  "action_items": [
+    {{
+      "action": "建议操作",
+      "target": "6位代码",
+      "rationale": "理由",
+      "priority": 1-5
+    }}
+  ],
+  "key_question": "当前最需要回答的关键问题",
+  "summary": "200字整体摘要"
+}}
+只输出 JSON。post_indices 指向上方拆解编号。"""
+
 
 # ============================================================
 # 阶段二：综合研判（Sonnet）
@@ -306,6 +380,189 @@ def _enrich_with_engine(data: dict, single_results: list[dict]) -> dict:
     engine.close()
     return data
 
+
+
+
+def _run_shendu_zsxq(shendu_articles: list[dict], today: str) -> 'Path | None':
+    """深度投研洞见 → zsxq 两阶段管线（跨篇综合研判 + 分歧识别 + 行动建议）"""
+    if not shendu_articles:
+        return None
+
+    print(f"\n  深度投研洞见 → zsxq 综合研判: {len(shendu_articles)} 篇...")
+
+    from roles import get_client as _get_client
+
+    posts_text = []
+    for i, a in enumerate(shendu_articles):
+        body = (a.get("body") or "")[:MAX_BODY_CHARS]
+        posts_text.append(
+            f"--- 文章 {i+1} ---\n"
+            f"标题: {a.get('title', '')[:120]}\n"
+            f"日期: {a.get('date', '')}\n"
+            f"正文: {body}"
+        )
+
+    s1_client = _get_client("synthesis", timeout=TIMEOUT)
+    prompt_s1 = _S1_ZSXQ.format(batch="\n\n".join(posts_text), n=len(shendu_articles))
+    try:
+        resp = s1_client.messages.create(
+            model=MODEL_HAIKU, max_tokens=4000,
+            messages=[{"role": "user", "content": prompt_s1}],
+            thinking={"type": "disabled"},
+        )
+        text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
+        m = re.search(r"\[.*\]", text, re.DOTALL)
+        if m:
+            single_results = json.loads(m.group(0))
+            from llm_validator import validate_codes as _vc
+            for sr in single_results:
+                for t in sr.get("tickers", []):
+                    if not t.get("code"): continue
+                    if not _vc([t["code"]]).get(t["code"], {}).get("valid"):
+                        t["code"], t["name"] = "", f"[无效]{t.get('name','')}"
+        else:
+            single_results = []
+    except Exception as e:
+        print(f"    [Haiku err] shendu_zsxq: {e}")
+        return None
+
+    if not single_results:
+        print("    无有效提取")
+        return None
+
+    for i, sr in enumerate(single_results):
+        score = sr.get("relevance_score", 0)
+        stars = "★" * score + "☆" * (5 - score)
+        print(f"    [{i+1}] {stars} {sr.get('title', '?')[:40]}...")
+
+    print("    zsxq 阶段二: 综合研判...")
+    s2_client = _get_client("deep", timeout=TIMEOUT)
+    prompt_s2 = _S2_ZSXQ.format(
+        today=today,
+        articles_json=json.dumps(single_results, ensure_ascii=False, indent=2),
+        watchlist=", ".join(WATCHLIST),
+    )
+    try:
+        resp = s2_client.messages.create(
+            model=MODEL_SONNET, max_tokens=12000,
+            messages=[{"role": "user", "content": prompt_s2}],
+            thinking={"type": "disabled"},
+        )
+        text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
+        data = _extract_json(text) or {}
+    except Exception as e:
+        print(f"    [Sonnet err] shendu_zsxq: {e}")
+        return None
+
+    if not data:
+        return None
+
+    path = _write_zsxq_report(data, single_results, today, len(shendu_articles))
+    print(f"    → {path}")
+    return path
+
+
+def _write_zsxq_report(data: dict, single_results: list[dict], today: str, total: int) -> 'Path':
+    path = REPORT_DIR / "zsxq_analysis" / f"zsxq_shendu_{today}.md"
+    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+    buf = [
+        f"# 深度投研洞见 → 知识星球管线分析 {today}",
+        "",
+        f"> {total} 篇 | {len(single_results)} 条有效提取 | 生成于 {now_ts}",
+        "> ⚠️ 本报告由深度投研洞见文章经 zsxq 两阶段管线生成（跨篇综合研判）",
+        "",
+    ]
+
+    n = data.get("market_narrative", "")
+    if n: buf.extend(["## 市场叙事", "", n, ""])
+
+    themes = data.get("themes", [])
+    if themes:
+        buf.append("## 核心主题")
+        buf.append("")
+        for t in themes:
+            conv = t.get("conviction", "·")
+            emoji = {"高": "\U0001f525", "中": "\U0001f4cc", "低": "\U0001f440"}.get(conv, "·")
+            indices = t.get("post_indices", [])
+            idx_str = f" (#{', #'.join(str(i) for i in indices[:10])})" if indices else ""
+            buf.append(f"### {emoji} {t.get('name', '')}（{conv}）{idx_str}")
+            buf.append("")
+            for key, label in [("thesis", "逻辑"), ("catalyst", "催化"),
+                               ("horizon", "时间维度"), ("risk", "风险")]:
+                v = t.get(key, "")
+                if v: buf.append(f"- **{label}**: {v}")
+            stocks = t.get("related_stocks", [])
+            if stocks: buf.append(f"- **标的**: {', '.join(stocks)}")
+            buf.append("")
+
+    divs = data.get("divergences", [])
+    if divs:
+        buf.append("## 分歧")
+        buf.append("")
+        for d in divs:
+            buf.append(f"### ⚡ {d.get('topic', '')}")
+            buf.append("")
+            for key, label in [("bull_view", "看多"), ("bear_view", "看空"), ("our_take", "判断")]:
+                v = d.get(key, "")
+                if v: buf.append(f"- **{label}**: {v}")
+            buf.append("")
+
+    alerts = data.get("watchlist_alerts", [])
+    if alerts:
+        buf.append("## 自选股预警")
+        buf.append("")
+        buf.append("| 代码 | 信号 | 逻辑 | 紧迫度 |")
+        buf.append("|------|------|------|--------|")
+        for a in alerts:
+            sig = a.get("signal", "·")
+            sig_emoji = {"正面": "\U0001f7e2", "负面": "\U0001f534", "关注": "\U0001f7e1"}.get(sig, "·")
+            buf.append(f"| {a.get('code', '')} | {sig_emoji} {sig} | {a.get('reason', '')} | {a.get('urgency', '')} |")
+        buf.append("")
+
+    actions = data.get("action_items", [])
+    if actions:
+        buf.append("## 行动建议")
+        buf.append("")
+        for a in sorted(actions, key=lambda x: x.get("priority", 99)):
+            buf.append(f"- **P{a.get('priority', '?')}** [{a.get('target', '')}] {a.get('action', '')} — {a.get('rationale', '')}")
+        buf.append("")
+
+    q = data.get("key_question", "")
+    if q: buf.extend(["## 关键问题", "", f"> {q}", ""])
+    s = data.get("summary", "")
+    if s: buf.extend(["## 整体摘要", "", s, ""])
+
+    if single_results:
+        buf.append("## 逐篇拆解")
+        buf.append("")
+        for i, sr in enumerate(single_results):
+            if not sr: continue
+            title = sr.get("title", "?")
+            author = sr.get("author", "深度投研洞见")
+            cat = sr.get("category", "?")
+            score = sr.get("relevance_score", 0)
+            thesis = sr.get("thesis", "")
+            facts = sr.get("key_facts", [])
+            tickers = sr.get("tickers", [])
+
+            buf.append(f"### #{i + 1} [{author}] {title}")
+            buf.append("")
+            buf.append(f"**{cat}** | {'★' * score}{'☆' * (5 - score)}")
+            buf.append("")
+            if thesis: buf.append(f"**论点**: {thesis}"); buf.append("")
+            if facts:
+                for f in facts[:5]: buf.append(f"- {f}")
+                buf.append("")
+            if tickers:
+                buf.append("| 代码 | 名称 | 方向 | 逻辑 |")
+                buf.append("|------|------|------|------|")
+                for tk in tickers[:8]:
+                    buf.append(f"| {tk.get('code', '')} | {tk.get('name', '')} | {tk.get('direction', '')} | {tk.get('relevance', '')} |")
+                buf.append("")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(buf), encoding="utf-8")
+    return path
 
 # ============================================================
 
@@ -639,6 +896,11 @@ def main():
                     print(f"    ✓ {sa['title'][:40]}... → {report_path.name if report_path else 'no report'}")
             except Exception as e:
                 print(f"    ✗ {sa['title'][:30]}...: {e}")
+
+        # zsxq 两阶段综合研判（跨篇缝合 + 分歧识别 + 行动建议）
+        zsxq_path = _run_shendu_zsxq(shendu_articles, today)
+        if zsxq_path:
+            shendu_reports.append(zsxq_path)
 
     # 深度投研洞见 从标准管道中排除（已独立分析）
     shendu_feeds = {"深度投研洞见"}
