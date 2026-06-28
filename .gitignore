@@ -11,6 +11,10 @@ cookie*.txt
 *.bak
 *.db.bak*
 
+# 压缩包（运行时导出）
+*.tar.gz
+*.zip
+
 # 日志
 *.log
 
@@ -54,6 +58,7 @@ stock-skill-main/
 /*.docx
 /*.pdf
 /*.png
+/reports/
 
 # 日志目录
 dashboard/logs/
