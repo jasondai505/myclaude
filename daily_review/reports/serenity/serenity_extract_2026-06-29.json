@@ -1,0 +1,526 @@
+[
+  {
+    "date": "2026-06-25",
+    "companies": [
+      {
+        "name": "Mirendil",
+        "ticker": "",
+        "sector": "AI"
+      }
+    ],
+    "thesis": "Japanese company has active monopoly over random chokepoints in hyperscaler AI buildout. Valuation $150m-$350M. Silicon Valley: $200m seed round for Mirendil, which trains frontier models for R&D and builds product around them.",
+    "supply_chain_nodes": [
+      "hyperscaler AI buildout",
+      "chokepoints",
+      "frontier model training"
+    ],
+    "a_relevance": "high",
+    "summary_cn": "日本公司在超大规模AI建设中形成事实垄断，估值1.5亿-3.5亿美元。硅谷Mirendil完成2亿美元种子轮，训练前沿模型做AI R&D并构建产品。",
+    "_file": "lALPD14Y9UWX_FfNA1XNAlY_598_853.png"
+  },
+  {
+    "date": "2026-03-16",
+    "companies": [
+      {
+        "name": "Meta",
+        "ticker": "META",
+        "sector": "Technology"
+      },
+      {
+        "name": "Google",
+        "ticker": "GOOGL",
+        "sector": "Technology"
+      },
+      {
+        "name": "Nebius Group",
+        "ticker": "NBIS",
+        "sector": "AI Cloud / Infrastructure"
+      }
+    ],
+    "thesis": "Google restricted Meta's compute capacity in March 2026 due to its own compute constraints, leading to Meta signing large agreements with Neoclouds like Nebius. This highlights a severe capacity shortage among hyperscalers, which may drive further AI data center capex buildout.",
+    "supply_chain_nodes": [
+      "AI compute capacity",
+      "cloud infrastructure",
+      "neocloud providers"
+    ],
+    "a_relevance": "high",
+    "summary_cn": "谷歌在2026年3月因自身算力限制，限制了Meta的算力供应，导致Meta与Nebius等Neocloud签署大规模AI基础设施协议。谷歌CEO表示算力瓶颈使谷歌云积压订单翻倍。这反映了超大规模云厂商算力严重不足，利好AI数据中心资本开支建设。",
+    "_file": "lALPD1baf6QAiz_NB0bNAlY_598_1862.png"
+  },
+  {
+    "date": "2026-06-26",
+    "companies": [
+      {
+        "name": "UBS",
+        "ticker": "",
+        "sector": "Finance"
+      },
+      {
+        "name": "Anthropic",
+        "ticker": "",
+        "sector": "Technology"
+      },
+      {
+        "name": "DeepSeek",
+        "ticker": "",
+        "sector": "Technology"
+      },
+      {
+        "name": "Gemini",
+        "ticker": "",
+        "sector": "Technology"
+      },
+      {
+        "name": "OpenAI",
+        "ticker": "",
+        "sector": "Technology"
+      },
+      {
+        "name": "Mythos",
+        "ticker": "",
+        "sector": "Technology"
+      },
+      {
+        "name": "Fable",
+        "ticker": "",
+        "sector": "Technology"
+      }
+    ],
+    "thesis": "US AI models are being distilled by Chinese competitors (e.g., DeepSeek) due to lower cost. The US should impose biometric KYC authentication (like FaceID + Persona) for frontier model access, create tiered allied access, and develop more cost-optimized reasoning models to outcompete. Trump's pause on Fable/Mythos access is seen as positive but insufficient against repeated distillation.",
+    "supply_chain_nodes": [
+      "AI model access",
+      "biometric authentication",
+      "distillation prevention"
+    ],
+    "a_relevance": "high",
+    "summary_cn": "美国AI模型（如Anthropic）被中国公司（如DeepSeek）蒸馏，因为后者任务成本更低。建议美国采取银行级KYC认证（如FaceID+Persona）限制前沿模型访问，分级开放给盟友，并加快研发更廉价的推理模型以保持领先。特朗普暂停Fable/Mythos访问被认为合理，但需解决反复蒸馏问题。",
+    "_file": "lALPD1FFrqvVC4_NEEHNAlY_598_4161.png"
+  },
+  {
+    "date": "2026-06-26",
+    "companies": [
+      {
+        "name": "Yangjie Technology",
+        "ticker": null,
+        "sector": "power semiconductor"
+      },
+      {
+        "name": "Chongqing China Resources Micro",
+        "ticker": null,
+        "sector": "power semiconductor"
+      },
+      {
+        "name": "Silan Microelectronics",
+        "ticker": null,
+        "sector": "power semiconductor"
+      },
+      {
+        "name": "NCE Power",
+        "ticker": null,
+        "sector": "power semiconductor"
+      },
+      {
+        "name": "AOSL",
+        "ticker": "AOSL",
+        "sector": "US power semiconductor"
+      },
+      {
+        "name": "POWI",
+        "ticker": "POWI",
+        "sector": "US power semiconductor"
+      }
+    ],
+    "thesis": "Power semiconductor price hikes in China (10-15%) signal demand-led recovery from AI data centers, energy systems, and new EVs. This reduces China-driven price pressure and validates demand, benefiting US power semi trade and upstream materials.",
+    "supply_chain_nodes": [
+      "nonferrous metals (copper, tin)",
+      "plastic molding compounds",
+      "chemicals",
+      "packaging consumables"
+    ],
+    "a_relevance": "high",
+    "summary_cn": "中国主要功率半导体制造商在2026年相继提价（杨杰科技年内第二次提价10%-15%，华润微、士兰微、新洁能等跟进），需求驱动而非成本驱动。利好美国功率半导体贸易（AOSL、POWI）及上游材料（铜、锡、塑料模塑料、化学品、封装耗材）。",
+    "_file": "lALPD1FOxyUpwi_NCVfNAlY_598_2391.png"
+  },
+  {
+    "date": "2026-06-28",
+    "companies": [
+      {
+        "name": "Zhipu AI",
+        "ticker": "",
+        "sector": "Artificial Intelligence"
+      },
+      {
+        "name": "Anthropic",
+        "ticker": "",
+        "sector": "Artificial Intelligence"
+      }
+    ],
+    "thesis": "China's Zhipu AI has matched Anthropic's Mythos model in cybersecurity benchmarks, raising concerns about AI distillation and the need for stronger guardrails to prevent IP theft via API calls.",
+    "supply_chain_nodes": [],
+    "a_relevance": "high",
+    "summary_cn": "中国智谱AI在网络安全测试中追平Anthropic的Mythos模型，引发对AI蒸馏风险的担忧。评论认为Anthropic未设置足够护栏防止蒸馏，而美国政府做法正确。数万亿资本支出加速AI护城河建设，但不应通过数百万API调用轻易交出成果。",
+    "_file": "lALPD1gO0Ttxrb_NBpvNAlY_598_1691.png"
+  },
+  {
+    "date": "2025-06-25",
+    "companies": [
+      {
+        "name": "Micron Technology",
+        "ticker": "MU",
+        "sector": "Semiconductors"
+      },
+      {
+        "name": "TSMC",
+        "ticker": "TSM",
+        "sector": "Semiconductors"
+      },
+      {
+        "name": "Tesla",
+        "ticker": "TSLA",
+        "sector": "Automotive/Robotics"
+      }
+    ],
+    "thesis": "Humanoid robots will require ~10x more memory than L2+ autonomous vehicles, driving a multi-decade memory demand cycle starting before the end of this decade. On-device AI and pent-up replacement demand also contribute.",
+    "supply_chain_nodes": [
+      "Memory manufacturing",
+      "Edge AI hardware",
+      "Physical AI stacks"
+    ],
+    "a_relevance": "high",
+    "summary_cn": "MU CEO预测人形机器人将开启数十年的存储需求周期，其内存需求约为当前L2+自动驾驶汽车的10倍，需求浪潮将在本十年末前启动。同时，设备AI价值与换机需求也将推动存储增长。行业领袖（TSM董事长、马斯克、MU CEO）均视人形机器人为下一大趋势，物理AI成为焦点。但全球存储产能是否足够或需技术突破以压缩用量存疑。",
+    "_file": "lALPD2cpFFT7P4fNBTvNAlY_598_1339.png"
+  },
+  {
+    "date": "2026-06-26",
+    "companies": [
+      {
+        "name": "Morgan Stanley",
+        "ticker": "MS",
+        "sector": "Financial Services"
+      }
+    ],
+    "thesis": "Morgan Stanley maintains forecast that the Federal Reserve will keep interest rates unchanged through year-end (no rate hikes). Analyst Michael Gapen notes incoming data since the June FOMC meeting makes the no-hike baseline 'marginally more comfortable,' citing falling oil prices and an expectation that tariff pass-through is ending. However, unemployment below 4% or persistently elevated inflation could force a rethink in favor of rate hikes.",
+    "supply_chain_nodes": [],
+    "a_relevance": "high",
+    "summary_cn": "摩根士丹利维持预测，美联储将在年底前维持利率不变（不加息）。分析师Michael Gapen表示，自6月FOMC会议以来的数据使其不加息的基本情景'略微更令人安心'，理由是油价下跌和关税传导效应即将结束。但失业率低于4%或持续高通胀可能促使其重新考虑加息。",
+    "_file": "lALPD2HvNoMAq1_NA0XNAlY_598_837.png"
+  },
+  {
+    "date": "2026-06-27",
+    "companies": [
+      {
+        "name": "OpenAI",
+        "ticker": "",
+        "sector": "Technology"
+      },
+      {
+        "name": "Anthropic",
+        "ticker": "",
+        "sector": "Technology"
+      }
+    ],
+    "thesis": "OpenAI released GPT-5.6 SOI, claiming its Sol Ultra model beats Anthropic's Mythos 5 in coding/workflow and is better for bio/cybersecurity, suggesting a leapfrog over Anthropic.",
+    "supply_chain_nodes": [],
+    "a_relevance": "high",
+    "summary_cn": "OpenAI发布新模型GPT-5.6 SOI，声称Sol Ultra在编程和工作流方面击败了Anthropic的Mythos 5，并在生物和网络安全领域更胜一筹，若真超越Anthropic则重新看好OpenAI。",
+    "_file": "lALPM21KhF6B3w_NBYXNAlY_598_1413.png"
+  },
+  {
+    "date": "2026-06-26",
+    "companies": [
+      {
+        "name": "SoftBank",
+        "ticker": "",
+        "sector": "Technology/Investment"
+      },
+      {
+        "name": "OpenAI",
+        "ticker": "",
+        "sector": "Artificial Intelligence"
+      }
+    ],
+    "thesis": "SoftBank may drop 13.5% due to an investor presentation. OpenAI's IPO may be delayed to 2027 because Altman wants a $1 trillion valuation.",
+    "supply_chain_nodes": [],
+    "a_relevance": "medium",
+    "summary_cn": "软银因投资者演示文件可能下跌13.5%。OpenAI的IPO可能推迟至2027年，原因是奥特曼想要1万亿美元估值。",
+    "_file": "lALPM2BJxDU7dI_NC97NAlY_598_3038.png"
+  },
+  {
+    "date": "2026-06-25",
+    "companies": [
+      {
+        "name": "Micron Technology",
+        "ticker": "MU",
+        "sector": "Memory/Semiconductors"
+      },
+      {
+        "name": "Intel Corporation",
+        "ticker": "INTC",
+        "sector": "Large Cap Semiconductors"
+      },
+      {
+        "name": "AXT Inc",
+        "ticker": "AXTI",
+        "sector": "Photonics"
+      },
+      {
+        "name": "Sivers Semiconductors",
+        "ticker": "SIVE",
+        "sector": "Photonics"
+      },
+      {
+        "name": "AST SpaceMobile",
+        "ticker": "ASTS",
+        "sector": "Space"
+      },
+      {
+        "name": "Rocket Lab USA",
+        "ticker": "RKLB",
+        "sector": "Space"
+      },
+      {
+        "name": "Palantir Technologies",
+        "ticker": "PLTR",
+        "sector": "AI/Software"
+      },
+      {
+        "name": "Salesforce",
+        "ticker": "CRM",
+        "sector": "Software"
+      }
+    ],
+    "thesis": "Markets are experiencing broad sell-offs driven by hawkish Fed narrative and potential rate hikes, with significant drops in photonics, space, AI, and software sectors. Memory, indexes, and large cap semiconductors remain relatively stable. The author believes the sell-off feels overshot due to margin liquidations on less liquid assets, but remains personally bullish on AI buildout and upstream AI capex beneficiaries in the longer run.",
+    "supply_chain_nodes": [
+      "AI Buildout",
+      "Upstream AI Capex"
+    ],
+    "a_relevance": "high",
+    "summary_cn": "市场在鹰派美联储叙事和潜在加息背景下经历广泛下跌，光子学、太空、AI和软件板块跌幅显著（40%左右），仅记忆体、指数和大市值半导体相对稳定。作者认为因非流动性资产保证金清算导致跌势过度，长期看基本面会胜出，个人仍看好AI建设及上游AI资本支出受益方。",
+    "_file": "lALPM2Fszd3i-EfNDS7NAlY_598_3374.png"
+  },
+  {
+    "date": "2026-06-26",
+    "companies": [
+      {
+        "name": "",
+        "ticker": "WEN",
+        "sector": ""
+      },
+      {
+        "name": "",
+        "ticker": "MU",
+        "sector": ""
+      },
+      {
+        "name": "",
+        "ticker": "SNDK",
+        "sector": ""
+      }
+    ],
+    "thesis": "User is frustrated with poor stock performance, jokingly considering applying for a job at WEN and living behind dumpsters, noting that even strong gains in MU and SNDK couldn't save their portfolio. They are cheering for Japan to beat Sweden 2-0 in a match, referencing the 20% drop.",
+    "supply_chain_nodes": [],
+    "a_relevance": "medium",
+    "summary_cn": "用户抱怨持仓表现差，戏称要去填WEN的入职申请并在垃圾桶后安营扎寨，指出即使MU和SNDK今天表现强劲也未能挽回损失。精神上支持日本队，希望瑞典被2-0击败，对应20%的跌幅。",
+    "_file": "lALPM2K0OPzuKv_NAgTNAlY_598_516.png"
+  },
+  {
+    "date": "2026-06-25",
+    "companies": [
+      {
+        "name": "Wendy's",
+        "ticker": "WEN",
+        "sector": "fast food"
+      },
+      {
+        "name": "Reddit",
+        "ticker": "RDDT",
+        "sector": "social media"
+      }
+    ],
+    "thesis": "Meme traders on Reddit are driving up Wendy's stock via viral campaign, with price up 50% from initial surge; author feels sidelined as AI/optics portfolio underperforms compared to meme stock.",
+    "supply_chain_nodes": [],
+    "a_relevance": "high",
+    "summary_cn": "Reddit上的迷因交易者发起病毒式营销活动拯救温蒂汉堡（$WEN），股价从一夜涨20%到累计涨约50%，引发全球媒体关注。作者感叹自己的AI/光学投资组合表现不如$RDDT上的迷因股，询问是否有人建仓。",
+    "_file": "lALPM2naIDnuL3fNEIfNAlY_598_4231.png"
+  },
+  {
+    "date": "2026-06-27",
+    "companies": [
+      {
+        "name": "Amazon",
+        "ticker": "AMZN",
+        "sector": "Technology"
+      },
+      {
+        "name": "Tesla",
+        "ticker": "TSLA",
+        "sector": "Automotive"
+      }
+    ],
+    "thesis": "Robotics is the next big trend, with deal counts and investment amounts skyrocketing per PitchBook March data (source: a16z). AI data center exposure often cross-exposes to humanoid robotics, e.g., DRAM/NAND for inference/storage, DFB lasers/photonics for FMCW LiDAR. Most exposure currently in upstream components or within large players like AMZN and TSLA. Global IPO season for pure-play humanoid/robotics companies expected H2 into 2027.",
+    "supply_chain_nodes": [
+      "DRAM/NAND",
+      "DFB lasers/photonics"
+    ],
+    "a_relevance": "high",
+    "summary_cn": "机器人技术是下一个风口。根据PitchBook三月数据（来源：a16z），交易数量和投资金额都在飙升。好消息是：同样的AI数据中心曝光往往也与人形机器人的发展曲线存在交叉曝光，比如DRAM/NAND与人形机器人推理/存储中的内存，或DFB激光器与光子学（FMCW LiDAR视觉/传感）的关联。目前大多数曝光集中在上游零部件，或亚马逊(AMZN)、特斯拉(TSLA)等巨头的内部项目。因此，2027年下半年开始的全球IPO季，对于纯人形机器人/机器人公司来说将会非常有趣。",
+    "_file": "lALPM2pXou0LyQfNBsLNAlY_598_1730.png"
+  },
+  {
+    "date": "2026-06-26",
+    "companies": [
+      {
+        "name": "Sivers Semiconductors",
+        "ticker": "SIVE",
+        "sector": "Semiconductors"
+      },
+      {
+        "name": "Micron Technology",
+        "ticker": "MU",
+        "sector": "Semiconductors"
+      },
+      {
+        "name": "SK Hynix",
+        "ticker": "",
+        "sector": "Semiconductors"
+      },
+      {
+        "name": "Iren",
+        "ticker": "IREN",
+        "sector": "Data Centers/Infrastructure"
+      },
+      {
+        "name": "Lite-On Technology",
+        "ticker": "LITE",
+        "sector": "Semiconductors"
+      }
+    ],
+    "thesis": "Sivers is positioned to ramp volume in 2027 and list on NASDAQ, driving M&A and potential growth from $3B to $60B+ market cap, similar to LITE. The author has conviction in their hyperscaler mapping research for SIVE.",
+    "supply_chain_nodes": [
+      "4-6 inch InP fabs",
+      "employee count",
+      "hyperscaler customers",
+      "volume ramp timelines"
+    ],
+    "relevance": "high",
+    "summary_cn": "作者对Sivers（$SIVE）有坚定信心，基于其超大规模映射研究，持有百万股以上仓位。指出分析师通常跟风大行报告，但作者通过开源情报提出新观点，尽管面临激烈辩论。预计Sivers在2027年实现产能爬坡并登陆纳斯达克，以支持并购，走上类似LITE的增长路径。同时提及先前成功预测如$EWY内存结构性和$NBIS估值案例。",
+    "_file": "lALPM3KVqg42ZP_NCKvNAlY_598_2219.png"
+  },
+  {
+    "date": "2026-06-26",
+    "companies": [
+      {
+        "name": "SK Hynix",
+        "ticker": "",
+        "sector": "Semiconductor"
+      },
+      {
+        "name": "Samsung",
+        "ticker": "",
+        "sector": "Semiconductor"
+      },
+      {
+        "name": "SOI",
+        "ticker": "SOI",
+        "sector": "Technology"
+      },
+      {
+        "name": "RKLB",
+        "ticker": "RKLB",
+        "sector": "Aerospace"
+      }
+    ],
+    "thesis": "Global market correction in progress; high-beta stocks drop harder but may frontrun index declines and recover earlier.",
+    "supply_chain_nodes": [],
+    "a_relevance": "high",
+    "summary_cn": "全球正在经历一轮回调，韩国KOSPI指数下跌8.18%（SK海力士/三星），日经指数下跌4.8%，台湾加权指数下跌3.82%。高贝塔股票跌幅更大但可能领先指数反弹。",
+    "_file": "lALPM3ofnJioNF_NCRzNAlY_598_2332.png"
+  },
+  {
+    "date": "2026-06-27",
+    "companies": [
+      {
+        "name": "Cerebras",
+        "ticker": "CBRS",
+        "sector": "Semiconductors/AI Hardware"
+      },
+      {
+        "name": "OpenAI",
+        "ticker": null,
+        "sector": "AI Technology"
+      },
+      {
+        "name": "Jabil",
+        "ticker": "JBL",
+        "sector": "Manufacturing/Electronics"
+      }
+    ],
+    "thesis": "OpenAI launching its heavyweight 5.6 SO1 frontier model on Cerebras (CBRS) at up to 750 tokens/sec validates Cerebras' technology. The author started a position in Cerebras below $185 IPO price. CBRS may be overvalued vs profitable companies like JBL at same valuation, but likely commands a premium for OpenAI exposure as long as OpenAI remains leader.",
+    "supply_chain_nodes": [
+      "Cerebras provides hardware for AI inference",
+      "OpenAI uses Cerebras to deploy model"
+    ],
+    "a_relevance": "high",
+    "summary_cn": "OpenAI在Cerebras ($CBRS)上发布重量级5.6 SO1前沿模型，速度高达每秒750个token，性能炸裂。作者在170多美元（低于185美元IPO价）建仓Cerebras，认为这验证了其技术。但与同估值的盈利公司$JBL相比，Cerebras略显高估，不过只要OpenAI保持领先，相关概念股可能有溢价。",
+    "_file": "lALPM3SJ4swxGwfNCinNAlY_598_2601.png"
+  },
+  {
+    "date": "2026-06-26",
+    "companies": [
+      {
+        "name": "美光",
+        "ticker": "MU",
+        "sector": "半导体"
+      },
+      {
+        "name": "SK海力士",
+        "ticker": "",
+        "sector": "半导体"
+      },
+      {
+        "name": "三星",
+        "ticker": "",
+        "sector": "半导体"
+      }
+    ],
+    "thesis": "存储芯片需求激增、价格飙升，供应相对紧缺，生产短缺严重，需大幅提高产量。",
+    "supply_chain_nodes": [
+      "存储芯片制造",
+      "数据中心"
+    ],
+    "a_relevance": "high",
+    "summary_cn": "埃隆·马斯克警告存储芯片（美光、SK海力士、三星）需求巨大且价格飞涨，供应短缺严重，需大幅增产，他比其他人更了解存储瓶颈。",
+    "_file": "lALPM3UBB460gB_NBYPNAlY_598_1411.png"
+  },
+  {
+    "date": "2026-06-28",
+    "companies": [
+      {
+        "name": "Schaeffler",
+        "ticker": "SHA0",
+        "sector": "Automotive / Humanoid Robotics"
+      },
+      {
+        "name": "Nabtesco",
+        "ticker": "6268",
+        "sector": "Automotive / Joint Components"
+      },
+      {
+        "name": "Sanhua",
+        "ticker": "",
+        "sector": "Automotive / Humanoid Robotics"
+      }
+    ],
+    "thesis": "Humanoid robotics + AI auto will be a catalyst for automotive parts companies past 2027, but a downstream leader (like ChatGPT/Anthropic) is needed first to bring up the entire robotics ecosystem. Many companies currently only have ~1% revenue from humanoids.",
+    "supply_chain_nodes": [
+      "bearings",
+      "gearboxes",
+      "sensors/ECUs",
+      "actuators",
+      "power electronics"
+    ],
+    "a_relevance": "medium",
+    "summary_cn": "舍弗勒(SHA0)是汽车零部件企业的典范，与45家人形机器人公司合作，覆盖轴承、变速箱、传感器等，估计占人形机器人BOM约50%。目标市场10%份额，但2030年预计仅几亿美元营收（极其保守）。纳博特斯克(6268)和三花也是相关企业。人形机器人+AI汽车在2027年后将成为催化剂，但需要下游领导者突破带动整个生态系统。目前许多企业人形机器人业务仅占营收1%。",
+    "_file": "lALPM3Zi0q0Jyh_NDPbNAlY_598_3318.png"
+  }
+]
