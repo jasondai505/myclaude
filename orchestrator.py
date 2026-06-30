@@ -61,7 +61,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
             {"id": "serenity", "name": "产业链卡脖子更新", "cmd": "python daily_review/serenity_kb.py --update-all"},
             {"id": "audit", "name": "输出自检(night)", "cmd": "python daily_review/output_audit.py --fix --pipeline night"},
             {"id": "db_cleanup", "name": "DB清理+VACUUM", "cmd": "python -c \"from daily_review.store import vacuum_and_cleanup; s = vacuum_and_cleanup(); print(s or 'no cleanup needed')\""},
-            {"id": "signal_monitor", "name": "三信号扫描", "cmd": "python daily_review/signal_monitor.py"},
+            {"id": "signal_monitor", "name": "三信号扫描+深挖", "cmd": "python daily_review/signal_monitor.py --run"},
         ],
     },
     "pre_dawn": {
