@@ -7,7 +7,7 @@
 
 import subprocess
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 PROJECT = Path(__file__).parent
@@ -41,12 +41,12 @@ def main():
             print("  刷新地址: http://111.231.44.12:4000/dash")
             sys.exit(1)
 
-        # Step 2: 采集入库
-        today = date.today().isoformat()
+        # Step 2: 采集入库（从昨天开始，防跨天漏文章）
+        since = (date.today() - timedelta(days=1)).isoformat()
         _run(
             [str(DAILY / "daily_collect.py"), "--source", "wechat",
-             "--since", today],
-            "Step 2/3: 采集最新文章入库",
+             "--since", since],
+            f"Step 2/3: 采集最新文章入库 (since {since})",
         )
 
     # Step 3: 两阶段 AI 分析
