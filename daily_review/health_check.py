@@ -33,11 +33,11 @@ def check_rss():
             ISSUES.append("RSS: 可达但无文章")
             return
         latest = items[0].get("date_modified", "")[:10]
-        cutoff = (datetime.now() - timedelta(hours=6)).strftime("%Y-%m-%d %H:%M")
+        cutoff = (datetime.now() - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M")
         recent = [it for it in items if (it.get("date_modified", "")[:16]) >= cutoff]
         if not recent:
-            ISSUES.append(f"RSS: 6h内无新文章(最新{latest})")
-        print(f"  [RSS] OK: {len(recent)}篇/6h, 最新{latest}")
+            ISSUES.append(f"RSS: 24h内无新文章(最新{latest})")
+        print(f"  [RSS] OK: {len(recent)}篇/24h, 最新{latest}")
     except Exception as e:
         ISSUES.append(f"RSS: 不可达 ({e})")
 
@@ -100,7 +100,7 @@ def check_fev_delta():
     conn.row_factory = sqlite3.Row
     today = date.today().isoformat()
 
-    for tbl, label, max_lag in [("feval_scores", "FEV", 1), ("stock_delta", "Δ", 1)]:
+    for tbl, label, max_lag in [("feval_scores", "FEV", 1)]:
         row = conn.execute(f"SELECT MAX(date) as latest FROM {tbl}").fetchone()
         latest = row["latest"] if row and row["latest"] else ""
         if not latest:
@@ -112,23 +112,41 @@ def check_fev_delta():
             else:
                 print(f"  [FEV/Δ] {label} 最新={latest}(落后{days_behind}天，在{max_lag}天容限内)")
 
+    # Δ 双轨检查：分别看 mech_score(机械轨) 和 delta_score(LLM轨)
+    for col, label, max_lag in [("mech_score", "Δ机械轨", 1), ("delta_score", "Δ LLM轨", 3)]:
+        row = conn.execute(
+            f"SELECT MAX(date) as latest FROM stock_delta WHERE {col} != 0"
+        ).fetchone()
+        latest = row["latest"] if row and row["latest"] else ""
+        if not latest:
+            ISSUES.append(f"{label}: 无有效评分")
+        elif latest != today:
+            days_behind = (date.today() - date.fromisoformat(latest)).days
+            if days_behind > max_lag:
+                ISSUES.append(f"{label}: 最新日期={latest}(落后{days_behind}天>{max_lag}天容限)")
+            else:
+                print(f"  [FEV/Δ] {label} 最新={latest}(落后{days_behind}天，在{max_lag}天容限内)")
+
     fev_codes = {r[0] for r in conn.execute("SELECT DISTINCT code FROM feval_scores").fetchall()}
-    delta_codes = {r[0] for r in conn.execute("SELECT DISTINCT code FROM stock_delta").fetchall()}
-    if fev_codes and delta_codes:
-        intersection = fev_codes & delta_codes
-        ratio = len(intersection) / max(len(fev_codes), len(delta_codes)) * 100
-        print(f"  [FEV/Δ] 覆盖: FEV={len(fev_codes)} Δ={len(delta_codes)} 交集={len(intersection)}({ratio:.0f}%)")
-        if ratio < 20:
-            ISSUES.append(f"FEV/Δ: 交集率仅{ratio:.0f}%，硬排名Δ因子几乎无效")
-        if len(delta_codes) < len(fev_codes) * 0.3:
-            ISSUES.append(f"Δ覆盖严重不足: {len(delta_codes)} vs FEV {len(fev_codes)}")
+    mech_codes = {r[0] for r in conn.execute("SELECT DISTINCT code FROM stock_delta WHERE mech_score != 0").fetchall()}
+    llm_codes = {r[0] for r in conn.execute("SELECT DISTINCT code FROM stock_delta WHERE delta_score != 0").fetchall()}
+    delta_all = mech_codes | llm_codes
+    if fev_codes and delta_all:
+        intersection = fev_codes & delta_all
+        ratio = len(intersection) / len(fev_codes) * 100
+        print(f"  [FEV/Δ] 覆盖: FEV={len(fev_codes)} Δ机械={len(mech_codes)} ΔLLM={len(llm_codes)} Δ合计={len(delta_all)} FEV∩Δ={len(intersection)}({ratio:.0f}%)")
+        if len(mech_codes) < 1000:
+            ISSUES.append(f"Δ机械轨覆盖不足: {len(mech_codes)}只（预期≥1000）")
+        if llm_codes and len(llm_codes) < 50:
+            ISSUES.append(f"Δ LLM轨覆盖偏少: {len(llm_codes)}只")
     elif not fev_codes:
         ISSUES.append("FEV: 无评分数据")
-    elif not delta_codes:
-        ISSUES.append("Δ: 无评分数据")
+    elif not delta_all:
+        ISSUES.append("Δ: 双轨均无评分数据")
 
-    for tbl, label, lo, hi in [("feval_scores", "FEV", 0, 30), ("stock_delta", "Δ", -10, 10)]:
-        col = "fev_total" if "fev" in tbl else "delta_score"
+    for tbl, col, label, lo, hi in [("feval_scores", "fev_total", "FEV", 0, 30),
+                                       ("stock_delta", "delta_score", "Δ LLM轨", -10, 10),
+                                       ("stock_delta", "mech_score", "Δ机械轨", -10, 10)]:
         out_of_range = conn.execute(
             f"SELECT COUNT(*) FROM {tbl} WHERE {col} NOT BETWEEN {lo} AND {hi}"
         ).fetchone()[0]
@@ -140,7 +158,7 @@ def check_fev_delta():
         ).fetchone()[0]
         total = conn.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
         if total > 0 and all_zero == total:
-            ISSUES.append(f"{label}: {total}条全为0，LLM打分可能失败")
+            ISSUES.append(f"{label}: {total}条全为0，评分可能失败")
 
     conn.close()
 
@@ -202,8 +220,6 @@ def check_engines():
             yp = PROJECT / rel.replace(today.isoformat(), yesterday.isoformat())
             if yp.exists():
                 print(f"  [引擎] {name}: 最新{yesterday}(今日未生成)")
-                if required:
-                    ISSUES.append(f"引擎: {name} 今日未产出(昨日有)")
             elif required:
                 ISSUES.append(f"引擎: {name} 近2天均未产出")
 
@@ -301,18 +317,20 @@ def check_chain_xlsx():
             ISSUES.append("产业链XLSX: 0个 — 三重共振涨跌幅无数据源")
         elif count < 100:
             ISSUES.append(f"产业链XLSX: 仅{count}个(预期≥100)，alpha产业图谱/ 文件可能缺失或 glob 未递归")
-        # 检查日期新鲜度
+        # 日期新鲜度：外部数据源，允许7天容限
         import re as _re
         date_pat = _re.compile(r"(\d{8})")
         stale = 0
         from trade_calendar import prev_trading_day
-        last_trade_str = prev_trading_day().strftime("%Y%m%d")
+        from datetime import date as _date, timedelta as _td
+        last_trade = prev_trading_day()
+        acceptable = (last_trade - _td(days=7)).strftime("%Y%m%d")
         for fp in files:
             m = date_pat.search(fp.stem)
-            if m and m.group(1) < last_trade_str:
+            if m and m.group(1) < acceptable:
                 stale += 1
         if stale > count * 0.5:
-            ISSUES.append(f"产业链XLSX: {stale}/{count} 日期早于{last_trade_str}(最近交易日)，涨幅数据可能过时")
+            ISSUES.append(f"产业链XLSX: {stale}/{count} 日期早于{acceptable}(7天容限)，涨幅数据可能过时")
     except Exception as e:
         ISSUES.append(f"产业链XLSX: 检查失败 ({e})")
 

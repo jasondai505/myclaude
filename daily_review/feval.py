@@ -3,6 +3,8 @@
 用法:
   python feval.py --codes 301373,688300,000657          # 对指定标的评分
   python feval.py --from-feeds 2026-06-10               # 从当天 feeds 提取所有代码并评分
+  python feval.py --update-delta                         # LLM Δ 边际变化评分
+  python feval.py --update-mech-delta                    # 机械Δ全市场扫描（零LLM成本）
   python feval.py --list                                 # 列出已有评分
   python feval.py --init                                 # 初始化数据库表
 
@@ -76,6 +78,7 @@ def init_db():
                 name      TEXT NOT NULL,
                 date      TEXT NOT NULL,
                 delta_score INTEGER DEFAULT 0,
+                mech_score INTEGER DEFAULT 0,
                 signal    TEXT DEFAULT '',
                 source    TEXT DEFAULT '',
                 UNIQUE(code, date)
@@ -83,6 +86,10 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_delta_code ON stock_delta(code);
             CREATE INDEX IF NOT EXISTS idx_delta_date ON stock_delta(date);
         """)
+        try:
+            conn.execute("ALTER TABLE stock_delta ADD COLUMN mech_score INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
 
 
 def save_scores(scores: list[dict]):
@@ -604,9 +611,13 @@ def save_delta_scores(scores: list[dict]):
     with _conn() as conn:
         for s in scores:
             conn.execute(
-                """INSERT OR REPLACE INTO stock_delta
+                """INSERT INTO stock_delta
                    (code, name, date, delta_score, signal, source)
-                   VALUES (?,?,?,?,?,?)""",
+                   VALUES (?,?,?,?,?,?)
+                   ON CONFLICT(code, date) DO UPDATE SET
+                   delta_score = excluded.delta_score,
+                   signal = CASE WHEN excluded.signal != '' THEN excluded.signal ELSE stock_delta.signal END,
+                   source = excluded.source""",
                 (s["code"], s["name"], s.get("date", _today()),
                  s.get("delta_score", 0), s.get("signal", ""), s.get("source", "")),
             )
@@ -636,7 +647,141 @@ def get_delta_scores(codes: list[str] | None = None, date_str: str = "") -> dict
             rows = conn.execute(
                 "SELECT * FROM stock_delta WHERE date=?", (d,)
             ).fetchall()
-        return {r["code"]: dict(r) for r in rows}
+        result = {}
+        for r in rows:
+            rd = dict(r)
+            rd["effective"] = rd.get("delta_score") or rd.get("mech_score") or 0
+            result[rd["code"]] = rd
+        return result
+
+
+def save_mech_delta(scores: list[dict]):
+    """保存机械 Δ 评分，只更新 mech_score 列，不影响 LLM delta_score"""
+    with _conn() as conn:
+        for s in scores:
+            conn.execute(
+                """INSERT INTO stock_delta
+                   (code, name, date, mech_score, signal, source)
+                   VALUES (?,?,?,?,?,?)
+                   ON CONFLICT(code, date) DO UPDATE SET
+                   mech_score = excluded.mech_score,
+                   name = excluded.name""",
+                (s["code"], s["name"], s.get("date", _today()),
+                 s.get("mech_score", 0), s.get("signal", ""), s.get("source", "")),
+            )
+
+
+def score_mechanical_delta(date_str: str = "") -> list[dict]:
+    """机械 Δ 评分：基于行情数据的全市场边际变化检测。
+
+    三维度：
+    - 涨跌幅 (change_pct): 价格动量 -5~+5
+    - 量比 (vol_ratio): 相对5日均量 -2~+3
+    - 换手率 (turnover_pct): 交投活跃度 -2~+2
+
+    mech_score = 动量 + 量能 + 热度，覆盖全A 5000+，零LLM成本。
+    """
+    from data import redis_quote_all, _load_name_map
+
+    d = date_str or _today()
+
+    # 跳过今日已有机械Δ评分的
+    existing_mech = set()
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT code FROM stock_delta WHERE date=? AND mech_score != 0", (d,)
+        ).fetchall()
+        existing_mech = {r[0] for r in rows}
+    if existing_mech:
+        print(f"  mech_delta: {len(existing_mech)} 只已有机械Δ评分，跳过")
+        return []
+
+    all_quotes = redis_quote_all()
+    if not all_quotes:
+        print("  mech_delta: Redis 无数据")
+        return []
+
+    name_map = _load_name_map()
+    results = []
+
+    for code, q in all_quotes.items():
+        chg = q.get("change_pct", 0) or 0
+        vr = q.get("vol_ratio", 1) or 1
+        tp = q.get("turnover_pct", 0) or 0
+
+        # 涨跌动量分 (-5 ~ +5)
+        if chg > 9.5:
+            mom = 5
+        elif chg > 7:
+            mom = 4
+        elif chg > 5:
+            mom = 3
+        elif chg > 2:
+            mom = 2
+        elif chg > 0:
+            mom = 1
+        elif chg > -2:
+            mom = 0
+        elif chg > -5:
+            mom = -1
+        elif chg > -7:
+            mom = -2
+        elif chg > -9.5:
+            mom = -3
+        else:
+            mom = -4
+
+        # 量比分 (-2 ~ +3)
+        if vr > 3:
+            vol = 3
+        elif vr > 2:
+            vol = 2
+        elif vr > 1.2:
+            vol = 1
+        elif vr > 0.5:
+            vol = 0
+        elif vr > 0.3:
+            vol = -1
+        else:
+            vol = -2
+
+        # 换手率分 (-2 ~ +2)
+        if tp > 20:
+            trn = 2
+        elif tp > 10:
+            trn = 1
+        elif tp > 1:
+            trn = 0
+        else:
+            trn = -1
+
+        mech = mom + vol + trn
+        mech = max(-10, min(10, mech))
+
+        if mech != 0:
+            signal_parts = []
+            if abs(mom) >= 2:
+                signal_parts.append(f"{'涨' if chg > 0 else '跌'}{abs(chg):.1f}%")
+            if vol >= 2:
+                signal_parts.append(f"量比{vr:.1f}")
+            if abs(trn) >= 1:
+                signal_parts.append(f"换手{tp:.1f}%")
+            results.append({
+                "code": code,
+                "name": name_map.get(code, ""),
+                "date": d,
+                "mech_score": mech,
+                "signal": " ".join(signal_parts) if signal_parts else "",
+                "source": "mechanical",
+            })
+
+    if results:
+        save_mech_delta(results)
+        pos = sum(1 for r in results if r["mech_score"] > 0)
+        neg = sum(1 for r in results if r["mech_score"] < 0)
+        print(f"  mech_delta: {len(results)} 只有效信号 (正{pos} 负{neg})，全A {len(all_quotes)} 只扫描")
+
+    return results
 
 
 def score_delta_from_feeds(date_str: str = "") -> list[dict]:
@@ -702,7 +847,42 @@ def score_delta_from_feeds(date_str: str = "") -> list[dict]:
             pass
 
     if not codes_found:
-        print("  delta: 未从 feeds 中提取到代码")
+        # 回退1: 尝试最近3天的feeds文件
+        for offset in range(1, 4):
+            prev_date = (date.fromisoformat(d) - timedelta(days=offset)).isoformat()
+            for pattern in ["zsxq/zsxq_*.md", "news/news_*.md", "announcements/announcements_*.md", "industry/industry_*.md"]:
+                for f in sorted(feeds_dir.glob(pattern)):
+                    if prev_date in f.name:
+                        try:
+                            text = f.read_text(encoding="utf-8")
+                            codes_found.update(data.extract_codes_from_text(text))
+                            feed_texts.append(f"## {f.stem} ({prev_date})\n{text[:6000]}")
+                        except Exception:
+                            pass
+            if codes_found:
+                d = prev_date
+                print(f"  delta: 今日无feeds，回退到 {prev_date}")
+                break
+    if not codes_found:
+        # 回退2: 从 DB 读最近3天公众号文章
+        try:
+            import store as _st
+            since = (date.today() - timedelta(days=3)).isoformat()
+            rows = _st.query_wechat_articles(since=since, unanalyzed_only=False)
+            for row in rows:
+                title = row.get("title", "")
+                desc = row.get("description", "") or ""
+                if len(desc) > 6000:
+                    desc = desc[:1500] + "\n...(省略)...\n" + desc[-4500:]
+                feed_texts.append(f"## 公众号({row.get('pub_date','')[:10]})\n{title}\n{desc}")
+                codes = data.extract_codes_from_text(title + " " + desc)
+                codes_found.update(codes)
+            if codes_found:
+                print(f"  delta: 文件回退失败，从DB读取 {len(rows)} 篇公众号文章")
+        except Exception as e:
+            print(f"  delta: DB回退也失败: {e}")
+    if not codes_found:
+        print("  delta: 未从 feeds 中提取到代码（已尝试文件→日期回退→DB回退）")
         return []
 
     # 跳过今日已有评分的
@@ -716,7 +896,7 @@ def score_delta_from_feeds(date_str: str = "") -> list[dict]:
     # 获取行情（用于获取名称）
     try:
         import data
-        codes_list = sorted(codes_found)[:200]  # 扩大到200只，减少遗漏
+        codes_list = sorted(codes_found)
         quotes = data.fetch_stock_quotes(codes_list, batch_size=30)
     except Exception:
         print("  delta: 行情获取失败")
@@ -837,6 +1017,8 @@ def _main():
                    help="列出评分 (日期可选)")
     p.add_argument("--update-delta", type=str, nargs="?", const=_today(),
                    help="更新今日 Δ 边际变化评分 (日期可选)")
+    p.add_argument("--update-mech-delta", type=str, nargs="?", const=_today(),
+                   help="机械Δ全市场扫描 (日期可选)")
     args = p.parse_args()
 
     if args.init:
@@ -879,6 +1061,9 @@ def _main():
 
     elif args.update_delta:
         score_delta_from_feeds(args.update_delta)
+
+    elif args.update_mech_delta:
+        score_mechanical_delta(args.update_mech_delta)
 
     elif args.list:
         scores = list_scores(args.list)

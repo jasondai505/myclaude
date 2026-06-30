@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 TIMEOUT = 120
-MAX_TOKENS = 6000
+MAX_TOKENS = 12000
 MODEL = os.getenv("DR_LLM_MODEL", "claude-sonnet-4-6-20250514")
 
 _EXTRACT_PROMPT = """你是 A 股基本面分析师。从以下投资报告中提取结构化信息。

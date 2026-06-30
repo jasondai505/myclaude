@@ -1764,6 +1764,62 @@ def save_feed_cache(source: str, date_str: str, content: str) -> bool:
         return False
 
 
+def vacuum_and_cleanup(dry_run: bool = False) -> dict:
+    """清理旧数据 + VACUUM，瘦身 review.db。
+
+    保留策略：
+    - announcements / zsxq_topics / stock_news: 保留 90 天
+    - theme_daily / marginal_changes / feed_cache: 保留 60 天
+    """
+    cutoff_90 = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
+    cutoff_60 = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d")
+
+    tables_90 = {
+        "announcements": "date",
+        "zsxq_topics": "create_time",
+        "stock_news": "publish_time",
+    }
+    tables_60 = {
+        "theme_daily": "date",
+        "marginal_changes": "date",
+        "feed_cache": "date",
+    }
+
+    stats = {}
+    has_deletions = False
+    with _conn() as conn:
+        for tbl, col in tables_90.items():
+            try:
+                total = conn.execute(f"SELECT COUNT(*) FROM [{tbl}]").fetchone()[0]
+                old = conn.execute(f"SELECT COUNT(*) FROM [{tbl}] WHERE substr({col},1,10) < ? AND {col} != ''", (cutoff_90,)).fetchone()[0]
+                if old:
+                    stats[tbl] = f"{total} rows, {old} old (>90d)"
+                    if not dry_run:
+                        conn.execute(f"DELETE FROM [{tbl}] WHERE substr({col},1,10) < ? AND {col} != ''", (cutoff_90,))
+                        has_deletions = True
+            except Exception:
+                pass
+
+        for tbl, col in tables_60.items():
+            try:
+                total = conn.execute(f"SELECT COUNT(*) FROM [{tbl}]").fetchone()[0]
+                old = conn.execute(f"SELECT COUNT(*) FROM [{tbl}] WHERE {col} < ? AND {col} != ''", (cutoff_60,)).fetchone()[0]
+                if old:
+                    stats[tbl] = f"{total} rows, {old} old (>60d)"
+                    if not dry_run:
+                        conn.execute(f"DELETE FROM [{tbl}] WHERE {col} < ? AND {col} != ''", (cutoff_60,))
+                        has_deletions = True
+            except Exception:
+                pass
+
+    if has_deletions and not dry_run:
+        vac = sqlite3.connect(str(DB_PATH))
+        vac.execute("VACUUM")
+        vac.close()
+
+    return stats
+
+
 def get_feed_cache(source: str, date_str: str) -> str | None:
     try:
         with _conn() as conn:

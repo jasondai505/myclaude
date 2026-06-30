@@ -60,6 +60,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
             {"id": "catalyst_screen", "name": "催化快速筛查", "cmd": "python daily_review/catalyst_screen.py", "depends_on": ["collect"]},
             {"id": "serenity", "name": "产业链卡脖子更新", "cmd": "python daily_review/serenity_kb.py --update-all"},
             {"id": "audit", "name": "输出自检(night)", "cmd": "python daily_review/output_audit.py --fix --pipeline night"},
+            {"id": "db_cleanup", "name": "DB清理+VACUUM", "cmd": "python -c \"from daily_review.store import vacuum_and_cleanup; s = vacuum_and_cleanup(); print(s or 'no cleanup needed')\""},
         ],
     },
     "pre_dawn": {
@@ -68,6 +69,7 @@ PIPELINES: dict[str, dict[str, Any]] = {
         "trigger": "06:30",
         "steps": [
             {"id": "health", "name": "系统健康检查", "cmd": "python daily_review/health_check.py"},
+            {"id": "mech_delta", "name": "机械Δ全市场扫描", "cmd": "python daily_review/feval.py --update-mech-delta"},
             {"id": "unified", "name": "统一FEV+G-Factor评分", "cmd": "python daily_review/unified_scorer.py --from-feeds"},
             {"id": "delta", "name": "Δ边际变化评分", "cmd": "python daily_review/feval.py --update-delta"},
             {"id": "marginal", "name": "边际变化检测", "cmd": "python daily_review/engine_marginal.py"},
