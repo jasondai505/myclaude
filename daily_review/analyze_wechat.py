@@ -886,6 +886,7 @@ def main():
             inject_to_serenity,
             render_markdown,
         )
+        shendu_failed = []
         for sa in shendu_articles:
             try:
                 data = shendu_extract(sa["body"], sa["title"], sa["date"])
@@ -894,7 +895,11 @@ def main():
                     report_path = render_markdown(data)
                     shendu_reports.append(report_path)
                     print(f"    ✓ {sa['title'][:40]}... → {report_path.name if report_path else 'no report'}")
+                else:
+                    shendu_failed.append(sa['title'])
+                    print(f"    ✗ {sa['title'][:40]}... JSON解析失败")
             except Exception as e:
+                shendu_failed.append(sa['title'])
                 print(f"    ✗ {sa['title'][:30]}...: {e}")
 
         # zsxq 两阶段综合研判（跨篇缝合 + 分歧识别 + 行动建议）
@@ -979,6 +984,12 @@ def main():
     store.mark_wechat_analyzed(articles_with_body)
     shendu_info = f" + {len(shendu_reports)}篇深度投研独立报告" if shendu_reports else ""
     print(f"  完成（已标记 {len(articles_with_body)} 篇为已分析{shendu_info}）")
+    if shendu_failed:
+        print(f"\n{'='*60}")
+        print(f"⚠️  深度投研洞见提取失败 {len(shendu_failed)} 篇:")
+        for t in shendu_failed:
+            print(f"    ✗ {t[:60]}")
+        print(f"{'='*60}")
 
 
 if __name__ == "__main__":

@@ -211,6 +211,7 @@ def check_engines():
         ("星球分析", f"daily_review/reports/zsxq_analysis/zsxq_analysis_{today.isoformat()}.md", True),
         ("边际变化", f"daily_review/reports/marginal/marginal_{today.isoformat()}.md", True),
         ("行业深研", f"daily_review/reports/industry/industry_daily_{today.isoformat()}.md", False),
+        ("深度投研专刊", f"daily_review/reports/shendu/shendu_{today.isoformat()}.md", False),
     ]
     for name, rel, required in engines:
         p = PROJECT / rel
