@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from utils import setup_console
@@ -68,6 +68,8 @@ def generate(review_path: Path, trade_date: str) -> str:
     lines = [
         f"# 复盘摘要 {trade_date}",
         "",
+        f"> 源可信度: [HD] 行情数据 | 自动生成于 {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        f"",
         "## 大盘",
         "",
         f"| 指标 | 数值 |",

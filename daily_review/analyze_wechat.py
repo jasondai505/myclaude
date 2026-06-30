@@ -687,6 +687,14 @@ def _fmt_code(c: str, nm: dict[str, str]) -> str:
     return f"{c} {name}" if name else c
 
 
+def _feed_tier(feed_name: str) -> str:
+    """公众号来源可信度分层: T1=深度/机构/脱水研报, T2=一般公众号"""
+    t1_feeds = {"深度投研洞见", "韭研脱水研报", "独角兽智库"}
+    if feed_name in t1_feeds or "投研" in feed_name or "研报" in feed_name:
+        return "T1"
+    return "T2"
+
+
 def _write_report(data: dict, single_results: list[dict],
                   today: str, fetched: int, failed: int):
     nm = _build_name_map(single_results, data)
@@ -713,10 +721,11 @@ def _write_report(data: dict, single_results: list[dict],
             feed_counts[f] = feed_counts.get(f, 0) + 1
     buf.append("## 来源概览")
     buf.append("")
-    buf.append("| 来源 | 篇数 |")
-    buf.append("|------|------|")
+    buf.append("| 来源 | 可信度 | 篇数 |")
+    buf.append("|------|:--:|------|")
     for f, c in sorted(feed_counts.items(), key=lambda x: -x[1]):
-        buf.append(f"| {f} | {c} |")
+        tier = _feed_tier(f)
+        buf.append(f"| {f} | [{tier}] | {c} |")
     buf.append("")
 
     n = data.get("market_narrative", "")
@@ -743,7 +752,8 @@ def _write_report(data: dict, single_results: list[dict],
                     buf.append(f"- **{label}**: {v}")
             feeds = t.get("feeds", [])
             if feeds:
-                buf.append(f"- **来源**: {', '.join(feeds)}")
+                tagged = [f"{f} [{_feed_tier(f)}]" for f in feeds]
+                buf.append(f"- **来源**: {', '.join(tagged)}")
             # 引擎客观标的（主表）
             eng = t.get("engine_stocks", [])
             if eng:
@@ -836,7 +846,7 @@ def _write_report(data: dict, single_results: list[dict],
     global_idx = 0
     for feed in feed_order:
         feed_articles = [(i, a) for i, a in enumerate(single_results) if a and a.get("feed", "?") == feed]
-        buf.append(f"### {feed} ({len(feed_articles)} 篇)")
+        buf.append(f"### {feed} [{_feed_tier(feed)}] ({len(feed_articles)} 篇)")
         buf.append("")
         for orig_i, sr in feed_articles:
             global_idx += 1
@@ -849,7 +859,7 @@ def _write_report(data: dict, single_results: list[dict],
             score = sr.get("relevance_score", 0)
             oneliner = sr.get("one_liner", "")
 
-            buf.append(f"### #{i} [{feed}] {title}")
+            buf.append(f"### #{i} [{feed}] [{_feed_tier(feed)}] {title}")
             buf.append("")
             buf.append(f"**{cat}** | {'★' * score}{'☆' * (5 - score)}")
             buf.append("")
