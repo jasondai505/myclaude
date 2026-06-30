@@ -462,6 +462,95 @@ def _run_shendu_zsxq(shendu_articles: list[dict], today: str) -> 'Path | None':
     return path
 
 
+def _run_shendu_deep_topic(shendu_articles: list[dict], shendu_data_map: dict,
+                           today: str, shendu_reports: list):
+    """深度投研洞见 → deep_topic 多源交叉深度分析（自动桥接）"""
+    if not shendu_articles:
+        return
+    print(f"\n  深度投研洞见 → deep_topic 多源交叉分析...")
+    try:
+        from daily_review.deep_topic import (
+            search_db, extract_per_source, synthesize, render_report,
+        )
+    except ImportError:
+        print("    deep_topic 模块不可用，跳过")
+        return
+
+    import data as _data
+    name_map = _data._load_name_to_code_map()
+
+    for sa in shendu_articles:
+        title = sa.get("title", "")
+        body = sa.get("body", "")
+        try:
+            # 从标题提取关键词
+            kw_candidates = re.findall(r"[A-Za-z一-鿿]{2,8}", title)
+            keywords = [kw for kw in kw_candidates if len(kw) >= 2][:5]
+            if not keywords:
+                keywords = [title[:20]]
+
+            topic = title[:80]
+
+            # DB 搜索相关源
+            sources = search_db(keywords, days=30)
+            if len(sources) < 5:
+                print(f"    ⚠ {title[:30]}... 相关源不足({len(sources)}篇)，跳过 deep_topic")
+                continue
+
+            # shendu 结构化提取结果作为高价值 T1 源注入
+            shendu_data = shendu_data_map.get(title)
+            if shendu_data:
+                shendu_text = json.dumps(shendu_data, ensure_ascii=False, indent=2)
+                sources.insert(0, {
+                    "title": f"深度投研结构化提取: {title}",
+                    "description": shendu_text[:8000],
+                    "source_type": "深度投研洞见·结构化提取",
+                    "source_tier": "T1",
+                    "pub_date": sa.get("date", today),
+                })
+
+            print(f"    [{title[:30]}...] 搜到 {len(sources)} 源, Haiku逐源...")
+            extractions = extract_per_source(sources, name_map)
+            if not extractions:
+                continue
+
+            # 拉行情
+            all_codes = set()
+            for e in extractions:
+                for s in e.get("stocks", []):
+                    code = str(s.get("code", "")).strip()
+                    if re.match(r"\d{6}$", code):
+                        all_codes.add(code)
+            quotes_text = ""
+            if all_codes:
+                try:
+                    quotes = _data.fetch_stock_quotes(sorted(all_codes), batch_size=30)
+                    quote_lines = []
+                    for code in sorted(all_codes):
+                        q = quotes.get(code, {})
+                        chg = q.get("change_pct", 0) or 0
+                        quote_lines.append(
+                            f"{code} {name_map.get(code,'')}: {chg:+.2f}% "
+                            f"量比{q.get('vol_ratio',1) or 1:.1f}"
+                        )
+                    quotes_text = "\n".join(quote_lines)
+                except Exception:
+                    quotes_text = ""
+
+            # Sonnet 多源综合
+            print(f"    [{title[:30]}...] Sonnet 多源综合 ({len(extractions)} 提取)...")
+            synthesis = synthesize(topic, extractions, quotes_text)
+            if synthesis and not synthesis.startswith("Sonnet 综合失败"):
+                report = render_report(topic, synthesis, extractions, today)
+                shendu_reports.append(report)
+                print(f"    ✓ deep_topic: {topic[:40]}... → {report.name}")
+            else:
+                print(f"    ✗ deep_topic Sonnet 失败")
+
+        except Exception as e:
+            print(f"    ✗ deep_topic FAIL: {title[:30]}... {e}")
+
+
 def _write_zsxq_report(data: dict, single_results: list[dict], today: str, total: int) -> 'Path':
     path = REPORT_DIR / "zsxq_analysis" / f"zsxq_shendu_{today}.md"
     now_ts = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -879,6 +968,7 @@ def main():
 
     # 深度投研洞见 → 专用结构化提取器（独立管道，跳过 S1/S2）
     shendu_reports = []
+    shendu_data_map = {}
     if shendu_articles:
         print(f"\n  深度投研洞见: {len(shendu_articles)} 篇 → 结构化提取...")
         from extractors.shendu import (
@@ -891,6 +981,7 @@ def main():
             try:
                 data = shendu_extract(sa["body"], sa["title"], sa["date"])
                 if data:
+                    shendu_data_map[sa["title"]] = data
                     inject_to_serenity(data)
                     report_path = render_markdown(data)
                     shendu_reports.append(report_path)
@@ -906,6 +997,8 @@ def main():
         zsxq_path = _run_shendu_zsxq(shendu_articles, today)
         if zsxq_path:
             shendu_reports.append(zsxq_path)
+
+        _run_shendu_deep_topic(shendu_articles, shendu_data_map, today, shendu_reports)
 
     # 深度投研洞见 从标准管道中排除（已独立分析）
     shendu_feeds = {"深度投研洞见"}
