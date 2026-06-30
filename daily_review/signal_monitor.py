@@ -98,18 +98,18 @@ def check_sector_momentum() -> list[dict]:
     conn.close()
 
     if not rows:
-        conn2 = sqlite3.connect(str(db))
-        latest = conn2.execute(
+        c2 = sqlite3.connect(str(db)); c2.row_factory = sqlite3.Row
+        latest = c2.execute(
             "SELECT MAX(date) FROM stock_delta WHERE mech_score != 0"
         ).fetchone()[0]
-        conn2.close()
+        c2.close()
         if latest:
-            conn3 = sqlite3.connect(str(db))
-            rows = conn3.execute(
+            c3 = sqlite3.connect(str(db)); c3.row_factory = sqlite3.Row
+            rows = c3.execute(
                 "SELECT code, mech_score FROM stock_delta WHERE date=? AND mech_score != 0",
                 (latest,)
             ).fetchall()
-            conn3.close()
+            c3.close()
             print(f"  [板块] 今日无Δ，回退到 {latest}")
 
     if not rows:
