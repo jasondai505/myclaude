@@ -528,3 +528,29 @@ text = download_report_pdf(pdf_url, info_code)
 - 播客文章驱动的两个新功能
 - 假设闭环：data/hypotheses.json + 5源日度证据扫描，纯机械无 LLM
 - 规则晋升：catalyst_type × 概念 30天≥3次+跨≥2天→自动上榜，≥7次+≥3天→纳入SOP
+
+---
+
+## 2026-06-30 Δ双轨改造 + health_check清零 + deep_topic新建
+
+### 背景
+morning_intel 报 8 项异常，核心是 Δ 评分覆盖 291 vs FEV 2721（交集率 11%）+ 多项 health_check 误报。当天 RSS 有 7 篇新文章（含 1 篇深度投研）。
+
+### 完成项 (6 commits)
+- Δ 双轨改造 `13e11ed`: 机械Δ全市场扫描(3837只/$0) + LLMΔ改进(去200上限/日期回退/DB兜底) + stock_delta 加 mech_score 列
+- health_check 清理 `13e11ed`: RSS 6h→24h, Δ 双轨独立检查, 引擎昨日有今日无不告警, XLSX 7 天容限
+- DB 清理 `13e11ed`: vacuum_and_cleanup() 删 11558 行旧星球帖子 + VACUUM, 302→273MB
+- shendu MAX_TOKENS `c81fcea`: 6000→16000, body 6000→10000, 失败末尾醒目告警, health_check 加专刊检查
+- deep_topic 管道 `bda1428`: 多源交叉深度题材分析（DB+web→Haiku逐源→Sonnet综合）, 首份 GlassBridge 报告 68 源 1223 行
+- deep_topic 5项改进 `dba6ec6`: 源可信度 T1/T2/T3 分层, 强制纠偏/被错杀, 全称+时间戳, 源日期标注
+- CLAUDE.md 规则提炼: 语料可信度分层铁律 + 深度分析质量框架 + LLM 输出截断防范 + 双轨互补模式
+
+### 关键踩坑
+
+**语料直接调用是系统性风险**：星球帖子和机构研报同权进入 LLM → 推销口径被当作客观分析。这是所有多源 LLM 管线的通用问题，不只是 deep_topic。解决方案：T1/T2/T3 三层分级 + prompt 层强制交叉验证 + 报告头展示源质量分布。已写入 CLAUDE.md 铁律。
+
+**LLM 输出截断静默失败**：shendu 输出 JSON 6000 tokens 截断 → JSON parse 失败 → 专刊不生成，只有 extractor 内部一行 print，管道其他部分完全不知道。两端修复：token 留够（16000）+ 管道末尾醒目汇总。
+
+**health_check 时序依赖**：marginal/zsxq_analysis 在 health_check 之后运行 → health_check 报告"今日未产出"。修法：引擎检查只警报 >1 天无产出，昨日有不算异常。
+
+**机械+LLM 双轨互补**：FEV 是全市场基本面评分（成本高但覆盖广），Δ LLM 是事件驱动评分（成本低但覆盖窄）。两个不可公度的维度不要强行合并——分轨独立评分，查询时按优先级合并。模式可复用到其他双评分系统。
