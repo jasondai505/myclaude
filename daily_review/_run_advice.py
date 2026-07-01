@@ -1670,6 +1670,72 @@ def _validate_w5_numbers(output: str, feeds: dict[str, str]) -> str:
     return output
 
 
+def _validate_numerical_provenance(output: str, feeds: dict[str, str]) -> str:
+    """扫描 W5 区未被其他 validator 覆盖的自由推断数值（PE区间/目标价偏离等）。
+
+    已有 validator 覆盖的（美股涨跌幅/营收幻觉/Q1年化/EPS偏离/减持）不重复扫。
+    """
+    if not output:
+        return output
+
+    # 只扫描 W5（隔夜外围已被 W5 validator 覆盖，三大指数已被 index validator 覆盖）
+    idx = output.find("### W5 风险排雷")
+    if idx < 0:
+        return output
+    end = output.find("\n## ", idx + 1)
+    if end < 0:
+        end = output.find("\n# ", idx + 1)
+    if end < 0:
+        end = len(output)
+    scan_area = output[idx:end]
+
+    warnings = []
+
+    # PE/估值区间（如"PE 70-127倍"）
+    for m in re.finditer(r"PE\s*(\d+[-–]\d+\s*倍)", scan_area):
+        val = m.group(1).strip()
+        ctx = scan_area[max(0, m.start() - 60):m.end() + 60]
+        if not _has_source_tag(ctx):
+            warnings.append(f"PE区间无源标签: \"{val}\" → 应标 [推断]")
+
+    # 偏离/高估区间（如"高于目标价23-63%""现价高于目标价X-Y%"）
+    for m in re.finditer(r"[高于超出].*?(\d+[-–]\d+\s*%)", scan_area):
+        val = m.group(1).strip()
+        ctx = scan_area[max(0, m.start() - 60):m.end() + 60]
+        if not _has_source_tag(ctx):
+            warnings.append(f"偏离区间无源标签: \"{val}\" → 应标 [推断]")
+
+    # 裸「X倍」倍数声明（排除已覆盖行）
+    for m in re.finditer(r"(\d+\.?\d*\s*倍)", scan_area):
+        val = m.group(1).strip()
+        ctx = scan_area[max(0, m.start() - 60):m.end() + 60]
+        if _has_source_tag(ctx):
+            continue
+        if any(kw in ctx for kw in ("一致预期", "Q1年化", "减持", "美光", "西部数据",
+                                      "迈威尔", "博通", "拉姆研究", "科磊", "特斯拉")):
+            continue
+        warnings.append(f"倍数无源标签: \"{val}\" → 应标 [推断]")
+
+    if not warnings:
+        return output
+
+    for w in warnings:
+        print(f"  [PROVENANCE] {w[:120]}")
+
+    block = "\n> ⚠️ **数值溯源审计** (W5区): 以下数值缺少 `[推断]` 标签:\n"
+    for w in warnings[:5]:
+        block += f"> - {w[:150]}\n"
+    block += "> \n> 规则: 无法在注入数据中验证的数值，必须标注 `[推断]`。详见 prompt「数值溯源规则」。\n"
+    output += block
+    return output
+
+
+def _has_source_tag(context: str) -> bool:
+    """检查上下文中是否已存在源标签。"""
+    tags = ["[HD]", "[HD:", "[推断]", "[据", "[来源:", "[数据来源:"]
+    return any(t in context for t in tags)
+
+
 def _estimate_entry_range(c: dict) -> str:
     """基于候选标的现有信息估算入场区间。LLM 未填时的兜底。"""
     mcap = c.get("mcap_yi", 0) or 0
@@ -3552,6 +3618,7 @@ def main():
     output = _validate_advice_coverage(output)
     output = _validate_entry_prices(output)
     output = _validate_w5_numbers(output, feeds)
+    output = _validate_numerical_provenance(output, feeds)
 
     print(output)
 
