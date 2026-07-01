@@ -219,6 +219,17 @@ def run(since: date, until: date, universe_fn: Callable[[date], set[str]]) -> di
 
     msg = f"{len(days)}天: {total_raw}条公告→S1={total_stage1}→S2={total_stage2}→存档{total_saved}条 | {'; '.join(msgs[-3:])}"
     store.upsert_collect_status(SOURCE_NAME, last_date, "ok", msg, total_saved)
+
+    # MOC 自动刷新
+    if total_saved > 0:
+        try:
+            from deep_read.obsidian_archive import regenerate_mocs
+            moc_result = regenerate_mocs()
+            moc_summary = ", ".join(f"{k}({v})" for k, v in sorted(moc_result.items(), key=lambda x: -x[1])[:5])
+            print(f"  [MOC] 刷新 {len(moc_result)} 个索引: {moc_summary}")
+        except Exception as e:
+            print(f"  [MOC] 刷新失败: {e}")
+
     return {"last_date": last_date, "stage1_count": total_stage1,
             "stage2_count": total_stage2, "saved_count": total_saved,
             "status": "ok", "message": msg}

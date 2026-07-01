@@ -3,6 +3,7 @@
 兼容 Obsidian Dataview 查询和 MOC 导航。
 """
 from __future__ import annotations
+import re
 
 import json
 from datetime import date
@@ -197,3 +198,95 @@ def update_tracking_table(obsidian_path: str, trade_date: str, price: float,
                 insert_pos = tracking_start + marker_pos + len(marker)
                 updated = content[:insert_pos] + "\n" + new_row + content[insert_pos:]
                 obs_path.write_text(updated, encoding="utf-8")
+
+
+# ============================================================
+# MOC 自动刷新
+# ============================================================
+
+def regenerate_mocs() -> dict[str, int]:
+    """扫描全部 deep_read 文件，按 hunting_domain 重建 MOC 索引。
+
+    每次 shendu 管线运行后调用，保持 MOC 与实际文件同步。
+    返回 {moc_name: entry_count}。
+    """
+    import json
+    from collections import defaultdict
+
+    vault = REPORT_DIR
+    moc_dir = vault / "MOC"
+    moc_dir.mkdir(parents=True, exist_ok=True)
+
+    dr_dir = vault / "deep_read"
+    if not dr_dir.exists():
+        return {}
+
+    # 按 domain 分组
+    domain_files: dict[str, list[dict]] = defaultdict(list)
+    for f in sorted(dr_dir.glob("*.md")):
+        text = f.read_text(encoding="utf-8")
+        score_m = re.search(r"deep_read_score:\s*(\d+)", text)
+        etype_m = re.search(r'event_type:\s*"(.*?)"', text)
+        code_m = re.search(r"code:\s*(\d+)", text)
+        name_m = re.search(r'name:\s*"(.*?)"', text)
+        domain_m = re.search(r'(?:hunting_)?domain:\s*"(.*?)"', text)
+        cp_m = re.search(r'chokepoint:\s*"(.*?)"', text)
+
+        score = int(score_m.group(1)) if score_m else 0
+        etype = etype_m.group(1) if etype_m else ""
+        code = code_m.group(1) if code_m else ""
+        name = name_m.group(1) if name_m else ""
+        domain = domain_m.group(1) if domain_m else ""
+        chokepoint = cp_m.group(1) if cp_m else ""
+
+        entry = {
+            "file": f.name, "date": f.stem[:10], "score": score,
+            "etype": etype, "code": code, "name": name,
+            "chokepoint": chokepoint,
+        }
+
+        # 分配到领域 MOC
+        if domain:
+            domain_files[domain].append(entry)
+            if chokepoint:
+                domain_files[f"{domain}_卡脖子"].append(entry)
+        else:
+            domain_files["__generic__"].append(entry)
+
+        # 卡脖子全局
+        if chokepoint:
+            domain_files["__all_chokepoint__"].append(entry)
+        # 全量
+        domain_files["__all__"].append(entry)
+
+    moc_map = {
+        "__all__": ("活跃标的_MOC", "全部活跃标的"),
+        "__generic__": ("深度研读_MOC", "全板块 · 深度研读"),
+        "__all_chokepoint__": ("_卡脖子_MOC", "全板块 · 卡脖子环节"),
+        "算力硬件": ("算力硬件_深度研读_MOC", "算力硬件 · 深度研读"),
+        "算力硬件_卡脖子": ("算力硬件_卡脖子_MOC", "算力硬件 · 卡脖子环节"),
+        "新能源": ("新能源_深度研读_MOC", "新能源 · 深度研读"),
+        "新能源_卡脖子": ("新能源_卡脖子_MOC", "新能源 · 卡脖子环节"),
+        "机器人": ("机器人_深度研读_MOC", "机器人 · 深度研读"),
+        "化工材料": ("化工材料_深度研读_MOC", "化工材料 · 深度研读"),
+    }
+
+    result = {}
+    for domain_key, (filename, title) in moc_map.items():
+        entries = domain_files.get(domain_key, [])
+        if not entries:
+            continue
+        entries.sort(key=lambda x: (-x["score"], x["date"]))
+
+        content = f"# {title}\n\n"
+        content += f"> {len(entries)} 篇 deep_read · 自动刷新于 {date.today().isoformat()}\n\n"
+        content += "| 日期 | 标的 | 类型 | 评分 |\n"
+        content += "|------|------|------|:---:|\n"
+        for e in entries:
+            label = f"{e['name']}({e['code']})" if e['name'] else e['code']
+            content += f"| {e['date']} | {label} | {e['etype']} | {e['score']} |\n"
+
+        (moc_dir / f"{filename}.md").write_text(content, encoding="utf-8")
+        result[filename] = len(entries)
+
+    return result
