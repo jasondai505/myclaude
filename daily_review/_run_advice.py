@@ -1648,15 +1648,15 @@ def _validate_w5_numbers(output: str, feeds: dict[str, str]) -> str:
             warnings.append(f"美股数据陈旧: {staleness}")
         # 逐个 ticker 比对（ticker代码 + 中文名双通道）
         us_ticker_pct = []
-        # 通道1: 代码形式 (MU) -6.69%
+        # 通道1: 代码形式 (MU) ±6.69%（容表格跨格）
         us_ticker_pct += re.findall(
-            r"\(([A-Z]{2,5})\)\s*[盘后]*\s*([+-]?\d+\.?\d*)\s*%",
+            r"\(([A-Z]{2,5})\).{0,60}?([+-]?\d+\.?\d*)\s*%",
             output,
         )
-        # 通道2: 中文名形式 美光 -6.69%（LLM 可能省略代码）
+        # 通道2: 中文名形式 美光 ±6.69%（容合并写法如"美光/西部数据大跌-6.69%/-13.17%"）
         for cname, ticker in US_NAME_MAP.items():
             for m in re.finditer(
-                rf"{cname}\s*[盘后]*\s*([+-]?\d+\.?\d*)\s*%", output
+                rf"{cname}.{{0,60}}?([+-]?\d+\.?\d*)\s*%", output
             ):
                 us_ticker_pct.append((ticker, m.group(1)))
         seen_ticker_warnings = set()
