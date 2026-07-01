@@ -1134,6 +1134,7 @@ def fetch_global_markets() -> dict:
 
     # 美股 watchlist 缺项同样从缓存补齐
     cached_for_wl = _load_global_cache()
+    wl_from_cache = 0
     if cached_for_wl:
         for item in GLOBAL_WATCHLIST_EM:
             label = item["label"]
@@ -1142,6 +1143,19 @@ def fetch_global_markets() -> dict:
                 if fallback and fallback.get("price"):
                     fallback["_from_cache"] = True
                     result["watchlist"][label] = fallback
+                    wl_from_cache += 1
+    # 缓存陈旧告警（只要 API 拉取失败就从缓存回退，无论缓存时间戳）
+    if wl_from_cache > 0:
+        cache_date = cached_for_wl.get("_saved_at", "未知") if cached_for_wl else "未知"
+        result["_wl_from_cache"] = wl_from_cache
+        result["_cached_at"] = cache_date
+        # 用缓存中最早的一条数据来推断真实数据日期
+        sampled = next((v for k, v in result["watchlist"].items() if v.get("_from_cache")), None)
+        result["_stale_warning"] = (
+            f"东方财富API拉取 {wl_from_cache} 只美股失败，回退到本地缓存（最近保存 {cache_date}）。"
+            f"下方美股涨跌幅**不是今日数据**，禁止作为今日涨跌幅使用！"
+        )
+        print(f"  [WARN] 美股watchlist {wl_from_cache} 项来自缓存(cache={cache_date})，数据可能过时")
 
     # 成功后写缓存
     if indices_ok >= indices_total * 0.7:

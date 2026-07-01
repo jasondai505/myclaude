@@ -1626,6 +1626,16 @@ def _validate_w5_numbers(output: str, feeds: dict[str, str]) -> str:
         "阿斯麦": "ASML", "超微电脑": "SMCI", "Arista": "ANET", "Vertiv": "VRT",
         "Lucid": "LCID",
     }
+    # %%US_MOVERS%% 陈旧检查（东方财富数据源，与 yfinance 互补）
+    us_movers_raw = feeds.get("%%US_MOVERS%%", "")
+    if us_movers_raw and "暂不可用" not in us_movers_raw:
+        try:
+            us_movers = json.loads(us_movers_raw)
+        except Exception:
+            us_movers = {}
+        if us_movers.get("_stale_warning"):
+            warnings.append(f"美股板块异动数据陈旧(东方财富): {us_movers['_stale_warning'][:100]}")
+
     us_ah_raw = feeds.get("%%US_AFTER_HOURS%%", "")
     if us_ah_raw and "暂不可用" not in us_ah_raw:
         try:
