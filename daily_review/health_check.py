@@ -371,7 +371,7 @@ def check_w5_revenue_hallucination():
     except Exception:
         return
     w5_m = re.search(
-        r"###\s*W5\s*风险排雷(.*?)(?=\n###\s|\n##\s|---\n|\Z)",
+        r"#{2,3}\s*W5\s*风险排雷(.*?)(?=\n#{2,3}\s|\n##\s|---\n|\Z)",
         text, re.DOTALL,
     )
     if not w5_m:

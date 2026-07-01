@@ -901,20 +901,18 @@ def _inject_us_after_hours() -> str:
             )
         ah["_data_date"] = data_date or "未知"
         ah["_expected_date"] = expected
-        # 只保留有盘后/盘前异动的标的，减少噪音
-        movers = {}
+        # 全量数据始终包含（供 validator 交叉比对），额外标注活跃标的
+        movers = {k: v for k, v in ah.items() if k.startswith("_")}
+        active = []
         for ticker, d in ah.items():
             if ticker.startswith("_"):
-                movers[ticker] = d
                 continue
+            movers[ticker] = d
             post_chg = d.get("post_chg_pct")
             pre_price = d.get("pre_price")
-            if post_chg and abs(post_chg) >= 1:
-                movers[ticker] = d
-            elif pre_price:
-                movers[ticker] = d
-        if len([k for k in movers if not k.startswith("_")]) == 0:
-            movers = ah
+            if (post_chg and abs(post_chg) >= 1) or pre_price:
+                active.append(ticker)
+        movers["_active_movers"] = active
         return json.dumps(movers, ensure_ascii=False, indent=2)
     except Exception as e:
         return f"（美股盘后数据获取异常: {e}）"
@@ -1550,7 +1548,7 @@ def _validate_w5_numbers(output: str, feeds: dict[str, str]) -> str:
         return output
 
     w5_match = re.search(
-        r"###\s*W5\s*风险排雷(.*?)(?=\n###\s|\n##\s|---\n|\Z)",
+        r"#{2,3}\s*W5\s*风险排雷(.*?)(?=\n#{2,3}\s|\n##\s|---\n|\Z)",
         output, re.DOTALL,
     )
     if not w5_match:
@@ -1619,7 +1617,15 @@ def _validate_w5_numbers(output: str, feeds: dict[str, str]) -> str:
                     "不在限售解禁数据中"
                 )
 
-    # 美股个股涨跌幅交叉校验（全输出扫描，含 W5 + W1 + 隔夜外围）
+    # 美股个股涨跌幅交叉校验（全输出扫描 + 中文名映射）
+    US_NAME_MAP = {  # 中文名 → ticker（LLM 可能不写代码只写中文名）
+        "美光": "MU", "西部数据": "WDC", "迈威尔": "MRVL", "博通": "AVGO",
+        "拉姆研究": "LRCX", "科磊": "KLAC", "特斯拉": "TSLA", "英伟达": "NVDA",
+        "英特尔": "INTC", "AMD": "AMD", "苹果": "AAPL", "微软": "MSFT",
+        "亚马逊": "AMZN", "谷歌": "GOOGL", "Meta": "META", "应用材料": "AMAT",
+        "阿斯麦": "ASML", "超微电脑": "SMCI", "Arista": "ANET", "Vertiv": "VRT",
+        "Lucid": "LCID",
+    }
     us_ah_raw = feeds.get("%%US_AFTER_HOURS%%", "")
     if us_ah_raw and "暂不可用" not in us_ah_raw:
         try:
@@ -1630,11 +1636,19 @@ def _validate_w5_numbers(output: str, feeds: dict[str, str]) -> str:
         if us_ah.get("_stale_warning"):
             staleness = us_ah["_stale_warning"][:100]
             warnings.append(f"美股数据陈旧: {staleness}")
-        # 逐个 ticker 比对
-        us_ticker_pct = re.findall(
+        # 逐个 ticker 比对（ticker代码 + 中文名双通道）
+        us_ticker_pct = []
+        # 通道1: 代码形式 (MU) -6.69%
+        us_ticker_pct += re.findall(
             r"\(([A-Z]{2,5})\)\s*[盘后]*\s*([+-]?\d+\.?\d*)\s*%",
             output,
         )
+        # 通道2: 中文名形式 美光 -6.69%（LLM 可能省略代码）
+        for cname, ticker in US_NAME_MAP.items():
+            for m in re.finditer(
+                rf"{cname}\s*[盘后]*\s*([+-]?\d+\.?\d*)\s*%", output
+            ):
+                us_ticker_pct.append((ticker, m.group(1)))
         seen_ticker_warnings = set()
         for ticker, claimed_str in us_ticker_pct:
             claimed = float(claimed_str)
@@ -1679,7 +1693,9 @@ def _validate_numerical_provenance(output: str, feeds: dict[str, str]) -> str:
         return output
 
     # 只扫描 W5（隔夜外围已被 W5 validator 覆盖，三大指数已被 index validator 覆盖）
-    idx = output.find("### W5 风险排雷")
+    idx = output.find("## W5 风险排雷")
+    if idx < 0:
+        idx = output.find("### W5 风险排雷")
     if idx < 0:
         return output
     end = output.find("\n## ", idx + 1)

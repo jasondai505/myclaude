@@ -1960,6 +1960,7 @@ def fetch_us_after_hours() -> dict[str, dict]:
             tk = yf.Ticker(ticker)
             info = tk.info
             result[ticker] = {
+                "name": info.get("shortName") or info.get("longName") or "",
                 "close": info.get("regularMarketPreviousClose") or info.get("previousClose"),
                 "post_price": info.get("postMarketPrice"),
                 "post_chg_pct": info.get("postMarketChangePercent"),
