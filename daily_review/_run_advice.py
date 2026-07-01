@@ -1619,6 +1619,43 @@ def _validate_w5_numbers(output: str, feeds: dict[str, str]) -> str:
                     "不在限售解禁数据中"
                 )
 
+    # 美股个股涨跌幅交叉校验（全输出扫描，含 W5 + W1 + 隔夜外围）
+    us_ah_raw = feeds.get("%%US_AFTER_HOURS%%", "")
+    if us_ah_raw and "暂不可用" not in us_ah_raw:
+        try:
+            us_ah = json.loads(us_ah_raw)
+        except Exception:
+            us_ah = {}
+        # 新鲜度标志
+        if us_ah.get("_stale_warning"):
+            staleness = us_ah["_stale_warning"][:100]
+            warnings.append(f"美股数据陈旧: {staleness}")
+        # 逐个 ticker 比对
+        us_ticker_pct = re.findall(
+            r"\(([A-Z]{2,5})\)\s*[盘后]*\s*([+-]?\d+\.?\d*)\s*%",
+            output,
+        )
+        seen_ticker_warnings = set()
+        for ticker, claimed_str in us_ticker_pct:
+            claimed = float(claimed_str)
+            injected = us_ah.get(ticker, {})
+            if not injected:
+                continue
+            post_chg = injected.get("post_chg_pct")
+            if post_chg is None:
+                continue
+            # 盘后变动 <2% 但 LLM 声称 >3% → 矛盾（prompt 阈值 = 3%）
+            if abs(post_chg) < 2 and abs(claimed) >= 3:
+                key = (ticker, claimed_str)
+                if key in seen_ticker_warnings:
+                    continue
+                seen_ticker_warnings.add(key)
+                warnings.append(
+                    f"美股涨跌幅矛盾: {ticker} LLM声称{claimed:+.2f}%，"
+                    f"注入盘后变动仅{post_chg:+.2f}%"
+                    f"（疑似LLM使用训练数据而非注入数据）"
+                )
+
     if not warnings:
         return output
 
