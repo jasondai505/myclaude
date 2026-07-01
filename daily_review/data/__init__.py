@@ -504,6 +504,19 @@ def extract_codes_from_text(text: str) -> set[str]:
     return codes
 
 
+_SECTOR_KW_MAP = None
+
+
+def map_keyword_to_concepts(keyword: str) -> list[str]:
+    """关键词→同花顺规范概念名（大小写不敏感，支持别名）"""
+    global _SECTOR_KW_MAP
+    if _SECTOR_KW_MAP is None:
+        import json
+        path = Path(__file__).parent / "sector_keyword_map.json"
+        _SECTOR_KW_MAP = json.loads(path.read_text(encoding="utf-8"))
+    return _SECTOR_KW_MAP.get(keyword.lower().strip(), [])
+
+
 def _fetch_zt_pool_redis(name_map: dict[str, str] | None = None) -> dict[str, dict]:
     """Redis 涨停池: 价格触板判定"""
     quotes = redis_quote_all()

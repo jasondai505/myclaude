@@ -60,11 +60,22 @@ def search_db(keywords: list[str], days: int = 30) -> list[dict]:
     if not db.exists():
         return sources
 
+    # 关键词→规范概念名扩展
+    expanded = list(keywords)
+    try:
+        from daily_review.data import map_keyword_to_concepts
+        for kw in keywords:
+            for c in map_keyword_to_concepts(kw):
+                if c not in expanded:
+                    expanded.append(c)
+    except ImportError:
+        pass
+
     conn = sqlite3.connect(str(db))
     conn.row_factory = sqlite3.Row
 
     seen = set()
-    for kw in keywords:
+    for kw in expanded:
         like = f"%{kw}%"
         for row in conn.execute(
             "SELECT * FROM wechat_articles WHERE pub_date >= ? AND (title LIKE ? OR description LIKE ?) ORDER BY pub_date DESC LIMIT 15",

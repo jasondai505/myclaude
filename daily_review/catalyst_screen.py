@@ -487,6 +487,18 @@ def _keyword_match_stocks(catalyst_name: str, key_entities: list[dict]) -> list[
         e["name"].lower() for e in (key_entities or [])
     ]
 
+    # 关键词→规范概念名扩展
+    try:
+        from daily_review.data import map_keyword_to_concepts
+        expanded = list(search_terms)
+        for t in search_terms:
+            for c in map_keyword_to_concepts(t):
+                if c.lower() not in expanded:
+                    expanded.append(c.lower())
+        search_terms = expanded
+    except ImportError:
+        pass
+
     concept_stocks = defaultdict(list)
     for code, concepts in mm["stocks"].items():
         for c in concepts:
