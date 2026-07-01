@@ -1971,6 +1971,14 @@ def fetch_us_after_hours() -> dict[str, dict]:
         if i < len(_US_YF_TICKERS) - 1:
             _time.sleep(0.3)
 
+    # 数据新鲜度：用 SPY history 确定 yfinance 实际服务的最新交易日
+    try:
+        spy_hist = yf.Ticker("SPY").history(period="1d")
+        if not spy_hist.empty:
+            result["_data_date"] = spy_hist.index[-1].strftime("%Y-%m-%d")
+    except Exception:
+        pass
+
     _US_AH_CACHE = result
     _US_AH_CACHE_TIME = now
     return result

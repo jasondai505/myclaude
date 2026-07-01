@@ -891,17 +891,29 @@ def _inject_us_after_hours() -> str:
         ah = fetch_us_after_hours()
         if not ah:
             return "（美股盘后数据暂不可用，yfinance 限流或网络异常）"
+        # 数据新鲜度校验
+        data_date = ah.pop("_data_date", "")
+        expected = _last_trade_date_us()
+        if data_date and data_date < expected:
+            ah["_stale_warning"] = (
+                f"⚠️ yfinance 盘后数据日期为 {data_date}，非最新交易日 {expected}。"
+                f"下方 close/post_chg_pct 为{data_date}数据，勿作为{expected}涨跌幅使用！"
+            )
+        ah["_data_date"] = data_date or "未知"
+        ah["_expected_date"] = expected
         # 只保留有盘后/盘前异动的标的，减少噪音
         movers = {}
         for ticker, d in ah.items():
+            if ticker.startswith("_"):
+                movers[ticker] = d
+                continue
             post_chg = d.get("post_chg_pct")
             pre_price = d.get("pre_price")
             if post_chg and abs(post_chg) >= 1:
                 movers[ticker] = d
             elif pre_price:
                 movers[ticker] = d
-        if not movers:
-            # 返回所有数据（即使无明显异动）
+        if len([k for k in movers if not k.startswith("_")]) == 0:
             movers = ah
         return json.dumps(movers, ensure_ascii=False, indent=2)
     except Exception as e:
@@ -1526,6 +1538,99 @@ def _validate_entry_prices(output: str) -> str:
     if fixed:
         print(f"  [FIX] 共修正 {fixed} 处入场区间")
     return "\n".join(lines)
+
+
+def _validate_w5_numbers(output: str, feeds: dict[str, str]) -> str:
+    """校验W5风险排雷区的数值声明，与注入数据比对。
+
+    可验证: 一致预期EPS、减持比例
+    不可验证: 营收推断、Q1年化推算 → 追加警告
+    """
+    if not output:
+        return output
+
+    w5_match = re.search(
+        r"###\s*W5\s*风险排雷(.*?)(?=\n###\s|\n##\s|---\n|\Z)",
+        output, re.DOTALL,
+    )
+    if not w5_match:
+        return output
+    w5_text = w5_match.group(1)
+
+    warnings = []
+
+    # 营收一致预期幻觉（「营收」可在数字前或后）
+    revenue_fakes = re.findall(
+        r"(一致预期|市场一致预期|共识).*?[营收收入].*?(\d+\.?\d*)\s*亿",
+        w5_text,
+    )
+    for claim_text, amount in revenue_fakes:
+        warnings.append(
+            f"W5营收一致预期幻觉: \"{claim_text}{amount}亿\" — "
+            "系统仅有一致预期EPS，无营收一致预期数据"
+        )
+
+    # Q1年化推断
+    annualized = re.findall(
+        r"Q\s*[1234]\s*年化\s*[仅约至达]?\s*(\d+\.?\d*)\s*亿",
+        w5_text,
+    )
+    for amount in annualized:
+        warnings.append(
+            f"W5季度年化推断: \"Q?年化{amount}亿\" — "
+            "禁止将单季度年化推算全年，多数行业有季节性"
+        )
+
+    # EPS一致预期比对
+    low_freq_text = feeds.get("%%LOW_FREQ%%", "")
+    eps_claims = re.findall(
+        r"(\d{6}).*?一致预期.*?EPS\s*[=:：约]?\s*(\d+\.?\d*)",
+        w5_text, re.DOTALL,
+    )
+    for code, claimed_eps in eps_claims:
+        claimed = float(claimed_eps)
+        eps_in_feed = re.findall(
+            rf"{code}\s+\d{{4}}\s+(\d+\.?\d+)", low_freq_text,
+        )
+        if eps_in_feed:
+            real_eps = max(float(e) for e in eps_in_feed)
+            if abs(claimed - real_eps) / max(real_eps, 0.01) > 0.20:
+                warnings.append(
+                    f"W5 EPS偏离: {code} 声称EPS={claimed}，"
+                    f"一致预期EPS={real_eps}（偏离{abs(claimed-real_eps)/real_eps:.0%}）"
+                )
+        else:
+            warnings.append(
+                f"W5 EPS无数据源: {code} 声称EPS={claimed_eps}，"
+                "但该代码不在一致预期EPS统计中"
+            )
+
+    # 减持比例数据源检查
+    jianchi_pct = re.findall(
+        r"(\d{6}).*?减持.*?(\d+\.?\d*)\s*%",
+        w5_text, re.DOTALL,
+    )
+    if jianchi_pct:
+        lockup_text = feeds.get("%%LOW_FREQ%%", "")
+        for code, pct in jianchi_pct:
+            if code not in lockup_text:
+                warnings.append(
+                    f"W5减持比例无数据源: {code} 声称减持{pct}%，"
+                    "不在限售解禁数据中"
+                )
+
+    if not warnings:
+        return output
+
+    for w in warnings:
+        print(f"  [W5 VALIDATE] {w}")
+
+    alert_block = "\n> ⚠️ **W5 数值审计**:\n"
+    for w in warnings:
+        alert_block += f"> - {w}\n"
+    output += alert_block
+
+    return output
 
 
 def _estimate_entry_range(c: dict) -> str:
@@ -3409,6 +3514,7 @@ def main():
 
     output = _validate_advice_coverage(output)
     output = _validate_entry_prices(output)
+    output = _validate_w5_numbers(output, feeds)
 
     print(output)
 

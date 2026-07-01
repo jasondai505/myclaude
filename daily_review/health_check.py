@@ -336,6 +336,58 @@ def check_chain_xlsx():
         ISSUES.append(f"产业链XLSX: 检查失败 ({e})")
 
 
+def check_us_after_hours_freshness():
+    """检查今日 advice 中美股盘后数据是否新鲜。"""
+    today = date.today().isoformat()
+    advice_path = (
+        Path(__file__).resolve().parent
+        / "reports" / "advice" / f"advice_{today}.md"
+    )
+    if not advice_path.exists():
+        return
+    try:
+        text = advice_path.read_text(encoding="utf-8")
+    except Exception:
+        return
+    if "_stale_warning" in text:
+        for m in re.finditer(r"以下标的盘后数据非\S+交易日收盘.*", text):
+            ISSUES.append(f"美股盘后数据陈旧: {m.group(0)[:100]}")
+            return
+    # 无警告 = 新鲜或该区块未生成
+    print("  [美股盘后] 数据新鲜: OK")
+
+
+def check_w5_revenue_hallucination():
+    """检查今日 advice W5 区是否包含营收一致预期幻觉。"""
+    today = date.today().isoformat()
+    advice_path = (
+        Path(__file__).resolve().parent
+        / "reports" / "advice" / f"advice_{today}.md"
+    )
+    if not advice_path.exists():
+        return
+    try:
+        text = advice_path.read_text(encoding="utf-8")
+    except Exception:
+        return
+    w5_m = re.search(
+        r"###\s*W5\s*风险排雷(.*?)(?=\n###\s|\n##\s|---\n|\Z)",
+        text, re.DOTALL,
+    )
+    if not w5_m:
+        return
+    w5_text = w5_m.group(1)
+    revenue_fakes = re.findall(
+        r"(一致预期|市场一致预期|共识).*?[营收收入].*?\d+\.?\d*\s*亿",
+        w5_text,
+    )
+    if revenue_fakes:
+        for claim in revenue_fakes[:3]:
+            ISSUES.append(f"W5营收幻觉: 声称\"{claim[0]}...\" — 系统无营收一致预期数据")
+    else:
+        print("  [W5营收审计] OK: 无营收幻觉")
+
+
 def check_prompt_audit():
     """扫描 advice prompt 模板，检查数值字段是否有数据注入。"""
     prompt = Path(__file__).resolve().parent / "claude_prompt.txt"
@@ -368,6 +420,8 @@ def main():
     check_system_resources()
     check_silent_excepts()
     check_prompt_audit()
+    check_us_after_hours_freshness()
+    check_w5_revenue_hallucination()
 
     if ISSUES:
         msg = "\n".join(f"- {i}" for i in ISSUES)
