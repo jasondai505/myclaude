@@ -322,14 +322,14 @@ def check_chain_xlsx():
             ISSUES.append("产业链XLSX: 0个 — 三重共振涨跌幅无数据源")
         elif count < 100:
             ISSUES.append(f"产业链XLSX: 仅{count}个(预期≥100)，alpha产业图谱/ 文件可能缺失或 glob 未递归")
-        # 日期新鲜度：外部数据源，允许7天容限
+        # 日期新鲜度：外部静态数据源（产业链构成非日频变化），允许30天容限
         import re as _re
         date_pat = _re.compile(r"(\d{8})")
         stale = 0
         from trade_calendar import prev_trading_day
         from datetime import date as _date, timedelta as _td
         last_trade = prev_trading_day()
-        acceptable = (last_trade - _td(days=7)).strftime("%Y%m%d")
+        acceptable = (last_trade - _td(days=30)).strftime("%Y%m%d")
         for fp in files:
             m = date_pat.search(fp.stem)
             if m and m.group(1) < acceptable:
