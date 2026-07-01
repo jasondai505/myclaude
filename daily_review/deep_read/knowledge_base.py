@@ -222,7 +222,7 @@ def get_chokepoint_context(code: str, announcement_title: str = "",
     if primary:
         concepts.append(primary)
         parent = CONCEPT_HIERARCHY.get(primary, "")
-        if parent in HUNTING_GROUND_DOMAINS:
+        if parent in HUNTING_GROUND_DOMAINS or parent in HUNTING_GROUND_TIER2:
             domains.add(parent)
 
     search_text = f"{announcement_title} {announcement_text[:500] if announcement_text else ''}"
