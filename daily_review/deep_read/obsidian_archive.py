@@ -286,6 +286,35 @@ def regenerate_mocs() -> dict[str, int]:
             label = f"{e['name']}({e['code']})" if e['name'] else e['code']
             content += f"| {e['date']} | {label} | {e['etype']} | {e['score']} |\n"
 
+        # 活跃标的_MOC 追加跨板块索引
+        if domain_key == "__all__":
+            other_mocs = [
+                ("算力硬件", "算力硬件_深度研读_MOC"),
+                ("新能源", "新能源_深度研读_MOC"),
+                ("机器人", "机器人_深度研读_MOC"),
+                ("化工材料", "化工材料_深度研读_MOC"),
+                ("通用", "深度研读_MOC"),
+                ("卡脖子", "_卡脖子_MOC"),
+                ("算力硬件·卡脖子", "算力硬件_卡脖子_MOC"),
+                ("新能源·卡脖子", "新能源_卡脖子_MOC"),
+            ]
+            content += "\n## 🗺️ 板块索引\n\n"
+            content += "| 板块 | MOC | 篇数 |\n"
+            content += "|------|-----|:---:|\n"
+            for label, moc_file in other_mocs:
+                cnt = len(domain_files.get(
+                    "算力硬件" if label == "算力硬件" else
+                    "新能源" if label == "新能源" else
+                    "机器人" if label == "机器人" else
+                    "化工材料" if label == "化工材料" else
+                    "__generic__" if label == "通用" else
+                    "__all_chokepoint__" if label == "卡脖子" else
+                    "算力硬件_卡脖子" if "算力硬件·卡脖子" in label else
+                    "新能源_卡脖子",
+                    [],
+                ))
+                content += f"| {label} | [[{moc_file}]] | {cnt} |\n"
+
         (moc_dir / f"{filename}.md").write_text(content, encoding="utf-8")
         result[filename] = len(entries)
 
