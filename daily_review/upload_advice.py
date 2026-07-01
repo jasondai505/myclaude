@@ -28,7 +28,8 @@ def main():
         md_path = base / f"advice_{arg}.md"
     else:
         today = date.today().isoformat()
-        md_path = base / f"advice_{today}.md"
+        files = sorted(base.glob(f"advice_{today}_*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+        md_path = files[0] if files else base / f"advice_{today}.md"
 
     if not md_path.exists():
         print(f"[SKIP] advice 文件不存在: {md_path}")

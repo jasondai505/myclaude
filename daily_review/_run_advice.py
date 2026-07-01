@@ -3583,7 +3583,8 @@ def main():
     for key, val in feeds.items():
         prompt = prompt.replace(key, val)
 
-    advice_path = BASE / "reports" / "advice" / f"advice_{today}.md"
+    now_hm = datetime.now().strftime("%H%M")
+    advice_path = BASE / "reports" / "advice" / f"advice_{today}_{now_hm}.md"
 
     try:
         client = _rc("deep", timeout=600)

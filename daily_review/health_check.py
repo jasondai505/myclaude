@@ -169,7 +169,11 @@ def check_placeholder_leaks():
     if not reports_dir.exists():
         return
     today = date.today().isoformat()
-    for pattern in [f"advice/advice_{today}.md", f"wechat_analysis/wechat_analysis_{today}.md"]:
+    # advice 文件名含时分（如 advice_2026-07-01_1022.md），用 glob 匹配
+    advice_files = list((reports_dir / "advice").glob(f"advice_{today}_*.md"))
+    if not advice_files:
+        advice_files = list((reports_dir / "advice").glob(f"advice_{today}.md"))
+    for pattern in ([f"advice/{advice_files[0].name}"] if advice_files else []) + [f"wechat_analysis/wechat_analysis_{today}.md"]:
         path = reports_dir / pattern
         if not path.exists():
             continue
@@ -336,13 +340,20 @@ def check_chain_xlsx():
         ISSUES.append(f"产业链XLSX: 检查失败 ({e})")
 
 
+def _find_advice_file(today: str) -> Path | None:
+    """查找今日 advice 文件（文件名含时分，如 advice_2026-07-01_1022.md）"""
+    adv_dir = Path(__file__).resolve().parent / "reports" / "advice"
+    files = list(adv_dir.glob(f"advice_{today}_*.md"))
+    if files:
+        return max(files, key=lambda p: p.stat().st_mtime)
+    fallback = adv_dir / f"advice_{today}.md"
+    return fallback if fallback.exists() else None
+
+
 def check_us_after_hours_freshness():
     """检查今日 advice 中美股盘后数据是否新鲜。"""
     today = date.today().isoformat()
-    advice_path = (
-        Path(__file__).resolve().parent
-        / "reports" / "advice" / f"advice_{today}.md"
-    )
+    advice_path = _find_advice_file(today)
     if not advice_path.exists():
         return
     try:
@@ -360,10 +371,7 @@ def check_us_after_hours_freshness():
 def check_w5_revenue_hallucination():
     """检查今日 advice W5 区是否包含营收一致预期幻觉。"""
     today = date.today().isoformat()
-    advice_path = (
-        Path(__file__).resolve().parent
-        / "reports" / "advice" / f"advice_{today}.md"
-    )
+    advice_path = _find_advice_file(today)
     if not advice_path.exists():
         return
     try:
